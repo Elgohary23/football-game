@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Football Manager{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <div class="game-status">
+        <h1>Season {{ state.current_week }} / 10</h1>
+        <p class="day-counter">Day: {{ state.current_day }}</p>
+        {% if state.season_over %}
+            <div class="season-over">Season Over!</div>
+        {% endif %}
+    </div>
+
+    <div class="controls">
+        <a href="/advance_day" class="btn btn-primary">Advance 1 Day</a>
+        <a href="/advance_week" class="btn btn-secondary">Advance to Next Match</a>
+    </div>
+
+    <div class="match-day-notice">
+        {% if state.current_day % 7 == 0 %}
+            <div class="match-day-alert">Match Day!</div>
+        {% else %}
+            <div>Days until next match: {{ 7 - (state.current_day % 7) }}</div>
+        {% endif %}
+    </div>
+
+    <div class="team-section">
+        <h2>Your Team: {{ player_team.name }}</h2>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <span class="stat-label">Attack</span>
+                <span class="stat-value">{{ player_team.attack }}</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">Defense</span>
+                <span class="stat-value">{{ player_team.defense }}</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">Morale</span>
+                <span class="stat-value">{{ player_team.morale }}</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="squad-section">
+        <h3>Squad</h3>
+        <table class="squad-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>ATT</th>
+                    <th>DEF</th>
+                    <th>Stamina</th>
+                    <th>Fitness</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for player in players %}
+                <tr>
+                    <td>{{ player.name }}</td>
+                    <td>{{ player.attack }}</td>
+                    <td>{{ player.defense }}</td>
+                    <td>{{ player.stamina }}</td>
+                    <td>
+                        <div class="fitness-bar">
+                            <div class="fitness-fill" style="width: {{ player.fitness }}%"></div>
+                        </div>
+                        <span class="fitness-text">{{ player.fitness }}%</span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if current_match %}
+    <div class="current-match">
+        <h3>Next Match (Week {{ state.current_week }})</h3>
+        <p>{{ current_match.home_team.name }} vs {{ current_match.away_team.name }}</p>
+        <a href="{{ url_for('match_view') }}" class="btn btn-match">View Match</a>
+    </div>
+    {% endif %}
+
+    {% if recent_results %}
+    <div class="recent-results">
+        <h3>Recent Results</h3>
+        {% for match in recent_results[:5] %}
+        <div class="result-row">
+            <span>{{ match.home_team.name }}</span>
+            <span class="score">{{ match.result }}</span>
+            <span>{{ match.away_team.name }}</span>
+            <span class="week-label">W{{ match.week }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

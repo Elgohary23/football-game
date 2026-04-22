@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}Calendar - Football Manager{% endblock %}
+
+{% block content %}
+<div class="calendar-view">
+    <h1>Season Calendar</h1>
+    
+    <div class="calendar-header">
+        <p>Current Day: {{ state.current_day }} | Week: {{ state.current_week }} / 10</p>
+    </div>
+
+    {% for week, matches in matches_by_week.items() %}
+    <div class="week-block {% if week == state.current_week %}current-week{% endif %}">
+        <h3 class="week-title">Week {{ week }}</h3>
+        
+        <div class="matches-grid">
+            {% for match in matches %}
+            <div class="match-card {% if match.played %}played{% else %}pending{% endif %}">
+                <div class="match-teams">
+                    <span class="team home {% if match.home_team.is_player_team %}player-team{% endif %}">
+                        {{ match.home_team.name }}
+                    </span>
+                    <span class="vs">vs</span>
+                    <span class="team away {% if match.away_team.is_player_team %}player-team{% endif %}">
+                        {{ match.away_team.name }}
+                    </span>
+                </div>
+                <div class="match-result">
+                    {% if match.played %}
+                        <span class="score">{{ match.result }}</span>
+                    {% else %}
+                        <span class="pending">Not Played</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="calendar-nav">
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
+</div>
+{% endblock %}

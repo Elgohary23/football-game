@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Match - Football Manager{% endblock %}
+
+{% block content %}
+<div class="match-view">
+    <h1>Match Center</h1>
+
+    {% if state.season_over %}
+        <div class="season-over-message">
+            <h2>Season is Over!</h2>
+            <p>Thank you for playing.</p>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Back to Dashboard</a>
+        </div>
+    {% elif not match %}
+        <div class="no-match">
+            <h2>No Match This Week</h2>
+            <p>There is no match scheduled for this week.</p>
+            <p>Days until next match: {{ 7 - (state.current_day % 7) }}</p>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Back to Dashboard</a>
+        </div>
+    {% else %}
+        <div class="match-header">
+            <div class="team-display home">
+                <h2>{{ match.home_team.name }}</h2>
+                <div class="team-stats">
+                    <span>ATT: {{ match.home_team.attack }}</span>
+                    <span>DEF: {{ match.home_team.defense }}</span>
+                    <span>Morale: {{ match.home_team.morale }}</span>
+                </div>
+            </div>
+            
+            <div class="match-score">
+                {% if match.played %}
+                    <span class="score-display">{{ match.result }}</span>
+                {% else %}
+                    <span class="vs-display">VS</span>
+                {% endif %}
+            </div>
+            
+            <div class="team-display away">
+                <h2>{{ match.away_team.name }}</h2>
+                <div class="team-stats">
+                    <span>ATT: {{ match.away_team.attack }}</span>
+                    <span>DEF: {{ match.away_team.defense }}</span>
+                    <span>Morale: {{ match.away_team.morale }}</span>
+                </div>
+            </div>
+        </div>
+
+        {% if match.played %}
+        <div class="match-result-details">
+            <h3>Match Finished!</h3>
+            <div class="result-summary">
+                {% set home_score = match.result.split('-')[0]|int %}
+                {% set away_score = match.result.split('-')[1]|int %}
+                
+                {% if home_score > away_score %}
+                    <p class="winner">{{ match.home_team.name }} wins!</p>
+                {% elif away_score > home_score %}
+                    <p class="winner">{{ match.away_team.name }} wins!</p>
+                {% else %}
+                    <p class="draw">It's a draw!</p>
+                {% endif %}
+            </div>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Back to Dashboard</a>
+        </div>
+        {% else %}
+        <div class="match-actions">
+            <p>Match will be played automatically when you advance to the match day.</p>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Back to Dashboard</a>
+        </div>
+        {% endif %}
+    {% endif %}
+</div>
+{% endblock %}
