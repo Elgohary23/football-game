@@ -1,21 +1,22 @@
 import os
+import random
 from flask import Flask, render_template, redirect, flash, abort
 from flask_wtf import CSRFProtect
-from models import db, Team, Player, GameState, Match, Message, TransferOffer
+from models import db, Team, Player, GameState, Match, Message, TransferOffer, League
 from simulation import (
     simulate_day,
     is_match_day,
-    simulate_match,
+    match_director,
     get_current_match,
     get_recent_results,
     simulate_calendar,
-    should_stop_calendar,
     get_pending_actions,
     get_match_report,
     get_messages,
     get_unread_count,
     mark_message_read,
 )
+from procedural import generate_player_name, generate_player_stats
 
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///db.sqlite3"
@@ -24,90 +25,93 @@ app.secret_key = os.environ.get("SECRET_KEY", "football_secret_key_prod")
 csrf = CSRFProtect(app)
 db.init_app(app)
 
-
 def init_db():
-    """Initialize database with teams, players, and match schedule."""
+    """Initialize database with a large-scale procedurally generated world."""
     db.create_all()
 
     if GameState.query.count() != 0:
         return
 
-    teams_data = [
-        {"name": "Arsenal", "morale": 80, "budget": 5000000, "is_player_team": True},
-        {"name": "Chelsea", "morale": 75, "budget": 3000000, "is_player_team": False},
-        {"name": "Liverpool", "morale": 78, "budget": 3500000, "is_player_team": False},
-        {"name": "ManCity", "morale": 82, "budget": 4000000, "is_player_team": False},
-        {"name": "ManUtd", "morale": 70, "budget": 2500000, "is_player_team": False},
-        {"name": "Tottenham", "morale": 72, "budget": 2000000, "is_player_team": False},
+    # Create Leagues
+    leagues_data = [
+        {"name": "Premier League", "tier": 1, "reputation": 90},
+        {"name": "Championship", "tier": 2, "reputation": 70},
+        {"name": "League One", "tier": 3, "reputation": 50},
     ]
-
-    for t in teams_data:
-        team = Team(**t)
-        db.session.add(team)
-
+    
+    leagues = []
+    for l_data in leagues_data:
+        league = League(**l_data)
+        db.session.add(league)
+        leagues.append(league)
     db.session.commit()
 
-    player_positions = [
-        "GK", "DEF", "DEF", "DEF", "DEF",
-        "MID", "MID", "MID", "MID",
-        "FWD", "FWD", "FWD", "MID", "DEF", "MID"
-    ]
-
-    player_names = [
-        "Raya", "Saliba", "Gabriel", "Zinchenko", "White",
-        "Rice", "Odegaard", "Havertz", "Martinelli",
-        "Saka", "Jesus", "Nketiah", "Trossard", "Kiwior", "Jorginho"
-    ]
-
-    player_team = Team.query.filter_by(is_player_team=True).first()
-    if player_team:
-        for i, name in enumerate(player_names):
-            player = Player(
-                name=name,
-                position=player_positions[i],
-                attack=60 + (i % 10) + (5 if player_positions[i] == "FWD" else 0),
-                defense=55 + (i % 10) + (5 if player_positions[i] == "DEF" else 0),
-                fitness=100,
-                is_starting=True if i < 11 else False,
-                team_id=player_team.id
+    # Create Teams
+    teams_per_league = 10
+    regions = ["Europe", "Middle_East", "South_America"]
+    
+    for league in leagues:
+        for i in range(teams_per_league):
+            is_player = (league.tier == 1 and i == 0)
+            team = Team(
+                name=f"{league.name} Team {i+1}",
+                morale=random.randint(60, 80),
+                budget=1000000 * (4 - league.tier),
+                reputation=league.reputation + random.randint(-5, 5),
+                is_player_team=is_player,
+                league_id=league.id
             )
-            db.session.add(player)
-
-        db.session.commit()
-
-    ai_teams = Team.query.filter_by(is_player_team=False).all()
-    for team in ai_teams:
-        positions = ["GK"] + ["DEF"] * 4 + ["MID"] * 4 + ["FWD"] * 2
-        for i, pos in enumerate(positions):
-            player = Player(
-                name=f"{team.name}_{pos}_{i+1}",
-                position=pos,
-                attack=55 + (i % 10) + (5 if pos == "FWD" else 0),
-                defense=50 + (i % 10) + (5 if pos == "DEF" else 0),
-                fitness=100,
-                is_starting=True,
-                team_id=team.id
-            )
-            db.session.add(player)
-
-    db.session.commit()
-
-    team_list = Team.query.all()
-    num_teams = len(team_list)
-    for week in range(1, 11):
-        for i in range(0, num_teams, 2):
-            if i + 1 < num_teams:
-                match = Match(
-                    home_team_id=team_list[i].id,
-                    away_team_id=team_list[i + 1].id,
-                    week=week,
-                    played=False
+            db.session.add(team)
+            db.session.flush() # Get team ID
+            
+            # Generate Players
+            positions = ["GK"] * 2 + ["DEF"] * 6 + ["MID"] * 6 + ["FWD"] * 4
+            region = random.choice(regions)
+            for j, pos in enumerate(positions):
+                stats = generate_player_stats(tier_level=league.tier, position=pos, region=region)
+                player = Player(
+                    name=generate_player_name(region),
+                    position=pos,
+                    attack=stats["attack"],
+                    defense=stats["defense"],
+                    potential=stats["potential"],
+                    age=stats["age"],
+                    height=stats["height"],
+                    weight=stats["weight"],
+                    personality=stats["personality"],
+                    region=region,
+                    market_value=stats["market_value"],
+                    team_id=team.id,
+                    is_starting=(j < 11)
                 )
-                db.session.add(match)
+                db.session.add(player)
+            
+            # Generate Schedule for this league
+            for week in range(1, 11):
+                # Simple scheduling
+                pass # Will implement below
+    
+    db.session.commit()
+
+    # Generate Match Schedule (Round Robin simplified)
+    for league in leagues:
+        teams = Team.query.filter_by(league_id=league.id).all()
+        for week in range(1, 11):
+            random.shuffle(teams)
+            for k in range(0, len(teams), 2):
+                if k+1 < len(teams):
+                    match = Match(
+                        home_team_id=teams[k].id,
+                        away_team_id=teams[k+1].id,
+                        week=week,
+                        played=False
+                    )
+                    db.session.add(match)
 
     db.session.commit()
 
-    state = GameState(current_day=1, current_week=1, season_over=False)
+    player_league = League.query.filter_by(tier=1).first()
+    state = GameState(current_day=1, current_week=1, season_over=False, user_league_id=player_league.id)
     db.session.add(state)
     db.session.commit()
 
@@ -265,7 +269,7 @@ def advance_day():
     if is_match_day(state):
         match = get_current_match(state)
         if match:
-            simulate_match(match)
+            match_director(match, state)
             if state.current_week >= 10:
                 state.season_over = True
                 flash("الموسم انتهى! تهانينا للفوز 🥇")
@@ -380,7 +384,7 @@ def advance_week():
         if is_match_day(state):
             match = get_current_match(state)
             if match:
-                simulate_match(match)
+                match_director(match, state)
                 if state.current_week >= 10:
                     state.season_over = True
                     flash("الموسم انتهى! تهانينا 🥇")

@@ -8,6 +8,10 @@ class Team(db.Model):
     name = db.Column(db.String(50), unique=True)
     morale = db.Column(db.Integer, default=70)
     budget = db.Column(db.Integer, default=1000000)
+    reputation = db.Column(db.Integer, default=50)  # 1-100
+    
+    training_facilities = db.Column(db.Integer, default=3)  # 1-5
+    youth_facilities = db.Column(db.Integer, default=3)     # 1-5
     
     points = db.Column(db.Integer, default=0)
     goals_for = db.Column(db.Integer, default=0)
@@ -17,20 +21,30 @@ class Team(db.Model):
     draws = db.Column(db.Integer, default=0)
     
     is_player_team = db.Column(db.Boolean, default=False)
+    league_id = db.Column(db.Integer, db.ForeignKey('league.id'))
     players = db.relationship('Player', backref='team', lazy=True)
 
 
 class Player(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(50))
-    position = db.Column(db.String(10))
+    position = db.Column(db.String(10))  # GK, DEF, MID, FWD
     
     attack = db.Column(db.Integer)
     defense = db.Column(db.Integer)
+    potential = db.Column(db.Integer)    # Max possible attack/defense
     
+    age = db.Column(db.Integer, default=20)
     fitness = db.Column(db.Integer, default=100)
     injury_days = db.Column(db.Integer, default=0)
     
+    personality = db.Column(db.String(20), default="Normal")  # Leader, Ambitious, Glass, etc.
+    region = db.Column(db.String(20), default="Europe")
+    
+    height = db.Column(db.Integer)  # in cm
+    weight = db.Column(db.Integer)  # in kg
+    
+    market_value = db.Column(db.Integer, default=100000)
     is_starting = db.Column(db.Boolean, default=False)
     
     goals = db.Column(db.Integer, default=0)
@@ -39,12 +53,27 @@ class Player(db.Model):
     
     team_id = db.Column(db.Integer, db.ForeignKey('team.id'))
 
+    # Performance Indexes
+    __table_args__ = (
+        db.Index('idx_position_attack_age', 'position', 'attack', 'age'),
+        db.Index('idx_team_id', 'team_id'),
+    )
+
+
+class League(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(50), unique=True)
+    tier = db.Column(db.Integer)  # 1 for top, 2 for second, etc.
+    reputation = db.Column(db.Integer)
+    teams = db.relationship('Team', backref='league', lazy=True)
+
 
 class GameState(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     current_day = db.Column(db.Integer, default=1)
     current_week = db.Column(db.Integer, default=1)
     season_over = db.Column(db.Boolean, default=False)
+    user_league_id = db.Column(db.Integer, db.ForeignKey('league.id'), nullable=True)
 
 
 class Match(db.Model):

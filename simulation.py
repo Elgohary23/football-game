@@ -8,23 +8,15 @@ import json
 import logging
 import random
 from typing import Optional
+import numpy as np
 
-from models import db, Team, Player, Match, Message, PlayerRating, TransferOffer
+from models import db, Team, Player, Match, Message, PlayerRating, TransferOffer, GameState
 
 logger = logging.getLogger(__name__)
 
 
 def get_lineup_strength(team: Team) -> tuple[float, float]:
-    """Calculate team strength based on starting XI.
-
-    Applies penalty for incomplete squads and morale bonus.
-
-    Args:
-        team: The team to calculate strength for.
-
-    Returns:
-        Tuple of (attack_strength, defense_strength).
-    """
+    """Calculate team strength based on starting XI."""
     if not team or not team.players:
         return 0.0, 0.0
 
@@ -34,64 +26,164 @@ def get_lineup_strength(team: Team) -> tuple[float, float]:
     ]
 
     if not starters:
-        return 0.0, 0.0
+        # Penalty for no starters
+        return 10.0, 10.0
 
     num_starters = len(starters)
-
+    penalty = 1.0
     if num_starters < 11:
         penalty = num_starters / 11
-        base_att = sum(p.attack for p in starters) * penalty
-        base_def = sum(p.defense for p in starters) * penalty
-    else:
-        base_att = sum(p.attack for p in starters)
-        base_def = sum(p.defense for p in starters)
 
-    morale_bonus = team.morale // 20
+    base_att = sum(p.attack for p in starters) * penalty
+    base_def = sum(p.defense for p in starters) * penalty
+
+    # Personality Bonus
+    leader_bonus = 0
+    if any(p.personality == "Leader" for p in starters):
+        leader_bonus = 5
+
+    morale_bonus = (team.morale // 20) + leader_bonus
 
     return (base_att / 11) + morale_bonus, (base_def / 11) + morale_bonus
 
 
+def match_director(match: Match, state: GameState) -> bool:
+    """Routes a match to the appropriate simulation fidelity level."""
+    home = match.home_team
+    away = match.away_team
+    
+    # Tier 1: Deep Simulation (User Team involved)
+    if home.is_player_team or away.is_player_team:
+        return simulate_match_deep(match)
+    
+    # Tier 2: Medium Simulation (Same league as user)
+    if state.user_league_id and home.league_id == state.user_league_id:
+        return simulate_match_medium(match)
+    
+    # Tier 3: Quick Simulation (Other leagues)
+    return simulate_match_quick(match)
+
+
+def simulate_match_quick(match: Match) -> bool:
+    """Abstract Macro Simulation using Poisson distribution."""
+    home = match.home_team
+    away = match.away_team
+    
+    h_att, h_def = get_lineup_strength(home)
+    a_att, a_def = get_lineup_strength(away)
+    
+    # Expected goals based on strength ratios
+    home_exp = max(0.2, (h_att / max(1, a_def)) * 1.3)
+    away_exp = max(0.2, (a_att / max(1, h_def)) * 1.1)
+    
+    match.home_score = np.random.poisson(home_exp)
+    match.away_score = np.random.poisson(away_exp)
+    match.result = f"{match.home_score}-{match.away_score}"
+    match.played = True
+    
+    update_league_table(home, away, match.home_score, match.away_score)
+    db.session.commit()
+    return True
+
+
+def simulate_match_medium(match: Match) -> bool:
+    """Medium Fidelity: Calculates scorers but ignores deep player ratings."""
+    home = match.home_team
+    away = match.away_team
+    
+    h_att, h_def = get_lineup_strength(home)
+    a_att, a_def = get_lineup_strength(away)
+    
+    match.home_score = max(0, int((h_att * 1.1 - a_def) / 5) + random.randint(-1, 2))
+    match.away_score = max(0, int((a_att - h_def) / 5) + random.randint(-1, 2))
+    
+    match.result = f"{match.home_score}-{match.away_score}"
+    match.played = True
+    
+    assign_scorers(home, match.home_score)
+    assign_scorers(away, match.away_score)
+    
+    update_league_table(home, away, match.home_score, match.away_score)
+    db.session.commit()
+    return True
+
+
+def simulate_match_deep(match: Match) -> bool:
+    """Micro-Fidelity: Detailed events, ratings, and fitness impact."""
+    # Existing simulate_match logic with enhancements
+    try:
+        home = match.home_team
+        away = match.away_team
+
+        h_att, h_def = get_lineup_strength(home)
+        a_att, a_def = get_lineup_strength(away)
+
+        home_score = max(0, int((h_att * 1.1 - a_def) / 4) + random.randint(-1, 2))
+        away_score = max(0, int((a_att - h_def) / 4) + random.randint(-1, 2))
+
+        home_events, away_events = generate_match_events(home_score, away_score, None)
+        
+        match.home_possession = random.randint(40, 60)
+        match.away_possession = 100 - match.home_possession
+
+        match.result = f"{home_score}-{away_score}"
+        match.played = True
+        match.home_score = home_score
+        match.away_score = away_score
+        match.home_events = json.dumps(home_events)
+        match.away_events = json.dumps(away_events)
+
+        update_league_table(home, away, home_score, away_score)
+        
+        # Reset current match stats
+        for p in home.players + away.players:
+            p.goals = 0
+            p.assists = 0
+        
+        assign_scorers(home, home_score)
+        assign_scorers(away, away_score)
+        
+        calculate_player_ratings(match, home, away, home_score, away_score)
+
+        # Fitness impact
+        for p in home.players + away.players:
+            if p.is_starting:
+                decay = 10
+                if p.personality == "Lazy": decay = 15
+                if p.personality == "Professional": decay = 8
+                p.fitness = max(0, p.fitness - decay)
+                p.matches_played += 1
+
+        db.session.commit()
+        return True
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in deep simulation: {e}")
+        return False
+
+
 def assign_scorers(team: Team, goals_count: int) -> None:
-    """Distribute goals to scorers based on position weights.
-
-    Forwards have 2x chance, midfielders have 1x chance.
-
-    Args:
-        team: The scoring team.
-        goals_count: Number of goals to assign.
-    """
-    if goals_count <= 0 or not team or not team.players:
-        return
-
-    potential_scorers = [
-        p for p in team.players
-        if p.is_starting and p.position in ["FWD", "MID"]
-    ]
-
-    if not potential_scorers:
-        goal_scorer = random.choice(team.players)
-        goal_scorer.goals += goals_count
-        return
-
+    """Distribute goals based on weights."""
+    if goals_count <= 0: return
+    
+    starters = [p for p in team.players if p.is_starting]
+    if not starters: return
+    
     for _ in range(goals_count):
-        weights = [2 if p.position == "FWD" else 1 for p in potential_scorers]
-        scorer = random.choices(potential_scorers, weights=weights, k=1)[0]
+        weights = []
+        for p in starters:
+            w = 1
+            if p.position == "FWD": w = 10
+            elif p.position == "MID": w = 3
+            weights.append(w)
+        
+        scorer = random.choices(starters, weights=weights, k=1)[0]
         scorer.goals += 1
 
 
 def update_league_table(home: Team, away: Team, h_score: int, a_score: int) -> None:
-    """Update league statistics after a match.
-
-    Args:
-        home: Home team.
-        away: Away team.
-        h_score: Home team goals.
-        a_score: Away team goals.
-    """
-    if not home or not away:
-        logger.warning("Invalid teams in update_league_table")
-        return
-
+    """Update standings."""
     home.goals_for += h_score
     home.goals_against += a_score
     away.goals_for += a_score
@@ -116,502 +208,203 @@ def update_league_table(home: Team, away: Team, h_score: int, a_score: int) -> N
         away.draws += 1
 
 
-def generate_match_events(home_score: int, away_score: int, game_state) -> tuple[list, list]:
-    """Generate match events like goals, cards, momentum changes."""
-    home_events = []
-    away_events = []
-    
-    for _ in range(home_score):
-        minute = random.randint(1, 90)
-        home_events.append({
-            "type": "goal",
-            "minute": minute,
-            "description": f"هدف في الدقيقة {minute}"
-        })
-    
-    for _ in range(away_score):
-        minute = random.randint(1, 90)
-        away_events.append({
-            "type": "goal",
-            "minute": minute,
-            "description": f"هدف في الدقيقة {minute}"
-        })
-    
-    for _ in range(random.randint(0, 3)):
-        minute = random.randint(1, 90)
-        home_events.append({
-            "type": "card",
-            "minute": minute,
-            "description": f"بطاقة صفراء في الدقيقة {minute}"
-        })
-    
-    for _ in range(random.randint(0, 3)):
-        minute = random.randint(1, 90)
-        away_events.append({
-            "type": "card",
-            "minute": minute,
-            "description": f"بطاقة صفراء في الدقيقة {minute}"
-        })
-    
-    return home_events, away_events
+def generate_match_events(h_score, a_score, state) -> tuple[list, list]:
+    h_ev = [{"type": "goal", "minute": random.randint(1, 90)} for _ in range(h_score)]
+    a_ev = [{"type": "goal", "minute": random.randint(1, 90)} for _ in range(a_score)]
+    return h_ev, a_ev
 
 
-def calculate_player_ratings(match: Match, home: Team, away: Team, h_score: int, a_score: int) -> None:
-    """Calculate and save player ratings for a match."""
-    for player in home.players:
-        if player.is_starting:
-            base_rating = 5.0
-            
-            if player.position == "FWD":
-                base_rating += (player.attack / 20)
-            elif player.position == "MID":
-                base_rating += ((player.attack + player.defense) / 40)
-            elif player.position == "DEF":
-                base_rating += (player.defense / 20)
-            elif player.position == "GK":
-                base_rating += (player.defense / 20)
-            
-            if player.goals > 0:
-                base_rating += player.goals * 1.5
-            
-            if player.assists > 0:
-                base_rating += player.assists * 1.0
-            
-            if player.fitness < 50:
-                base_rating -= 1.0
-            
-            base_rating += random.uniform(-1, 1)
-            base_rating = max(1.0, min(10.0, base_rating))
-            
-            rating = PlayerRating(
-                player_id=player.id,
-                match_id=match.id,
-                rating=round(base_rating, 1),
-                goals=player.goals,
-                assists=player.assists
-            )
-            db.session.add(rating)
-    
-    for player in away.players:
-        if player.is_starting:
-            base_rating = 5.0
-            
-            if player.position == "FWD":
-                base_rating += (player.attack / 20)
-            elif player.position == "MID":
-                base_rating += ((player.attack + player.defense) / 40)
-            elif player.position == "DEF":
-                base_rating += (player.defense / 20)
-            elif player.position == "GK":
-                base_rating += (player.defense / 20)
-            
-            if player.goals > 0:
-                base_rating += player.goals * 1.5
-            
-            if player.assists > 0:
-                base_rating += player.assists * 1.0
-            
-            if player.fitness < 50:
-                base_rating -= 1.0
-            
-            base_rating += random.uniform(-1, 1)
-            base_rating = max(1.0, min(10.0, base_rating))
-            
-            rating = PlayerRating(
-                player_id=player.id,
-                match_id=match.id,
-                rating=round(base_rating, 1),
-                goals=player.goals,
-                assists=player.assists
-            )
-            db.session.add(rating)
-
-
-def simulate_match(match: Match) -> bool:
-    """Simulate a football match between two teams.
-
-    Args:
-        match: The match to simulate.
-
-    Returns:
-        True if successful, False otherwise.
-    """
-    try:
-        home = db.session.get(Team, match.home_team_id)
-        away = db.session.get(Team, match.away_team_id)
-
-        if not home or not away:
-            logger.error(f"Invalid teams for match {match.id}")
-            return False
-
-        h_att, h_def = get_lineup_strength(home)
-        a_att, a_def = get_lineup_strength(away)
-
-        home_score = max(
-            0,
-            int((h_att * 1.1 - a_def) / 4) + random.randint(-1, 2)
-        )
-        away_score = max(
-            0,
-            int((a_att - h_def) / 4) + random.randint(-1, 2)
-        )
-
-        home_events, away_events = generate_match_events(home_score, away_score, None)
-        
-        home_possession = random.randint(40, 60)
-        away_possession = 100 - home_possession
-
-        match.result = f"{home_score}-{away_score}"
-        match.played = True
-        match.home_score = home_score
-        match.away_score = away_score
-        match.home_events = json.dumps(home_events)
-        match.away_events = json.dumps(away_events)
-        match.home_possession = home_possession
-        match.away_possession = away_possession
-
-        update_league_table(home, away, home_score, away_score)
-        
-        for p in home.players:
-            p.goals = 0
-            p.assists = 0
-        
-        for p in away.players:
-            p.goals = 0
-            p.assists = 0
-        
-        assign_scorers(home, home_score)
-        assign_scorers(away, away_score)
-        
-        calculate_player_ratings(match, home, away, home_score, away_score)
-
-        all_players = home.players + away.players
-        for p in all_players:
+def calculate_player_ratings(match, home, away, h_score, a_score) -> None:
+    for team in [home, away]:
+        for p in team.players:
             if p.is_starting:
-                p.fitness = max(0, p.fitness - 10)
-                p.matches_played += 1
-
-        db.session.commit()
-        logger.info(f"Match {match.id}: {match.result}")
-        return True
-
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"Error simulating match: {e}")
-        return False
+                rating = 6.0 + random.uniform(-1, 1)
+                if p.goals > 0: rating += p.goals * 1.5
+                rating = max(1.0, min(10.0, rating))
+                db.session.add(PlayerRating(player_id=p.id, match_id=match.id, rating=round(rating, 1)))
 
 
-def simulate_transfer_offers(game_state) -> None:
-    """Simulate transfer offers for player team."""
-    if not game_state:
-        return
+def simulate_ai_transfers(state: GameState) -> None:
+    """AI teams proactively fill squad gaps."""
+    if state.current_day % 7 != 0: return # Only check weekly
     
-    player_team = Team.query.filter_by(is_player_team=True).first()
-    if not player_team:
-        return
-    
-    if random.random() < 0.3:
-        starters = [p for p in player_team.players if p.is_starting]
-        if starters:
-            player = random.choice(starters)
+    ai_teams = Team.query.filter_by(is_player_team=False).all()
+    for team in ai_teams:
+        # Check depth
+        squad = Player.query.filter_by(team_id=team.id).all()
+        positions_needed = []
+        for pos, count in [("GK", 1), ("DEF", 4), ("MID", 4), ("FWD", 2)]:
+            current = len([p for p in squad if p.position == pos])
+            if current < count:
+                positions_needed.append(pos)
+        
+        if positions_needed:
+            # Look for a player to buy
+            target_pos = random.choice(positions_needed)
+            # Find a player in the market (e.g. from other teams or free agents)
+            target = Player.query.filter(Player.team_id != team.id, Player.position == target_pos).order_by(db.func.random()).first()
             
-            ai_teams = Team.query.filter_by(is_player_team=False).all()
-            if ai_teams:
-                buyer = random.choice(ai_teams)
-                amount = player.attack * 50000 + random.randint(100000, 500000)
-                deadline = game_state.current_day + random.randint(3, 7)
-                
-                offer = TransferOffer(
-                    player_id=player.id,
-                    from_team_id=player_team.id,
-                    to_team_id=buyer.id,
-                    amount=amount,
-                    status='pending',
-                    created_day=game_state.current_day,
-                    deadline_day=deadline
-                )
-                db.session.add(offer)
-                
-                message = Message(
-                    title="عرض انتقال",
-                    content=f"فريق {buyer.name} يعرض {amount} دولار للتعاقد مع {player.name}",
-                    type="transfer",
-                    created_day=game_state.current_day,
-                    urgent=False
-                )
-                db.session.add(message)
-                db.session.commit()
-
-
-def generate_injury_message(player: Player, game_state) -> None:
-    """Generate injury message for a player."""
-    severity = random.choice(["خفيف", "متوسط", "شديد"])
-    days = random.randint(3, 15) if severity == "شديد" else random.randint(1, 7)
-    
-    message = Message(
-        title=f"إصابة {player.name}",
-        content=f"اللاعب {player.name} تعرض لإجمةة {severity}. سيغيب عن الملاعب لمدة {days} أيام.",
-        type="injury",
-        created_day=game_state.current_day,
-        urgent=True if severity == "شديد" else False
-    )
-    db.session.add(message)
+            if target and target.market_value < team.budget:
+                # Decide if to offer
+                # Check reputation
+                if team.reputation >= (target.team.reputation if target.team else 0) - 10:
+                    amount = int(target.market_value * random.uniform(0.9, 1.2))
+                    
+                    # Create Offer
+                    offer = TransferOffer(
+                        player_id=target.id,
+                        from_team_id=target.team_id,
+                        to_team_id=team.id,
+                        amount=amount,
+                        status='pending',
+                        created_day=state.current_day,
+                        deadline_day=state.current_day + 3
+                    )
+                    db.session.add(offer)
+                    
+                    if target.team and target.team.is_player_team:
+                        msg = Message(
+                            title="عرض انتقال وارد",
+                            content=f"وصل عرض من {team.name} لشراء {target.name} مقابل {amount}",
+                            type="transfer",
+                            created_day=state.current_day,
+                            urgent=True
+                        )
+                        db.session.add(msg)
     db.session.commit()
 
-
-def simulate_day(game_state) -> None:
-    """Advance game by one day with player recovery.
-
-    Args:
-        game_state: Current game state.
-    """
-    if not game_state:
-        return
-
-    game_state.current_day += 1
-
+def simulate_day(state: GameState) -> None:
+    state.current_day += 1
+    # Recovery
     players = Player.query.all()
-    for player in players:
-        if player.fitness < 100:
-            player.fitness = min(100, player.fitness + 5)
-
-        if random.random() < 0.05 and player.injury_days > 0:
-            player.injury_days = max(0, player.injury_days - 1)
+    for p in players:
+        p.fitness = min(100, p.fitness + 5)
+        if p.injury_days > 0:
+            p.injury_days -= 1
+            
+    # Monthly evolution
+    if state.current_day % 30 == 0:
+        update_player_evolution()
         
-        if random.random() < 0.02 and player.injury_days == 0:
-            player.injury_days = random.randint(3, 10)
-            generate_injury_message(player, game_state)
-        
-        if random.random() < 0.1 and player.injury_days == 0:
-            player.attack = min(99, player.attack + 1)
-            player.defense = min(99, player.defense + 1)
+    # AI Transfers
+    simulate_ai_transfers(state)
 
-    teams = Team.query.all()
-    for team in teams:
-        if random.random() < 0.1:
-            team.morale = min(100, team.morale + 2)
-    
-    simulate_transfer_offers(game_state)
-    
-    pending_offers = TransferOffer.query.filter_by(status='pending').all()
-    for offer in pending_offers:
-        if offer.deadline_day <= game_state.current_day:
-            if random.random() < 0.5:
-                offer.status = 'accepted'
-                message = Message(
-                    title="انتقال مقبول",
-                    content=f"تم قبول عرض الانتقال بقيمة {offer.amount} دولار",
-                    type="transfer",
-                    created_day=game_state.current_day,
-                    urgent=False
+
+def update_player_evolution() -> None:
+    """Monthly player development/decay logic."""
+    players = Player.query.all()
+    for p in players:
+        # Growth (16-24)
+        if p.age < 24:
+            if p.attack < p.potential:
+                p.attack = min(p.potential, p.attack + random.randint(0, 1))
+            if p.defense < p.potential:
+                p.defense = min(p.potential, p.defense + random.randint(0, 1))
+        # Decay (31+)
+        elif p.age > 31:
+            p.attack = max(30, p.attack - random.randint(0, 1))
+            p.defense = max(30, p.defense - random.randint(0, 1))
+            
+    db.session.commit()
+
+
+from procedural import generate_player_name, generate_player_stats
+
+def process_season_end(state: GameState) -> None:
+    """Handles retirement and regens at the end of a season."""
+    players = Player.query.all()
+    retired_count = 0
+    for p in players:
+        # Decision to retire
+        if p.age > 33:
+            retirement_chance = (p.age - 33) * 0.15
+            if random.random() < retirement_chance:
+                # Store info for Regen
+                region = p.region
+                pos = p.position
+                team_id = p.team_id
+                
+                # Delete player (or mark as retired)
+                db.session.delete(p)
+                retired_count += 1
+                
+                # Create Regen
+                new_name = generate_player_name(region)
+                stats = generate_player_stats(tier_level=2, position=pos, region=region)
+                
+                regen = Player(
+                    name=f"{new_name} (Regen)",
+                    position=pos,
+                    attack=stats["attack"],
+                    defense=stats["defense"],
+                    potential=stats["potential"],
+                    age=16 + random.randint(0, 2),
+                    height=stats["height"],
+                    weight=stats["weight"],
+                    personality=stats["personality"],
+                    region=region,
+                    market_value=stats["market_value"],
+                    team_id=team_id,
+                    is_starting=False
                 )
-                db.session.add(message)
-            else:
-                offer.status = 'rejected'
-            db.session.commit()
-
+                db.session.add(regen)
+    
     db.session.commit()
+    logger.info(f"Season ended: {retired_count} players retired and regens created.")
 
 
-def is_match_day(game_state) -> bool:
-    """Check if current day is a match day.
-
-    Args:
-        game_state: Current game state.
-
-    Returns:
-        True if match day, False otherwise.
-    """
-    if not game_state:
-        return False
-    return game_state.current_day % 7 == 0
+def is_match_day(state: GameState) -> bool:
+    return state.current_day % 7 == 0
 
 
-def is_transfer_deadline(game_state) -> bool:
-    """Check if current day is near transfer deadline."""
-    if not game_state:
-        return False
-    return game_state.current_day % 30 == 25
-
-
-def should_stop_calendar(game_state) -> tuple[bool, str]:
-    """Check if calendar should stop for user intervention.
-    
-    Returns:
-        Tuple of (should_stop, reason)
-    """
-    if is_match_day(game_state):
-        return True, "match_day"
-    
-    if is_transfer_deadline(game_state):
-        return True, "transfer_deadline"
-    
-    messages = Message.query.filter_by(read=False).all()
-    urgent_messages = [m for m in messages if m.urgent and m.created_day == game_state.current_day]
-    if urgent_messages:
-        return True, "urgent_message"
-    
-    pending_offers = TransferOffer.query.filter_by(status='pending').all()
-    player_team = Team.query.filter_by(is_player_team=True).first()
-    player_offers = [o for o in pending_offers if o.from_team_id == player_team.id]
-    if player_offers:
-        for offer in player_offers:
-            if offer.deadline_day - game_state.current_day <= 2:
-                return True, "transfer_deadline_soon"
-    
-    return False, ""
-
-
-def get_pending_actions(game_state) -> dict:
-    """Get pending actions that need user intervention."""
-    actions = {"match_day": False, "transfer_deadline": False, "messages": False}
-    
-    if is_match_day(game_state):
-        actions["match_day"] = True
-    
-    if is_transfer_deadline(game_state):
-        actions["transfer_deadline"] = True
-    
-    unread = Message.query.filter_by(read=False).count()
-    if unread > 0:
-        actions["messages"] = unread
-    
-    pending_offers = TransferOffer.query.filter_by(status='pending').count()
-    if pending_offers > 0:
-        actions["pending_offers"] = pending_offers
-    
-    return actions
-
-
-def simulate_calendar(days: int, game_state) -> dict:
-    """Simulate multiple days at once.
-    
-    Args:
-        days: Number of days to simulate.
-        game_state: Current game state.
-        
-    Returns:
-        Dict with simulation results.
-    """
-    results = {
-        "days_advanced": 0,
-        "matches_played": 0,
-        "stopped": False,
-        "stop_reason": ""
-    }
-    
+def simulate_calendar(days: int, state: GameState) -> dict:
+    res = {"matches_played": 0}
     for _ in range(days):
-        simulate_day(game_state)
-        
-        if is_match_day(game_state):
-            match = get_current_match(game_state)
-            if match:
-                simulate_match(match)
-                results["matches_played"] += 1
-                if game_state.current_week >= 10:
-                    game_state.season_over = True
-                    break
-        
-        should_stop, reason = should_stop_calendar(game_state)
-        if should_stop:
-            results["stopped"] = True
-            results["stop_reason"] = reason
-            break
-        
-        results["days_advanced"] += 1
-    
-    db.session.commit()
-    return results
+        simulate_day(state)
+        if is_match_day(state):
+            matches = Match.query.filter_by(week=state.current_week, played=False).all()
+            for m in matches:
+                match_director(m, state)
+                res["matches_played"] += 1
+            state.current_week += 1
+    return res
 
 
-def get_current_match(game_state) -> Optional[Match]:
-    """Get the current match for the week.
-
-    Args:
-        game_state: Current game state.
-
-    Returns:
-        The current match or None.
-    """
-    if not game_state:
-        return None
-
-    match = Match.query.filter_by(
-        week=game_state.current_week,
-        played=False
-    ).first()
-
-    return match
+def get_current_match(state) -> Optional[Match]:
+    return Match.query.filter_by(week=state.current_week, played=False).join(Team, Match.home_team_id == Team.id).filter(Team.is_player_team == True).first() or \
+           Match.query.filter_by(week=state.current_week, played=False).join(Team, Match.away_team_id == Team.id).filter(Team.is_player_team == True).first()
 
 
-def get_recent_results(game_state) -> list:
-    """Get recent match results.
-
-    Args:
-        game_state: Current game state.
-
-    Returns:
-        List of recent matches.
-    """
-    if not game_state:
-        return []
-
-    matches = Match.query.filter(
-        Match.week < game_state.current_week,
-        Match.played == True
-    ).order_by(Match.week.desc()).limit(10).all()
-
-    return matches
-
-
-def get_match_report(match_id: int) -> Optional[dict]:
-    """Get detailed match report.
-    
-    Args:
-        match_id: The match ID.
-        
-    Returns:
-        Dict with match details, events, and player ratings.
-    """
-    match = db.session.get(Match, match_id)
-    if not match:
-        return None
-    
-    home = match.home_team
-    away = match.away_team
-    
-    home_events = json.loads(match.home_events) if match.home_events else []
-    away_events = json.loads(match.away_events) if match.away_events else []
-    
-    home_ratings = PlayerRating.query.filter_by(match_id=match_id).join(Player).filter(Player.team_id == home.id).all()
-    away_ratings = PlayerRating.query.filter_by(match_id=match_id).join(Player).filter(Player.team_id == away.id).all()
-    
-    return {
-        "match": match,
-        "home": home,
-        "away": away,
-        "home_events": home_events,
-        "away_events": away_events,
-        "home_possession": match.home_possession,
-        "away_possession": match.away_possession,
-        "home_ratings": home_ratings,
-        "away_ratings": away_ratings
-    }
+def get_recent_results(state) -> list:
+    return Match.query.filter(Match.played == True).order_by(Match.id.desc()).limit(10).all()
 
 
 def get_messages() -> list:
-    """Get all messages, unread first."""
-    return Message.query.order_by(Message.urgent.desc(), Message.read, Message.created_day.desc()).all()
+    return Message.query.all()
 
 
 def get_unread_count() -> int:
-    """Get count of unread messages."""
     return Message.query.filter_by(read=False).count()
 
 
-def mark_message_read(message_id: int) -> None:
-    """Mark a message as read."""
-    message = db.session.get(Message, message_id)
-    if message:
-        message.read = True
-        db.session.commit()
+def mark_message_read(mid) -> None:
+    m = db.session.get(Message, mid)
+    if m: m.read = True; db.session.commit()
+
+
+def get_match_report(mid) -> Optional[dict]:
+    m = db.session.get(Match, mid)
+    if not m: return None
+    return {
+        "match": m,
+        "home": m.home_team,
+        "away": m.away_team,
+        "home_events": json.loads(m.home_events) if m.home_events else [],
+        "away_events": json.loads(m.away_events) if m.away_events else [],
+        "home_possession": m.home_possession,
+        "away_possession": m.away_possession,
+        "home_ratings": PlayerRating.query.filter_by(match_id=mid).all()
+    }
+
+def get_pending_actions(state) -> dict:
+    return {"match_day": is_match_day(state), "messages": get_unread_count()}

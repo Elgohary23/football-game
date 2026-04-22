@@ -95,40 +95,37 @@
                 <tr>
                     <th scope="col">المركز</th>
                     <th scope="col">الاسم</th>
-                    <th scope="col">قوة الهجوم</th>
-                    <th scope="col">قوة الدفاع</th>
+                    <th scope="col">العمر</th>
+                    <th scope="col">الهجوم</th>
+                    <th scope="col">الدفاع</th>
+                    <th scope="col">الكامنة</th>
+                    <th scope="col">الشخصية</th>
+                    <th scope="col">القيمة</th>
                     <th scope="col">اللياقة</th>
-                    <th scope="col">أهداف</th>
-                    <th scope="col">حالة</th>
                     <th scope="col">إجراء</th>
                 </tr>
             </thead>
             <tbody>
                 {% for player in players %}
-                <tr class="{{ 'row-starter' if player.is_starting else 'row-bench' }} {{ 'row-injured' if player.injury_days > 0 }}"
-                    aria-label="{{ player.name }} - {{ 'مصاب' if player.injury_days > 0 else ('أساسي' if player.is_starting else 'احتياط') }}">
-                    <td><span class="pos-tag {{ player.position }}" aria-label="مركز {{ player.position }}">{{ player.position }}</span></td>
+                <tr class="{{ 'row-starter' if player.is_starting else 'row-bench' }} {{ 'row-injured' if player.injury_days > 0 }}">
+                    <td><span class="pos-tag {{ player.position }}">{{ player.position }}</span></td>
                     <td><strong>{{ player.name }}</strong></td>
-                    <td aria-label="قوة الهجوم">{{ player.attack }}</td>
-                    <td aria-label="قوة الدفاع">{{ player.defense }}</td>
+                    <td>{{ player.age }}</td>
+                    <td>{{ player.attack }}</td>
+                    <td>{{ player.defense }}</td>
+                    <td><span class="pot-badge">{{ player.potential }}</span></td>
+                    <td><span class="personality-tag">{{ player.personality }}</span></td>
+                    <td class="money-text">${{ "{:,}".format(player.market_value) }}</td>
                     <td>
-                        <div class="progress-bar" role="progressbar" aria-valuenow="{{ player.fitness }}" aria-valuemin="0" aria-valuemax="100" aria-label="اللياقة">
+                        <div class="progress-bar">
                             <div class="progress-fill" style="width: {{ player.fitness }}%"></div>
                         </div>
                     </td>
-                    <td aria-label="أهداف">{{ player.goals }}</td>
                     <td>
-                        {% if player.injury_days > 0 %}
-                            <span class="status-injured" role="alert">مصاب ({{ player.injury_days }} يوم)</span>
-                        {% else %}
-                            <span>{{ 'أساسي' if player.is_starting else 'احتياط' }}</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <form action="/toggle_starter/{{ player.id }}" method="POST" aria-label="تبديل حالة {{ player.name }}">
+                        <form action="/toggle_starter/{{ player.id }}" method="POST">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                            <button type="submit" class="btn-icon" aria-pressed="{{ player.is_starting }}">
-                                {{ '❌ استبعاد' if player.is_starting else '✅ إشراك' }}
+                            <button type="submit" class="btn-icon">
+                                {{ '❌' if player.is_starting else '✅' }}
                             </button>
                         </form>
                     </td>

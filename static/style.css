@@ -831,3 +831,25 @@ nav {
     color: #888;
     padding: 2rem;
 }
+/* Badges & Tags */
+.pot-badge {
+    background: linear-gradient(135deg, #f39c12, #e67e22);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: bold;
+}
+
+.personality-tag {
+    background: #34495e;
+    color: #ecf0f1;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+}
+
+.money-text {
+    color: #27ae60;
+    font-weight: bold;
+}
