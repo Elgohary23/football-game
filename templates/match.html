@@ -4,29 +4,48 @@
 
 {% block content %}
 <div class="match-view">
-    <h1>Match Center</h1>
+    <h1>مركز المباراة</h1>
 
     {% if state.season_over %}
         <div class="season-over-message">
-            <h2>Season is Over!</h2>
-            <p>Thank you for playing.</p>
-            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Back to Dashboard</a>
+            <h2>انتهى الموسم!</h2>
+            <p>شكراً للعب.</p>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">العودة للوحة التحكم</a>
         </div>
     {% elif not match %}
         <div class="no-match">
-            <h2>No Match This Week</h2>
-            <p>There is no match scheduled for this week.</p>
-            <p>Days until next match: {{ 7 - (state.current_day % 7) }}</p>
-            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Back to Dashboard</a>
+            <h2>لا توجد مباراة هذا الأسبوع</h2>
+            <p>لا توجد مباراة مجدولة هذا الأسبوع.</p>
+            <p>الأيام المتبقية للمباراة: {{ 7 - (state.current_day % 7) }}</p>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">العودة للوحة التحكم</a>
         </div>
     {% else %}
+        {% if scouting %}
+        <div class="scouting-report card">
+            <h3>تقرير الكشافة عن الخصم</h3>
+            <div class="scouting-info">
+                <div class="scout-item">
+                    <label>فريق الخصم:</label> <span>{{ scouting.name }}</span>
+                </div>
+                <div class="scout-item">
+                    <label>اللاعب الخطير:</label> <span>{{ scouting.danger_man_name }} ({{ scouting.danger_man_goals }} أهداف)</span>
+                </div>
+                <div class="scout-item">
+                    <label>متوسط الدفاع:</label> <span>{{ "%.1f"|format(scouting.avg_defense) }}</span>
+                </div>
+                <div class="scout-item">
+                    <label>الحالة المعنوية:</label> <span>{{ scouting.morale_desc }}</span>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="match-header">
             <div class="team-display home">
                 <h2>{{ match.home_team.name }}</h2>
                 <div class="team-stats">
-                    <span>ATT: {{ match.home_team.attack }}</span>
-                    <span>DEF: {{ match.home_team.defense }}</span>
-                    <span>Morale: {{ match.home_team.morale }}</span>
+                    <span> Morale: {{ match.home_team.morale }}</span>
+                    <span> Points: {{ match.home_team.points }}</span>
                 </div>
             </div>
             
@@ -41,34 +60,33 @@
             <div class="team-display away">
                 <h2>{{ match.away_team.name }}</h2>
                 <div class="team-stats">
-                    <span>ATT: {{ match.away_team.attack }}</span>
-                    <span>DEF: {{ match.away_team.defense }}</span>
-                    <span>Morale: {{ match.away_team.morale }}</span>
+                    <span> Morale: {{ match.away_team.morale }}</span>
+                    <span> Points: {{ match.away_team.points }}</span>
                 </div>
             </div>
         </div>
 
         {% if match.played %}
         <div class="match-result-details">
-            <h3>Match Finished!</h3>
+            <h3>انتهت المباراة!</h3>
             <div class="result-summary">
                 {% set home_score = match.result.split('-')[0]|int %}
                 {% set away_score = match.result.split('-')[1]|int %}
                 
                 {% if home_score > away_score %}
-                    <p class="winner">{{ match.home_team.name }} wins!</p>
+                    <p class="winner">{{ match.home_team.name }} فاز!</p>
                 {% elif away_score > home_score %}
-                    <p class="winner">{{ match.away_team.name }} wins!</p>
+                    <p class="winner">{{ match.away_team.name }} فاز!</p>
                 {% else %}
-                    <p class="draw">It's a draw!</p>
+                    <p class="draw">تعادل!</p>
                 {% endif %}
             </div>
-            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Back to Dashboard</a>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">العودة للوحة التحكم</a>
         </div>
         {% else %}
         <div class="match-actions">
-            <p>Match will be played automatically when you advance to the match day.</p>
-            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Back to Dashboard</a>
+            <p>ستلعب المباراة تلقائياً عند التقدم ليوم المباراة.</p>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">العودة للوحة التحكم</a>
         </div>
         {% endif %}
     {% endif %}

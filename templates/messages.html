@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}الرسائل{% endblock %}
+
+{% block content %}
+<div class="messages-page">
+    <h1>الرسائل</h1>
+    
+    {% if messages or pending_offers %}
+        {% if messages %}
+        <div class="messages-list">
+            {% for msg in messages %}
+                <div class="message-item {% if not msg.read %}unread{% endif %} {% if msg.urgent %}urgent{% endif %}">
+                    <div class="message-header">
+                        <span class="message-type">{{ msg.type }}</span>
+                        {% if msg.urgent %}
+                            <span class="urgent-badge">عاجل</span>
+                        {% endif %}
+                    </div>
+                    <h3>{{ msg.title }}</h3>
+                    <p>{{ msg.content }}</p>
+                    <div class="message-footer">
+                        <span>اليوم: {{ msg.created_day }}</span>
+                        {% if not msg.read %}
+                            <a href="{{ url_for('message_read', message_id=msg.id) }}" class="btn-small">تمت القراءة</a>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
+        {% if pending_offers %}
+        <div class="transfer-offers">
+            <h2>عروض الانتقال المعلقة</h2>
+            {% for offer in pending_offers %}
+                {% set player = offer.player %}
+                <div class="offer-item">
+                    <p>
+                        {% if offer.from_team.is_player_team %}
+                            فريق {{ offer.to_team.name }} يعرض {{ "{:,}".format(offer.amount) }} دولار لشراء {{ player.name }}
+                        {% else %}
+                            فريق {{ offer.from_team.name }} يعرض عليك بيع {{ player.name }} مقابل {{ "{:,}".format(offer.amount) }} دولار
+                        {% endif %}
+                    </p>
+                    <div class="offer-actions">
+                        <a href="{{ url_for('accept_transfer', offer_id=offer.id) }}" class="btn-accept">قبول</a>
+                        <a href="{{ url_for('reject_transfer', offer_id=offer.id) }}" class="btn-reject">رفض</a>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% else %}
+        <p class="empty-state">لا توجد رسائل أو عروض انتقال</p>
+    {% endif %}
+    
+    <a href="{{ url_for('dashboard') }}" class="btn-back">العودة للوحة</a>
+</div>
+{% endblock %}

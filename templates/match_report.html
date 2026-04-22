@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}تقرير المباراة{% endblock %}
+
+{% block content %}
+<div class="match-report">
+    <h1>تقرير المباراة</h1>
+    
+    <div class="match-header">
+        <div class="team home">
+            <h2>{{ report.home.name }}</h2>
+            <div class="score">{{ report.match.home_score }} - {{ report.match.away_score }}</div>
+        </div>
+        <div class="vs"> ضد </div>
+        <div class="team away">
+            <h2>{{ report.away.name }}</h2>
+        </div>
+    </div>
+    
+    <div class="match-info">
+        <p>الأسبوع: {{ report.match.week }}</p>
+    </div>
+    
+    <div class="possession-chart">
+        <h3>استحواذ</h3>
+        <div class="possession-bar">
+            <div class="home-pos" style="width: {{ report.home_possession }}%">{{ report.home_possession }}%</div>
+            <div class="away-pos" style="width: {{ report.away_possession }}%">{{ report.away_possession }}%</div>
+        </div>
+    </div>
+    
+    <div class="events-timeline">
+        <h3>أحداث المباراة</h3>
+        <div class="home-events">
+            <h4>{{ report.home.name }}</h4>
+            {% for event in report.home_events %}
+                <div class="event {{ event.type }}">
+                    <span class="minute">{{ event.minute }}'</span>
+                    <span>{{ event.description }}</span>
+                </div>
+            {% endfor %}
+        </div>
+        <div class="away-events">
+            <h4>{{ report.away.name }}</h4>
+            {% for event in report.away_events %}
+                <div class="event {{ event.type }}">
+                    <span class="minute">{{ event.minute }}'</span>
+                    <span>{{ event.description }}</span>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+    
+    <div class="player-ratings">
+        <div class="home-ratings">
+            <h3>تقييمات {{ report.home.name }}</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>اللاعب</th>
+                        <th>المركز</th>
+                        <th>التقييم</th>
+                        <th>الأهداف</th>
+                        <th>التمريرات الحاسمة</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rating in report.home_ratings %}
+                    <tr>
+                        <td>{{ rating.player.name }}</td>
+                        <td>{{ rating.player.position }}</td>
+                        <td>{{ rating.rating }}</td>
+                        <td>{{ rating.goals }}</td>
+                        <td>{{ rating.assists }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="away-ratings">
+            <h3>تقييمات {{ report.away.name }}</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>اللاعب</th>
+                        <th>المركز</th>
+                        <th>التقييم</th>
+                        <th>الأهداف</th>
+                        <th>التمريرات الحاسمة</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rating in report.away_ratings %}
+                    <tr>
+                        <td>{{ rating.player.name }}</td>
+                        <td>{{ rating.player.position }}</td>
+                        <td>{{ rating.rating }}</td>
+                        <td>{{ rating.goals }}</td>
+                        <td>{{ rating.assists }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <a href="{{ url_for('dashboard') }}" class="btn-back">العودة للوحة</a>
+</div>
+{% endblock %}
