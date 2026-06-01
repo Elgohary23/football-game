@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}إعداد المدرب{% endblock %}
+{% block content %}
+<section class="setup-screen">
+    <div class="setup-container">
+        <div class="setup-header">
+            <div class="setup-icon"><i class="fas fa-user-tie"></i></div>
+            <h1>إعداد المدرب</h1>
+            <p class="setup-subtitle">أهلاً بك في عالم كرة القدم! أدخل بياناتك كمدرب لتبدأ المغامرة</p>
+        </div>
+        <form action="{{ url_for('setup_coach', slot_id=slot_id) }}" method="POST" class="setup-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="manager_name">اسم المدرب</label>
+                    <input type="text" id="manager_name" name="manager_name" class="form-control" placeholder="أدخل اسمك" required autofocus>
+                </div>
+                <div class="form-group">
+                    <label for="manager_nationality">الجنسية</label>
+                    <select id="manager_nationality" name="manager_nationality" class="form-control" required>
+                        <option value="">اختر جنسيتك</option>
+                        <option value="السعودية">السعودية</option>
+                        <option value="مصر">مصر</option>
+                        <option value="الإمارات">الإمارات</option>
+                        <option value="قطر">قطر</option>
+                        <option value="المغرب">المغرب</option>
+                        <option value="الجزائر">الجزائر</option>
+                        <option value="تونس">تونس</option>
+                        <option value="الأردن">الأردن</option>
+                        <option value="العراق">العراق</option>
+                        <option value="إنجلترا">إنجلترا</option>
+                        <option value="إسبانيا">إسبانيا</option>
+                        <option value="فرنسا">فرنسا</option>
+                        <option value="ألمانيا">ألمانيا</option>
+                        <option value="إيطاليا">إيطاليا</option>
+                        <option value="البرازيل">البرازيل</option>
+                        <option value="الأرجنتين">الأرجنتين</option>
+                        <option value="هولندا">هولندا</option>
+                        <option value="البرتغال">البرتغال</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">التالي</button>
+                <a href="{{ url_for('load_game') }}" class="btn btn-secondary">إلغاء</a>
+            </div>
+        </form>
+    </div>
+</section>
+{% endblock %}

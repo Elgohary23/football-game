@@ -7,27 +7,108 @@
     <meta name="theme-color" content="#16213e">
     <title>{% block title %}مدير كرة القدم{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 </head>
 <body>
     <a href="#main-content" class="skip-link">انتقل للمحتوى الرئيسي</a>
 
     <header role="banner">
-        <nav aria-label="التنقل الرئيسي">
-            <div class="nav-brand">مدير كرة القدم</div>
-            <div class="nav-links">
-                <a href="{{ url_for('dashboard') }}" aria-current="page">اللوحة</a>
-                <a href="{{ url_for('calendar') }}">التقويم</a>
-                <a href="{{ url_for('match_view') }}">المباراة</a>
-                <a href="{{ url_for('messages') }}">الرسائل{% if unread_count > 0 %} ({{ unread_count }}){% endif %}</a>
+        <nav class="main-nav" aria-label="التنقل الرئيسي">
+            <div class="nav-brand">
+                <i class="fas fa-futbol"></i>
+                <span>مدير كرة القدم</span>
             </div>
+
+            <div class="nav-toggle" id="navToggle">
+                <i class="fas fa-bars"></i>
+            </div>
+
+            <ul class="nav-menu" id="navMenu">
+                {% if session.get('active_save') %}
+                <li class="nav-item">
+                    <a href="{{ url_for('dashboard') }}" class="nav-link">
+                        <i class="fas fa-tachometer-alt"></i>
+                        <span>اللوحة</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="{{ url_for('squad') }}" class="nav-link">
+                        <i class="fas fa-users"></i>
+                        <span>الفريق</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="{{ url_for('calendar') }}" class="nav-link">
+                        <i class="fas fa-calendar-alt"></i>
+                        <span>التقويم</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="{{ url_for('match_view') }}" class="nav-link">
+                        <i class="fas fa-futbol"></i>
+                        <span>المباراة</span>
+                    </a>
+                </li>
+                <li class="nav-item dropdown">
+                    <a href="#" class="nav-link dropdown-toggle">
+                        <i class="fas fa-ellipsis-h"></i>
+                        <span>المزيد</span>
+                        <i class="fas fa-chevron-down dropdown-icon"></i>
+                    </a>
+                    <ul class="dropdown-menu">
+                        <li><a href="{{ url_for('messages') }}" class="dropdown-link"><i class="fas fa-envelope"></i> الرسائل{% if unread_count > 0 %} <span class="badge">{{ unread_count }}</span>{% endif %}</a></li>
+                        <li><a href="{{ url_for('scouting') }}" class="dropdown-link"><i class="fas fa-search"></i> سوق الانتقالات</a></li>
+                        <li><a href="{{ url_for('facilities') }}" class="dropdown-link"><i class="fas fa-building"></i> المرافق</a></li>
+                        <li><a href="{{ url_for('medical') }}" class="dropdown-link"><i class="fas fa-hospital"></i> المركز الطبي</a></li>
+                        <li><a href="{{ url_for('match_history') }}" class="dropdown-link"><i class="fas fa-history"></i> تاريخ المباريات</a></li>
+                    </ul>
+                </li>
+                <li class="nav-item">
+                    <a href="{{ url_for('exit_to_menu') }}" class="nav-link nav-exit">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span>خروج</span>
+                    </a>
+                </li>
+                {% else %}
+                <li class="nav-item">
+                    <a href="{{ url_for('load_game') }}" class="nav-link">
+                        <i class="fas fa-save"></i>
+                        <span>اختيار الحفظ</span>
+                    </a>
+                </li>
+                {% endif %}
+            </ul>
+
+            {% if session.get('active_save') and manager_name %}
+            <div class="nav-manager">
+                <i class="fas fa-user-circle"></i>
+                <div class="manager-info">
+                    <span class="manager-name">{{ manager_name }}</span>
+                    {% if manager_nationality %}
+                    <span class="manager-nationality">{{ manager_nationality }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
         </nav>
+        {% if session.get('active_save') and player_team_name %}
+        <div class="sub-nav">
+            <div class="sub-nav-inner">
+                <span class="sub-nav-team">{{ player_team_name }}</span>
+                <span class="sub-nav-divider">|</span>
+                <span class="sub-nav-week">الأسبوع {{ current_week }}/38</span>
+                <span class="sub-nav-divider">|</span>
+                <span class="sub-nav-day">اليوم {{ current_day }}</span>
+            </div>
+        </div>
+        {% endif %}
     </header>
 
-    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% with messages = get_flashed_messages() %}
         {% if messages %}
             <div class="flash-messages" role="alert" aria-live="assertive">
-                {% for category, message in messages %}
-                    <div class="flash flash-{{ category }}">{{ message }}</div>
+                {% for message in messages %}
+                    <div class="flash-message">{{ message }}</div>
                 {% endfor %}
             </div>
         {% endif %}
@@ -38,7 +119,7 @@
     </main>
 
     <footer role="contentinfo">
-        <p>مدير كرة القدم &copy; 2026</p>
+        <p>مدير كرة القدم &copy; 2026 - جميع الحقوق محفوظة</p>
     </footer>
 
     <script src="{{ url_for('static', filename='app.js') }}"></script>

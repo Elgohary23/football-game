@@ -1,46 +1,143 @@
 {% extends "base.html" %}
-
-{% block title %}Calendar - Football Manager{% endblock %}
-
+{% block title %}التقويم{% endblock %}
 {% block content %}
-<div class="calendar-view">
-    <h1>Season Calendar</h1>
-    
+<section class="calendar-wrapper">
     <div class="calendar-header">
-        <p>Current Day: {{ state.current_day }} | Week: {{ state.current_week }} / 10</p>
+        <h1>تقويم الموسم</h1>
+        <p style="color:#888;font-size:0.85rem;">اليوم {{ state.current_day }} | الأسبوع {{ state.current_week }}/38</p>
     </div>
 
-    {% for week, matches in matches_by_week.items() %}
-    <div class="week-block {% if week == state.current_week %}current-week{% endif %}">
-        <h3 class="week-title">Week {{ week }}</h3>
-        
-        <div class="matches-grid">
-            {% for match in matches %}
-            <div class="match-card {% if match.played %}played{% else %}pending{% endif %}">
-                <div class="match-teams">
-                    <span class="team home {% if match.home_team.is_player_team %}player-team{% endif %}">
-                        {{ match.home_team.name }}
-                    </span>
-                    <span class="vs">vs</span>
-                    <span class="team away {% if match.away_team.is_player_team %}player-team{% endif %}">
-                        {{ match.away_team.name }}
-                    </span>
-                </div>
-                <div class="match-result">
-                    {% if match.played %}
-                        <span class="score">{{ match.result }}</span>
-                    {% else %}
-                        <span class="pending">Not Played</span>
-                    {% endif %}
-                </div>
+    <div class="sim-controls" id="simControls">
+        <span>اختر أسبوعاً للمحاكاة إليه:</span>
+        <span class="selected-week" id="selectedWeekDisplay">—</span>
+        <form id="simulateForm" action="/simulate_to_date" method="POST" style="display:none;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="hidden" name="target_week" id="targetWeekInput" value=""/>
+            <button type="submit" class="btn btn-primary" id="simulateBtn">محاكاة إلى هذا الأسبوع</button>
+        </form>
+    </div>
+
+    <!-- Simulation Progress Overlay -->
+    <div class="sim-overlay" id="simOverlay">
+        <div class="sim-modal">
+            <h3>جاري محاكاة المباريات...</h3>
+            <div class="progress-bar progress-bar-lg">
+                <div class="progress-fill" id="simProgressFill" style="width:0%"></div>
             </div>
-            {% endfor %}
+            <div class="progress-text" id="simProgressText">0%</div>
         </div>
     </div>
-    {% endfor %}
 
-    <div class="calendar-nav">
-        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
+    <div class="calendar-grid">
+        {% for week in range(1, 39) %}
+        {% set week_matches = matches_by_week.get(week, []) %}
+        {% set has_player_match = false %}
+        {% for m in week_matches %}
+            {% if (m.home_team and m.home_team.is_player_team) or (m.away_team and m.away_team.is_player_team) %}
+                {% set has_player_match = true %}
+            {% endif %}
+        {% endfor %}
+        <div class="week-cell
+            {% if week < state.current_week %}past{% elif week == state.current_week %}current{% else %}future{% endif %}
+            {% if selected_week == week %}selected{% endif %}"
+            data-week="{{ week }}"
+            {% if has_player_match %}data-mymatch="1"{% endif %}
+            {% if week <= state.current_week %}style="cursor:not-allowed;"{% endif %}>
+            <div class="week-num">الأسبوع {{ week }}</div>
+            <div class="week-status">
+                {% if week < state.current_week %}
+                    <i class="fas fa-check-circle" style="color:#2ecc71;"></i> انتهى
+                {% elif week == state.current_week %}
+                    <i class="fas fa-circle" style="color:#e94560;"></i> الحالي
+                {% else %}
+                    <i class="far fa-circle" style="color:#555;"></i>
+                {% endif %}
+            </div>
+            <div class="week-matches">{{ week_matches|length }} مباراة</div>
+        </div>
+        {% endfor %}
     </div>
-</div>
+
+    <!-- Week Detail -->
+    <div class="week-detail" id="weekDetail">
+        <h3 id="weekDetailTitle">مباريات الأسبوع <span id="detailWeekNum">—</span></h3>
+        <div id="weekDetailContent">
+            <div class="empty-state">اختر أسبوعاً من التقويم أعلاه</div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const matchData = {{ matches_json|safe }};
+    const currentWeek = {{ state.current_week }};
+    const selectedWeekDisplay = document.getElementById('selectedWeekDisplay');
+    const simulateForm = document.getElementById('simulateForm');
+    const targetWeekInput = document.getElementById('targetWeekInput');
+    const simulateBtn = document.getElementById('simulateBtn');
+    const simOverlay = document.getElementById('simOverlay');
+    const simProgressFill = document.getElementById('simProgressFill');
+    const simProgressText = document.getElementById('simProgressText');
+    const detailWeekNum = document.getElementById('detailWeekNum');
+    const detailContent = document.getElementById('weekDetailContent');
+    let selectedWeek = null;
+
+    document.querySelectorAll('.week-cell.future').forEach(cell => {
+        cell.addEventListener('click', function() {
+            const week = parseInt(this.dataset.week);
+            if (week <= currentWeek) return;
+            selectedWeek = week;
+            document.querySelectorAll('.week-cell').forEach(c => c.classList.remove('selected'));
+            this.classList.add('selected');
+            selectedWeekDisplay.textContent = 'الأسبوع ' + week;
+            targetWeekInput.value = week;
+            simulateForm.style.display = 'flex';
+
+            // Show matches for this week
+            detailWeekNum.textContent = week;
+            const matches = matchData[week] || [];
+            if (matches.length === 0) {
+                detailContent.innerHTML = '<div class="empty-state">لا توجد مباريات هذا الأسبوع</div>';
+            } else {
+                let html = '';
+                matches.forEach(m => {
+                    const isPlayer = m.home_is_player || m.away_is_player;
+                    html += '<div class="match-item"' + (isPlayer ? ' style="border-color:#e94560;background:rgba(233,69,96,0.05);"' : '') + '>';
+                    html += '<span>' + m.home + '</span>';
+                    if (m.played) {
+                        html += '<span style="font-weight:bold;color:#e94560;">' + m.score + '</span>';
+                    } else {
+                        html += '<span style="color:#888;">معلق</span>';
+                    }
+                    html += '<span>' + m.away + '</span>';
+                    if (m.played && m.match_id) {
+                        html += '<a href="/match_report/' + m.match_id + '" class="btn-icon" title="تقرير"><i class="fas fa-file-alt"></i></a>';
+                    }
+                    html += '</div>';
+                });
+                detailContent.innerHTML = html;
+            }
+        });
+    });
+
+    // Simulate form submit with progress
+    simulateForm.addEventListener('submit', function(e) {
+        simOverlay.classList.add('active');
+        let progress = 0;
+        const interval = setInterval(function() {
+            progress += Math.random() * 8 + 2;
+            if (progress > 95) progress = 95;
+            simProgressFill.style.width = progress + '%';
+            simProgressText.textContent = Math.round(progress) + '%';
+        }, 200);
+        setTimeout(function() {
+            clearInterval(interval);
+            simProgressFill.style.width = '100%';
+            simProgressText.textContent = 'اكتمل!';
+        }, 3000);
+    });
+});
+</script>
 {% endblock %}

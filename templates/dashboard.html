@@ -1,187 +1,278 @@
 {% extends "base.html" %}
-
-{% block title %}Dashboard - Football Manager{% endblock %}
-
+{% block title %}اللوحة الرئيسية{% endblock %}
 {% block content %}
-<section class="dashboard" aria-label="لوحة التحكم">
-    <section class="game-status" aria-label="حالة الموسم">
-        <h1>الموسم {{ state.current_week }} / 10</h1>
-        <p class="day-counter" aria-live="polite">اليوم: {{ state.current_day }}</p>
-        {% if state.season_over %}
-            <div class="season-over" role="alert">انتهى الموسم! 🏆</div>
-        {% endif %}
-    </section>
+<section class="dashboard">
 
-    <nav class="controls" aria-label="تحكمات اللعبة">
+    <!-- Manager Record -->
+    <div class="manager-record">
+        <div class="record-item">
+            <div class="record-label">الفوز</div>
+            <div class="record-value green">{{ state.manager_wins or 0 }}</div>
+        </div>
+        <div class="record-item">
+            <div class="record-label">التعادل</div>
+            <div class="record-value">{{ state.manager_draws or 0 }}</div>
+        </div>
+        <div class="record-item">
+            <div class="record-label">الخسارة</div>
+            <div class="record-value red">{{ state.manager_losses or 0 }}</div>
+        </div>
+        <div class="record-item">
+            <div class="record-label">نسبة الفوز</div>
+            {% set total = (state.manager_wins|int + state.manager_losses|int + state.manager_draws|int) %}
+            <div class="record-value gold">{{ "%.0f"|format((state.manager_wins|int / total * 100) if total > 0 else 0) }}%</div>
+        </div>
+        <div class="record-item">
+            <div class="record-label">نقاط الدوري</div>
+            <div class="record-value">{{ player_team.points }}</div>
+        </div>
+        <div class="record-item">
+            <div class="record-label">البطولات</div>
+            <div class="record-value gold">{{ state.trophies or 0 }}</div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="quick-actions">
         <form action="/continue" method="POST" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <button type="submit" class="btn btn-primary" aria-label="متابعة - محاكاة أسبوع">
-                متابعة (محاكاة أسبوع)
-            </button>
+            <button type="submit" class="btn btn-primary">متابعة (أسبوع)</button>
         </form>
         <form action="/advance_week" method="POST" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <button type="submit" class="btn btn-secondary" aria-label="تقدم للمباراة القادمة">
-                تقدم للمباراة القادمة
-            </button>
+            <button type="submit" class="btn btn-secondary">تقدم للمباراة</button>
         </form>
-    </nav>
+        <a href="{{ url_for('calendar') }}" class="btn btn-secondary">التقويم</a>
+        <a href="{{ url_for('squad') }}" class="btn btn-secondary">التشكيلة</a>
+    </div>
 
-    {% if pending_actions %}
-    <div class="pending-actions" role="alert" aria-live="polite">
-        <h4>⚠️ إجراءات تنتظرك:</h4>
-        {% if pending_actions.match_day %}
-            <span class="action-badge">يوم المباراة</span>
-        {% endif %}
-        {% if pending_actions.transfer_deadline %}
-            <span class="action-badge urgent">موعد انتقالات</span>
-        {% endif %}
-        {% if pending_actions.messages %}
-            <a href="{{ url_for('messages') }}" class="action-badge">{{ pending_actions.messages }} رسائل جديدة</a>
-        {% endif %}
+    <!-- Match Day Alert -->
+    {% if state.current_day % 7 == 0 and not state.season_over %}
+    <div class="match-day-alert"><i class="fas fa-futbol"></i> يوم المباراة! توجه لمركز المباراة</div>
+    {% elif not state.season_over %}
+    <div class="card" style="text-align:center;font-size:0.85rem;color:#888;">
+        الأيام المتبقية للمباراة: {{ 7 - (state.current_day % 7) }}
     </div>
     {% endif %}
 
-    <div class="match-day-notice" aria-live="polite">
-        {% if state.current_day % 7 == 0 %}
-            <div class="match-day-alert">يوم المباراة! ⚽</div>
-        {% else %}
-            <div>الأيام المتبقية للمباراة: {{ 7 - (state.current_day % 7) }}</div>
-        {% endif %}
+    <!-- Team Stats -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <span class="stat-label">المركز</span>
+            <span class="stat-value">#{{ team_rank }}</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-label">فارق الأهداف</span>
+            <span class="stat-value" style="color:{{ '#' + ('2ecc71' if (player_team.goals_for - player_team.goals_against) >= 0 else 'e74c3c') }}">{{ player_team.goals_for - player_team.goals_against }}</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-label">الميزانية</span>
+            <span class="stat-value money-text" style="font-size:1.2rem;">${{ "{:,}".format(player_team.budget) }}</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-label">المعنويات</span>
+            <span class="stat-value">{{ player_team.morale }}%</span>
+        </div>
     </div>
 
-    <section class="manager-summary card" aria-label="ملخص النادي">
-        <div class="stat-item">
-            <span class="stat-label">النادي:</span>
-            <span class="stat-value">{{ player_team.name }}</span>
+    <!-- Squad Depth Analysis -->
+    <div class="card">
+        <div class="card-header"><h3>تحليل عمق التشكيلة</h3></div>
+        {% set starters = players|selectattr('is_starting')|selectattr('injury_days', 'equalto', 0)|list if players else [] %}
+        {% if starters %}
+            {% set ns = namespace(att=0, df=0, cnt=0) %}
+            {% for p in starters %}
+                {% set ns.att = ns.att + p.attack %}
+                {% set ns.df = ns.df + p.defense %}
+                {% set ns.cnt = ns.cnt + 1 %}
+            {% endfor %}
+            {% set avg_att = (ns.att / ns.cnt) if ns.cnt > 0 else 0 %}
+            {% set avg_def = (ns.df / ns.cnt) if ns.cnt > 0 else 0 %}
+        {% else %}
+            {% set avg_att = 0 %}
+            {% set avg_def = 0 %}
+        {% endif %}
+        <div class="squad-depth-bar">
+            <div class="depth-stat">
+                <div class="depth-label">متوسط الهجوم</div>
+                <div class="depth-value attack">{{ "%.1f"|format(avg_att) }}</div>
+            </div>
+            <div class="depth-stat">
+                <div class="depth-label">متوسط الدفاع</div>
+                <div class="depth-value defense">{{ "%.1f"|format(avg_def) }}</div>
+            </div>
+            <div class="depth-stat">
+                <div class="depth-label">الفارق</div>
+                <div class="depth-value" style="color:{{ '#2ecc71' if avg_att >= avg_def else '#e74c3c' }};">{{ "%.1f"|format(avg_att - avg_def) }}</div>
+            </div>
         </div>
-        <div class="stat-item">
-            <span class="stat-label">المركز في الدوري:</span>
-            <span class="rank-badge" aria-label="الترتيب">#{{ team_rank }}</span>
-        </div>
-        <div class="stat-item">
-            <span class="stat-label">الميزانية المتاحة:</span>
-            <span class="money-text">${{ "{:,}".format(player_team.budget) }}</span>
-        </div>
-    </section>
+    </div>
 
-    <section class="team-section" aria-label="إحصائيات الفريق">
-        <div class="stats-grid">
-            <div class="stat-card">
-                <span class="stat-label">نقاط الدوري</span>
-                <span class="stat-value">{{ player_team.points }}</span>
-            </div>
-            <div class="stat-card">
-                <span class="stat-label">فارق الأهداف</span>
-                <span class="stat-value">{{ player_team.goals_for - player_team.goals_against }}</span>
-            </div>
-            <div class="stat-card">
-                <span class="stat-label">المعنويات</span>
-                <span class="stat-value">{{ player_team.morale }}%</span>
-            </div>
-            <div class="stat-card">
-                <span class="stat-label">انتصارات</span>
-                <span class="stat-value">{{ player_team.wins }}</span>
+    <div class="dashboard-grid">
+        <!-- League Table -->
+        <div class="card">
+            <div class="card-header"><h3>ترتيب الدوري</h3></div>
+            <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>الفريق</th>
+                        <th>ل</th>
+                        <th>فارق</th>
+                        <th>نقاط</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for team in league_table[:8] %}
+                    <tr class="{{ 'row-highlight' if team.id == player_team.id }}">
+                        <td>{{ loop.index }}</td>
+                        <td style="text-align:right;">{{ team.name }}</td>
+                        <td>{{ team.wins + team.losses + team.draws }}</td>
+                        <td>{{ team.goals_for - team.goals_against }}</td>
+                        <td><strong>{{ team.points }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
             </div>
         </div>
-    </section>
 
-    <section class="squad-management" aria-label="إدارة التشكيلة">
-        <h3>قائمة اللاعبين والتشكيلة</h3>
-        <p class="hint" role="note">ملاحظة: تأكد من اختيار 11 لاعب لبدء المباراة بأقصى قوة.</p>
+        <!-- Recent Results -->
+        <div class="card">
+            <div class="card-header"><h3>النتائج الأخيرة</h3></div>
+            {% if recent_results %}
+                {% for match in recent_results[:6] %}
+                <div class="result-row">
+                    <span style="font-size:0.8rem;">{{ match.home_team.name }}</span>
+                    <span class="score">{{ match.result }}</span>
+                    <span style="font-size:0.8rem;">{{ match.away_team.name }}</span>
+                    <span class="week-label">أ{{ match.week }}</span>
+                    <a href="{{ url_for('match_report', match_id=match.id) }}" class="btn-icon" title="تقرير"><i class="fas fa-file-alt"></i></a>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">لا توجد نتائج بعد</div>
+            {% endif %}
+        </div>
+    </div>
 
-        <table class="squad-table" aria-describedby="squad-hint">
+    <!-- Squad Table -->
+    <div class="card">
+        <div class="card-header">
+            <h3>قائمة اللاعبين</h3>
+            <a href="{{ url_for('squad') }}" class="btn btn-sm btn-secondary">إدارة التشكيلة</a>
+        </div>
+        <div class="table-container">
+        <table id="dash-squad-table">
             <thead>
                 <tr>
-                    <th scope="col">المركز</th>
-                    <th scope="col">الاسم</th>
-                    <th scope="col">العمر</th>
-                    <th scope="col">الهجوم</th>
-                    <th scope="col">الدفاع</th>
-                    <th scope="col">الكامنة</th>
-                    <th scope="col">الشخصية</th>
-                    <th scope="col">القيمة</th>
-                    <th scope="col">اللياقة</th>
-                    <th scope="col">إجراء</th>
+                    <th>المركز</th>
+                    <th>الاسم</th>
+                    <th>العمر</th>
+                    <th>الهجوم</th>
+                    <th>الدفاع</th>
+                    <th>القيمة</th>
+                    <th>اللياقة</th>
+                    <th>حالة</th>
                 </tr>
             </thead>
             <tbody>
                 {% for player in players %}
-                <tr class="{{ 'row-starter' if player.is_starting else 'row-bench' }} {{ 'row-injured' if player.injury_days > 0 }}">
+                <tr class="{{ 'row-starter' if player.is_starting else '' }} {{ 'row-injured' if player.injury_days > 0 }}">
                     <td><span class="pos-tag {{ player.position }}">{{ player.position }}</span></td>
-                    <td><strong>{{ player.name }}</strong></td>
+                    <td style="text-align:right;"><a href="#" class="player-name-link" data-id="{{ player.id }}" style="color:#e0e0e0;text-decoration:none;font-weight:bold;">{{ player.name }}</a></td>
                     <td>{{ player.age }}</td>
                     <td>{{ player.attack }}</td>
                     <td>{{ player.defense }}</td>
-                    <td><span class="pot-badge">{{ player.potential }}</span></td>
-                    <td><span class="personality-tag">{{ player.personality }}</span></td>
                     <td class="money-text">${{ "{:,}".format(player.market_value) }}</td>
                     <td>
                         <div class="progress-bar">
-                            <div class="progress-fill" style="width: {{ player.fitness }}%"></div>
+                            <div class="progress-fill" style="width:{{ player.fitness }}%;background:{{ '#e74c3c' if player.fitness < 30 else '#f39c12' if player.fitness < 60 else '#2ecc71' }}"></div>
                         </div>
                     </td>
-                    <td>
-                        <form action="/toggle_starter/{{ player.id }}" method="POST">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                            <button type="submit" class="btn-icon">
-                                {{ '❌' if player.is_starting else '✅' }}
-                            </button>
-                        </form>
-                    </td>
+                    <td>{% if player.injury_days > 0 %}<span style="color:#e74c3c;font-size:0.75rem;">مصاب</span>{% elif player.is_starting %}<span style="color:#2ecc71;font-size:0.75rem;">أساسي</span>{% else %}<span style="color:#888;font-size:0.75rem;">احتياط</span>{% endif %}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-    </section>
-
-    <section class="league-snapshot" aria-label="ترتيب الدوري">
-        <h3>ترتيب الدوري</h3>
-        <table>
-            <thead>
-                <tr>
-                    <th scope="col">#</th>
-                    <th scope="col">الفريق</th>
-                    <th scope="col">لعب</th>
-                    <th scope="col">فارق</th>
-                    <th scope="col">نقاط</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for team in league_table[:6] %}
-                <tr class="{{ 'highlight' if team.id == player_team.id }}" aria-label="{{ team.name }} - {{ team.points }} نقاط">
-                    <td>{{ loop.index }}</td>
-                    <td>{{ team.name }}</td>
-                    <td>{{ team.wins + team.losses + team.draws }}</td>
-                    <td>{{ team.goals_for - team.goals_against }}</td>
-                    <td><strong>{{ team.points }}</strong></td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </section>
-
-    {% if current_match %}
-    <section class="current-match" aria-label="المباراة القادمة">
-        <h3>المباراة القادمة (الأسبوع {{ state.current_week }})</h3>
-        <p>{{ current_match.home_team.name }} vs {{ current_match.away_team.name }}</p>
-        <a href="{{ url_for('match_view') }}" class="btn btn-match" aria-label="عرض تفاصيل المباراة">عرض/details</a>
-    </section>
-    {% endif %}
-
-    {% if recent_results %}
-    <section class="recent-results" aria-label="النتائج الأخيرة">
-        <h3>النتائج الأخيرة</h3>
-        {% for match in recent_results[:5] %}
-        <div class="result-row" aria-label="{{ match.home_team.name }} {{ match.result }} {{ match.away_team.name }}">
-            <span>{{ match.home_team.name }}</span>
-            <span class="score">{{ match.result }}</span>
-            <span>{{ match.away_team.name }}</span>
-            <span class="week-label">أ{{ match.week }}</span>
-            <a href="{{ url_for('match_report', match_id=match.id) }}" class="btn-small">تقرير</a>
         </div>
-        {% endfor %}
-    </section>
-    {% endif %}
+    </div>
+
 </section>
+
+<!-- Player Profile Modal -->
+<div class="modal-overlay" id="playerModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="modalPlayerName">—</h2>
+            <button class="modal-close" id="modalClose">&times;</button>
+        </div>
+        <div class="modal-body" id="modalBody">
+            <div class="modal-stats" id="modalStats"></div>
+            <div class="modal-section">
+                <h4>آخر التقييمات</h4>
+                <div id="modalRatings"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const modal = document.getElementById('playerModal');
+    const modalClose = document.getElementById('modalClose');
+    const modalName = document.getElementById('modalPlayerName');
+    const modalStats = document.getElementById('modalStats');
+    const modalRatings = document.getElementById('modalRatings');
+
+    document.querySelectorAll('.player-name-link').forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            const playerId = this.dataset.id;
+            fetch('/player_profile/' + playerId)
+                .then(r => r.json())
+                .then(data => {
+                    modalName.textContent = data.name + ' (' + data.position + ')';
+                    modalStats.innerHTML = `
+                        <div class="modal-stat"><span class="modal-stat-label">العمر</span><span class="modal-stat-value">${data.age}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">الطول</span><span class="modal-stat-value">${data.height} سم</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">الوزن</span><span class="modal-stat-value">${data.weight} كج</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">مكان الولادة</span><span class="modal-stat-value">${data.region}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">الهجوم</span><span class="modal-stat-value">${data.attack}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">الدفاع</span><span class="modal-stat-value">${data.defense}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">الكامنة</span><span class="modal-stat-value">${data.potential}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">الشخصية</span><span class="modal-stat-value">${data.personality}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">القيمة</span><span class="modal-stat-value money-text">$${Number(data.market_value).toLocaleString()}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">اللياقة</span><span class="modal-stat-value">${data.fitness}%</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">المباريات</span><span class="modal-stat-value">${data.matches_played}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">الأهداف</span><span class="modal-stat-value">${data.goals}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">التمريرات الحاسمة</span><span class="modal-stat-value">${data.assists}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">متوسط التقييم</span><span class="modal-stat-value">${data.avg_rating}</span></div>
+                    `;
+                    if (data.recent_ratings && data.recent_ratings.length > 0) {
+                        let html = '<table><thead><tr><th>تقييم</th><th>أهداف</th><th>تمريرات</th></tr></thead><tbody>';
+                        data.recent_ratings.forEach(r => {
+                            html += `<tr><td>${r.rating}</td><td>${r.goals}</td><td>${r.assists}</td></tr>`;
+                        });
+                        html += '</tbody></table>';
+                        modalRatings.innerHTML = html;
+                    } else {
+                        modalRatings.innerHTML = '<div class="empty-state">لا توجد تقييمات بعد</div>';
+                    }
+                    modal.classList.add('active');
+                });
+        });
+    });
+
+    modalClose.addEventListener('click', function() {
+        modal.classList.remove('active');
+    });
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) modal.classList.remove('active');
+    });
+});
+</script>
 {% endblock %}

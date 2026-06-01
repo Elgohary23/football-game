@@ -1,94 +1,141 @@
 {% extends "base.html" %}
-
-{% block title %}Match - Football Manager{% endblock %}
-
+{% block title %}مركز المباراة{% endblock %}
 {% block content %}
-<div class="match-view">
-    <h1>مركز المباراة</h1>
+<section class="dashboard">
+    <h1 style="color:#e94560;text-align:center;margin-bottom:1rem;">مركز المباراة</h1>
 
     {% if state.season_over %}
-        <div class="season-over-message">
-            <h2>انتهى الموسم!</h2>
-            <p>شكراً للعب.</p>
-            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">العودة للوحة التحكم</a>
-        </div>
+    <div class="card" style="text-align:center;padding:2rem;">
+        <h2 style="color:#e94560;">انتهى الموسم!</h2>
+        <p style="color:#888;margin:1rem 0;">شكراً للعب.</p>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-primary">العودة للوحة التحكم</a>
+    </div>
     {% elif not match %}
-        <div class="no-match">
-            <h2>لا توجد مباراة هذا الأسبوع</h2>
-            <p>لا توجد مباراة مجدولة هذا الأسبوع.</p>
-            <p>الأيام المتبقية للمباراة: {{ 7 - (state.current_day % 7) }}</p>
-            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">العودة للوحة التحكم</a>
-        </div>
+    <div class="card" style="text-align:center;padding:2rem;">
+        <h2 style="color:#888;">لا توجد مباراة هذا الأسبوع</h2>
+        <p style="color:#888;margin:0.5rem 0;">الأيام المتبقية: {{ 7 - (state.current_day % 7) }}</p>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-primary" style="margin-top:1rem;">العودة للوحة التحكم</a>
+    </div>
     {% else %}
-        {% if scouting %}
-        <div class="scouting-report card">
-            <h3>تقرير الكشافة عن الخصم</h3>
-            <div class="scouting-info">
-                <div class="scout-item">
-                    <label>فريق الخصم:</label> <span>{{ scouting.name }}</span>
-                </div>
-                <div class="scout-item">
-                    <label>اللاعب الخطير:</label> <span>{{ scouting.danger_man_name }} ({{ scouting.danger_man_goals }} أهداف)</span>
-                </div>
-                <div class="scout-item">
-                    <label>متوسط الدفاع:</label> <span>{{ "%.1f"|format(scouting.avg_defense) }}</span>
-                </div>
-                <div class="scout-item">
-                    <label>الحالة المعنوية:</label> <span>{{ scouting.morale_desc }}</span>
-                </div>
-            </div>
-        </div>
-        {% endif %}
+    {% set home_players = match.home_team.players if match.home_team else [] %}
+    {% set away_players = match.away_team.players if match.away_team else [] %}
+    {% set home_starters = home_players|selectattr('is_starting')|selectattr('injury_days', 'equalto', 0)|list %}
+    {% set away_starters = away_players|selectattr('is_starting')|selectattr('injury_days', 'equalto', 0)|list %}
+    {% set h_att = home_starters|sum(attribute='attack') / (home_starters|length if home_starters|length > 0 else 1) %}
+    {% set h_def = home_starters|sum(attribute='defense') / (home_starters|length if home_starters|length > 0 else 1) %}
+    {% set a_att = away_starters|sum(attribute='attack') / (away_starters|length if away_starters|length > 0 else 1) %}
+    {% set a_def = away_starters|sum(attribute='defense') / (away_starters|length if away_starters|length > 0 else 1) %}
+    {% set total_strength = h_att + h_def + a_att + a_def %}
+    {% set home_att_pct = (h_att / (h_att + a_def) * 50) if (h_att + a_def) > 0 else 50 %}
+    {% set home_def_pct = (h_def / (h_def + a_att) * 50) if (h_def + a_att) > 0 else 50 %}
 
-        <div class="match-header">
-            <div class="team-display home">
-                <h2>{{ match.home_team.name }}</h2>
-                <div class="team-stats">
-                    <span> Morale: {{ match.home_team.morale }}</span>
-                    <span> Points: {{ match.home_team.points }}</span>
-                </div>
-            </div>
-            
-            <div class="match-score">
-                {% if match.played %}
-                    <span class="score-display">{{ match.result }}</span>
-                {% else %}
-                    <span class="vs-display">VS</span>
-                {% endif %}
-            </div>
-            
-            <div class="team-display away">
-                <h2>{{ match.away_team.name }}</h2>
-                <div class="team-stats">
-                    <span> Morale: {{ match.away_team.morale }}</span>
-                    <span> Points: {{ match.away_team.points }}</span>
-                </div>
-            </div>
+    {% if scouting %}
+    <div class="card">
+        <div class="card-header"><h3>تقرير الكشافة</h3></div>
+        <div style="display:flex;gap:1.5rem;flex-wrap:wrap;font-size:0.85rem;">
+            <span><span style="color:#888;">الخصم:</span> <strong>{{ scouting.name }}</strong></span>
+            <span><span style="color:#888;">اللاعب الخطير:</span> <strong>{{ scouting.danger_man_name }}</strong> ({{ scouting.danger_man_goals }} هدف)</span>
+            <span><span style="color:#888;">متوسط الدفاع:</span> <strong>{{ "%.1f"|format(scouting.avg_defense) }}</strong></span>
+            <span><span style="color:#888;">المعنويات:</span> <strong>{{ scouting.morale_desc }}</strong></span>
         </div>
-
-        {% if match.played %}
-        <div class="match-result-details">
-            <h3>انتهت المباراة!</h3>
-            <div class="result-summary">
-                {% set home_score = match.result.split('-')[0]|int %}
-                {% set away_score = match.result.split('-')[1]|int %}
-                
-                {% if home_score > away_score %}
-                    <p class="winner">{{ match.home_team.name }} فاز!</p>
-                {% elif away_score > home_score %}
-                    <p class="winner">{{ match.away_team.name }} فاز!</p>
-                {% else %}
-                    <p class="draw">تعادل!</p>
-                {% endif %}
-            </div>
-            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">العودة للوحة التحكم</a>
-        </div>
-        {% else %}
-        <div class="match-actions">
-            <p>ستلعب المباراة تلقائياً عند التقدم ليوم المباراة.</p>
-            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">العودة للوحة التحكم</a>
-        </div>
-        {% endif %}
+    </div>
     {% endif %}
-</div>
+
+    <div class="match-hub">
+        <!-- Home Lineup -->
+        <div class="match-column">
+            <h3>{{ match.home_team.name }}</h3>
+            {% for p in home_starters[:11] %}
+            <div class="match-player-row">
+                <span class="mp-name"><span class="pos-tag {{ p.position }}" style="font-size:0.6rem;">{{ p.position }}</span> {{ p.name }}</span>
+                <span class="mp-rating">{{ p.attack }}/{{ p.defense }}</span>
+            </div>
+            {% endfor %}
+            {% if home_starters|length < 11 %}
+            <div style="color:#e74c3c;font-size:0.75rem;text-align:center;padding:0.5rem;">
+                {{ 11 - home_starters|length }} لاعب ناقص! (عقوبة -{{ ((11 - home_starters|length) * 5)|int }}%)
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Stats Comparison -->
+        <div class="match-column stats">
+            <h3>مقارنة إحصائية</h3>
+            {% if match.played %}
+            <div class="match-result-display">
+                <div class="score-big">{{ match.home_score }} - {{ match.away_score }}</div>
+                <div class="match-status">انتهت المباراة</div>
+                <a href="{{ url_for('match_report', match_id=match.id) }}" class="btn btn-primary btn-sm" style="margin-top:0.8rem;">تقرير المباراة</a>
+            </div>
+            {% else %}
+            <div class="stats-comparison">
+                <div class="stat-comp">
+                    <div class="stat-label">الهجوم</div>
+                    <div class="stat-numbers">
+                        <span class="home">{{ "%.0f"|format(h_att) }}</span>
+                        <span>{{ "%.0f"|format(a_att) }}</span>
+                    </div>
+                    <div class="stat-bar">
+                        {% set h_att_total = h_att + a_att %}
+                        {% set h_att_pct = (h_att / h_att_total * 100) if h_att_total > 0 else 50 %}
+                        <div class="bar-home" style="width:{{ h_att_pct }}%"></div>
+                        <div class="bar-away" style="width:{{ 100 - h_att_pct }}%"></div>
+                    </div>
+                </div>
+                <div class="stat-comp">
+                    <div class="stat-label">الدفاع</div>
+                    <div class="stat-numbers">
+                        <span class="home">{{ "%.0f"|format(h_def) }}</span>
+                        <span>{{ "%.0f"|format(a_def) }}</span>
+                    </div>
+                    <div class="stat-bar">
+                        {% set h_def_total = h_def + a_def %}
+                        {% set h_def_pct = (h_def / h_def_total * 100) if h_def_total > 0 else 50 %}
+                        <div class="bar-home" style="width:{{ h_def_pct }}%"></div>
+                        <div class="bar-away" style="width:{{ 100 - h_def_pct }}%"></div>
+                    </div>
+                </div>
+                <div class="stat-comp">
+                    <div class="stat-label">المعنويات</div>
+                    <div class="stat-numbers">
+                        <span class="home">{{ match.home_team.morale }}%</span>
+                        <span>{{ match.away_team.morale }}%</span>
+                    </div>
+                    <div class="stat-bar">
+                        {% set h_mor = match.home_team.morale %}
+                        {% set a_mor = match.away_team.morale %}
+                        {% set mor_total = h_mor + a_mor %}
+                        <div class="bar-home" style="width:{{ (h_mor / mor_total * 100) if mor_total > 0 else 50 }}%"></div>
+                        <div class="bar-away" style="width:{{ (a_mor / mor_total * 100) if mor_total > 0 else 50 }}%"></div>
+                    </div>
+                </div>
+                <div class="stat-comp">
+                    <div class="stat-label">نقاط الدوري</div>
+                    <div class="stat-numbers">
+                        <span class="home">{{ match.home_team.points }}</span>
+                        <span>{{ match.away_team.points }}</span>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Away Lineup -->
+        <div class="match-column away">
+            <h3>{{ match.away_team.name }}</h3>
+            {% for p in away_starters[:11] %}
+            <div class="match-player-row">
+                <span class="mp-name"><span class="pos-tag {{ p.position }}" style="font-size:0.6rem;">{{ p.position }}</span> {{ p.name }}</span>
+                <span class="mp-rating">{{ p.attack }}/{{ p.defense }}</span>
+            </div>
+            {% endfor %}
+            {% if away_starters|length < 11 %}
+            <div style="color:#e74c3c;font-size:0.75rem;text-align:center;padding:0.5rem;">
+                {{ 11 - away_starters|length }} لاعب ناقص
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</section>
 {% endblock %}

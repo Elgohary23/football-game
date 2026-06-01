@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}سوق الانتقالات{% endblock %}
+{% block content %}
+<section class="dashboard">
+    <h1 style="color:#e94560;margin-bottom:0.5rem;">سوق الانتقالات</h1>
+    <p style="color:#888;font-size:0.85rem;margin-bottom:1rem;">الميزانية: <strong class="money-text">${{ "{:,}".format(player_team.budget) }}</strong></p>
+
+    <div class="scouting-controls">
+        <input type="text" id="searchName" class="filter-input" placeholder="ابحث عن لاعب..." style="flex:1;min-width:150px;">
+        <select id="filterPos" class="filter-input">
+            <option value="">كل المراكز</option>
+            <option value="GK">حارس</option>
+            <option value="DEF">دفاع</option>
+            <option value="MID">وسط</option>
+            <option value="FWD">هجوم</option>
+        </select>
+        <select id="filterAge" class="filter-input">
+            <option value="">كل الأعمار</option>
+            <option value="16-21">16-21</option>
+            <option value="22-27">22-27</option>
+            <option value="28-35">28-35</option>
+        </select>
+        <select id="sortBy" class="filter-input">
+            <option value="value_desc">القيمة ↓</option>
+            <option value="value_asc">القيمة ↑</option>
+            <option value="attack_desc">الهجوم ↓</option>
+            <option value="defense_desc">الدفاع ↓</option>
+            <option value="age_asc">العمر ↑</option>
+        </select>
+    </div>
+
+    <div class="card">
+        <div class="table-container" style="max-height:600px;overflow-y:auto;">
+        <table id="scoutTable">
+            <thead>
+                <tr>
+                    <th>الاسم</th>
+                    <th>المركز</th>
+                    <th>العمر</th>
+                    <th>الهجوم</th>
+                    <th>الدفاع</th>
+                    <th>القيمة</th>
+                    <th>النادي</th>
+                    <th>إجراء</th>
+                </tr>
+            </thead>
+            <tbody id="scoutTableBody">
+                {% for p in players %}
+                <tr class="scout-row" data-pos="{{ p.position }}" data-age="{{ p.age }}" data-val="{{ p.market_value }}" data-att="{{ p.attack }}" data-def="{{ p.defense }}">
+                    <td style="text-align:right;font-weight:bold;">{{ p.name }}</td>
+                    <td><span class="pos-tag {{ p.position }}">{{ p.position }}</span></td>
+                    <td>{{ p.age }}</td>
+                    <td>{{ p.attack }}</td>
+                    <td>{{ p.defense }}</td>
+                    <td class="money-text">${{ "{:,}".format(p.market_value) }}</td>
+                    <td style="font-size:0.8rem;">{{ p.team.name if p.team else '—' }}</td>
+                    <td>
+                        <form action="/buy_player/{{ p.id }}" method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <button type="submit" class="btn btn-sm btn-success" {% if player_team.budget < p.market_value %}disabled title="الميزانية غير كافية"{% endif %}>
+                                شراء
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+
+    <a href="{{ url_for('dashboard') }}" class="btn-back">← العودة للوحة</a>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('searchName');
+    const filterPos = document.getElementById('filterPos');
+    const filterAge = document.getElementById('filterAge');
+    const sortBy = document.getElementById('sortBy');
+    const tbody = document.getElementById('scoutTableBody');
+    const rows = Array.from(tbody.querySelectorAll('.scout-row'));
+
+    function filterAndSort() {
+        const search = searchInput.value.toLowerCase();
+        const pos = filterPos.value;
+        const age = filterAge.value;
+        const sort = sortBy.value;
+
+        let filtered = rows.filter(row => {
+            const name = row.cells[0].textContent.toLowerCase();
+            const rpos = row.dataset.pos;
+            const rage = parseInt(row.dataset.age);
+            if (search && !name.includes(search)) return false;
+            if (pos && rpos !== pos) return false;
+            if (age) {
+                const [min, max] = age.split('-').map(Number);
+                if (rage < min || rage > max) return false;
+            }
+            return true;
+        });
+
+        filtered.sort((a, b) => {
+            const va = parseFloat(a.dataset.val);
+            const vb = parseFloat(b.dataset.val);
+            const aa = parseFloat(a.dataset.att);
+            const ab = parseFloat(b.dataset.att);
+            const da = parseFloat(a.dataset.def);
+            const db = parseFloat(b.dataset.def);
+            const agea = parseInt(a.dataset.age);
+            const ageb = parseInt(b.dataset.age);
+            switch (sort) {
+                case 'value_desc': return vb - va;
+                case 'value_asc': return va - vb;
+                case 'attack_desc': return ab - aa;
+                case 'defense_desc': return db - da;
+                case 'age_asc': return agea - ageb;
+                default: return 0;
+            }
+        });
+
+        rows.forEach(r => r.style.display = 'none');
+        filtered.forEach(r => r.style.display = '');
+        filtered.forEach(r => tbody.appendChild(r));
+    }
+
+    searchInput.addEventListener('input', filterAndSort);
+    filterPos.addEventListener('change', filterAndSort);
+    filterAge.addEventListener('change', filterAndSort);
+    sortBy.addEventListener('change', filterAndSort);
+});
+</script>
+{% endblock %}

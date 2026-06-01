@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}اختيار الدوري{% endblock %}
+{% block content %}
+<section class="load-screen">
+    <div class="setup-header">
+        <h1>اختيار الدوري</h1>
+        <p class="setup-subtitle">قارن بين الدوريات المتاحة واختر المناسب لك</p>
+    </div>
+    {% if state %}
+    <div style="text-align:center;margin-bottom:1.5rem;color:#888;font-size:0.9rem;">
+        <span style="color:#888;">المدرب:</span>
+        <span style="color:#e94560;font-weight:bold;">{{ state.manager_name }}</span>
+        {% if state.manager_nationality %}
+        <span style="color:#444;">|</span>
+        <span style="color:#e0e0e0;">{{ state.manager_nationality }}</span>
+        {% endif %}
+    </div>
+    {% endif %}
+    <div class="leagues-compare">
+        {% for league in leagues %}
+        <a href="{{ url_for('select_team', slot_id=slot_id, league_id=league.id) }}" class="league-row l{{ league.tier }}">
+            <div class="league-tier-badge">{{ league.tier }}</div>
+            <div>
+                <h3>{{ league.name }}</h3>
+            </div>
+            <div class="league-meta">
+                <span class="teams-count">فرق</span>
+                <span class="teams-num">{{ league.teams|length }}</span>
+            </div>
+            <div class="league-diff">
+                {% if league.tier == 1 %}احترافي
+                {% elif league.tier == 2 %}متقدم
+                {% elif league.tier == 3 %}متوسط
+                {% else %}مبتدئ
+                {% endif %}
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

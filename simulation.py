@@ -15,6 +15,58 @@ from models import db, Team, Player, Match, Message, PlayerRating, TransferOffer
 logger = logging.getLogger(__name__)
 
 
+def calculate_team_tier(team_id: int) -> dict:
+    """
+    Calculate team tier/rating without starting a game.
+    Uses the best 11 players based on position-appropriate stats:
+    - FWD/MID: attack stat
+    - DEF/GK: defense stat
+    """
+    team = db.session.get(Team, team_id)
+    if not team or not team.players:
+        return {"tier": "D", "rating": 0, "attack": 0, "defense": 0, "squad_depth": 0}
+
+    all_players = list(team.players)
+    available = [p for p in all_players if p.injury_days == 0]
+
+    def get_position_rating(player):
+        if player.position in ["FWD", "MID"]:
+            return player.attack
+        return player.defense
+
+    available.sort(key=get_position_rating, reverse=True)
+
+    best_11 = available[:11]
+    if len(best_11) < 11:
+        return {"tier": "D", "rating": 0, "attack": 0, "defense": 0, "squad_depth": len(available)}
+
+    attack = sum(p.attack for p in best_11) / 11
+    defense = sum(p.defense for p in best_11) / 11
+    overall = (attack + defense) / 2
+
+    squad_depth = len([p for p in available if p not in best_11])
+
+    if overall >= 75:
+        tier = "S"
+    elif overall >= 65:
+        tier = "A"
+    elif overall >= 55:
+        tier = "B"
+    elif overall >= 45:
+        tier = "C"
+    else:
+        tier = "D"
+
+    return {
+        "tier": tier,
+        "rating": round(overall, 1),
+        "attack": round(attack, 1),
+        "defense": round(defense, 1),
+        "squad_depth": squad_depth,
+        "best_11": best_11
+    }
+
+
 def get_lineup_strength(team: Team) -> tuple[float, float]:
     """Calculate team strength based on starting XI."""
     if not team or not team.players:
@@ -48,20 +100,18 @@ def get_lineup_strength(team: Team) -> tuple[float, float]:
 
 
 def match_director(match: Match, state: GameState) -> bool:
-    """Routes a match to the appropriate simulation fidelity level."""
     home = match.home_team
     away = match.away_team
     
-    # Tier 1: Deep Simulation (User Team involved)
     if home.is_player_team or away.is_player_team:
-        return simulate_match_deep(match)
+        result = simulate_match_deep(match)
+    elif state.user_league_id and home.league_id == state.user_league_id:
+        result = simulate_match_medium(match)
+    else:
+        result = simulate_match_quick(match)
     
-    # Tier 2: Medium Simulation (Same league as user)
-    if state.user_league_id and home.league_id == state.user_league_id:
-        return simulate_match_medium(match)
-    
-    # Tier 3: Quick Simulation (Other leagues)
-    return simulate_match_quick(match)
+    update_manager_record(match, state)
+    return result
 
 
 def simulate_match_quick(match: Match) -> bool:
@@ -180,6 +230,39 @@ def assign_scorers(team: Team, goals_count: int) -> None:
         
         scorer = random.choices(starters, weights=weights, k=1)[0]
         scorer.goals += 1
+
+
+def update_manager_record(match: Match, state: GameState) -> None:
+    if not state:
+        return
+    home = match.home_team
+    away = match.away_team
+    if not home or not away:
+        return
+    player_team_id = None
+    for t in [home, away]:
+        if t.is_player_team:
+            player_team_id = t.id
+            break
+    if player_team_id is None:
+        return
+    is_home = (player_team_id == home.id)
+    h_score = match.home_score or 0
+    a_score = match.away_score or 0
+    if is_home:
+        if h_score > a_score:
+            state.manager_wins = (state.manager_wins or 0) + 1
+        elif a_score > h_score:
+            state.manager_losses = (state.manager_losses or 0) + 1
+        else:
+            state.manager_draws = (state.manager_draws or 0) + 1
+    else:
+        if a_score > h_score:
+            state.manager_wins = (state.manager_wins or 0) + 1
+        elif h_score > a_score:
+            state.manager_losses = (state.manager_losses or 0) + 1
+        else:
+            state.manager_draws = (state.manager_draws or 0) + 1
 
 
 def update_league_table(home: Team, away: Team, h_score: int, a_score: int) -> None:
@@ -384,7 +467,10 @@ def get_messages() -> list:
 
 
 def get_unread_count() -> int:
-    return Message.query.filter_by(read=False).count()
+    try:
+        return Message.query.filter_by(read=False).count()
+    except Exception:
+        return 0
 
 
 def mark_message_read(mid) -> None:
@@ -395,6 +481,17 @@ def mark_message_read(mid) -> None:
 def get_match_report(mid) -> Optional[dict]:
     m = db.session.get(Match, mid)
     if not m: return None
+    
+    home_ratings = db.session.query(PlayerRating).join(Player).filter(
+        PlayerRating.match_id == mid,
+        Player.team_id == m.home_team_id
+    ).all()
+    
+    away_ratings = db.session.query(PlayerRating).join(Player).filter(
+        PlayerRating.match_id == mid,
+        Player.team_id == m.away_team_id
+    ).all()
+    
     return {
         "match": m,
         "home": m.home_team,
@@ -403,8 +500,10 @@ def get_match_report(mid) -> Optional[dict]:
         "away_events": json.loads(m.away_events) if m.away_events else [],
         "home_possession": m.home_possession,
         "away_possession": m.away_possession,
-        "home_ratings": PlayerRating.query.filter_by(match_id=mid).all()
+        "home_ratings": home_ratings,
+        "away_ratings": away_ratings
     }
+
 
 def get_pending_actions(state) -> dict:
     return {"match_day": is_match_day(state), "messages": get_unread_count()}

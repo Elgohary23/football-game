@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}بيانات المدرب{% endblock %}
+{% block content %}
+<section class="setup-screen">
+    <div class="setup-container">
+        <div class="setup-header">
+            <div class="setup-icon"><i class="fas fa-user-tie"></i></div>
+            <h1>بيانات المدرب</h1>
+            <p class="setup-subtitle">أدخل اسمك كمدرب لتبدأ المغامرة</p>
+        </div>
+        <form method="POST" action="{{ url_for('new_manager', slot_id=slot_id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <div class="form-group">
+                <label for="manager_name">اسم المدرب</label>
+                <input type="text" id="manager_name" name="manager_name" class="form-control" required placeholder="أدخل اسمك" autofocus>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">التالي</button>
+                <a href="{{ url_for('load_game') }}" class="btn btn-secondary">إلغاء</a>
+            </div>
+        </form>
+    </div>
+</section>
+{% endblock %}

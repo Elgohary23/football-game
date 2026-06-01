@@ -1,110 +1,131 @@
 {% extends "base.html" %}
-
 {% block title %}تقرير المباراة{% endblock %}
-
 {% block content %}
-<div class="match-report">
-    <h1>تقرير المباراة</h1>
-    
-    <div class="match-header">
-        <div class="team home">
-            <h2>{{ report.home.name }}</h2>
+<section class="dashboard">
+    <h1 style="color:#e94560;text-align:center;margin-bottom:1rem;">تقرير المباراة</h1>
+
+    <div class="match-report-header">
+        <div class="team-name" style="text-align:center;">
+            <div>{{ report.home.name }}</div>
+            <div style="font-size:0.75rem;color:#888;">نقاط: {{ report.home.points }}</div>
+        </div>
+        <div style="text-align:center;">
             <div class="score">{{ report.match.home_score }} - {{ report.match.away_score }}</div>
+            <div style="font-size:0.8rem;color:#888;">الأسبوع {{ report.match.week }}</div>
         </div>
-        <div class="vs"> ضد </div>
-        <div class="team away">
-            <h2>{{ report.away.name }}</h2>
-        </div>
-    </div>
-    
-    <div class="match-info">
-        <p>الأسبوع: {{ report.match.week }}</p>
-    </div>
-    
-    <div class="possession-chart">
-        <h3>استحواذ</h3>
-        <div class="possession-bar">
-            <div class="home-pos" style="width: {{ report.home_possession }}%">{{ report.home_possession }}%</div>
-            <div class="away-pos" style="width: {{ report.away_possession }}%">{{ report.away_possession }}%</div>
+        <div class="team-name" style="text-align:center;">
+            <div>{{ report.away.name }}</div>
+            <div style="font-size:0.75rem;color:#888;">نقاط: {{ report.away.points }}</div>
         </div>
     </div>
-    
-    <div class="events-timeline">
-        <h3>أحداث المباراة</h3>
-        <div class="home-events">
-            <h4>{{ report.home.name }}</h4>
-            {% for event in report.home_events %}
-                <div class="event {{ event.type }}">
-                    <span class="minute">{{ event.minute }}'</span>
-                    <span>{{ event.description }}</span>
+
+    <!-- Possession -->
+    <div class="card">
+        <div class="card-header"><h3>الاستحواذ</h3></div>
+        <div class="stat-comp">
+            <div class="stat-numbers">
+                <span class="home">{{ report.home.name }} {{ report.home_possession }}%</span>
+                <span>{{ report.away_possession }}% {{ report.away.name }}</span>
+            </div>
+            <div class="stat-bar" style="height:24px;margin-top:0.3rem;">
+                <div class="bar-home" style="width:{{ report.home_possession }}%"></div>
+                <div class="bar-away" style="width:{{ report.away_possession }}%"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Events -->
+    <div class="card">
+        <div class="card-header"><h3>أحداث المباراة</h3></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+            <div>
+                <h4 style="color:#e94560;margin-bottom:0.5rem;font-size:0.9rem;">{{ report.home.name }}</h4>
+                {% for event in report.home_events %}
+                <div style="padding:0.3rem 0;font-size:0.85rem;">
+                    <span style="color:#e94560;font-weight:bold;">{{ event.minute }}'</span>
+                    <span>⚽ هدف!</span>
                 </div>
-            {% endfor %}
-        </div>
-        <div class="away-events">
-            <h4>{{ report.away.name }}</h4>
-            {% for event in report.away_events %}
-                <div class="event {{ event.type }}">
-                    <span class="minute">{{ event.minute }}'</span>
-                    <span>{{ event.description }}</span>
+                {% endfor %}
+                {% if report.home_events|length == 0 %}
+                <div style="color:#888;font-size:0.8rem;">لا أحداث</div>
+                {% endif %}
+            </div>
+            <div>
+                <h4 style="color:#3498db;margin-bottom:0.5rem;font-size:0.9rem;">{{ report.away.name }}</h4>
+                {% for event in report.away_events %}
+                <div style="padding:0.3rem 0;font-size:0.85rem;">
+                    <span style="color:#e94560;font-weight:bold;">{{ event.minute }}'</span>
+                    <span>⚽ هدف!</span>
                 </div>
-            {% endfor %}
+                {% endfor %}
+                {% if report.away_events|length == 0 %}
+                <div style="color:#888;font-size:0.8rem;">لا أحداث</div>
+                {% endif %}
+            </div>
         </div>
     </div>
-    
-    <div class="player-ratings">
-        <div class="home-ratings">
-            <h3>تقييمات {{ report.home.name }}</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>اللاعب</th>
-                        <th>المركز</th>
-                        <th>التقييم</th>
-                        <th>الأهداف</th>
-                        <th>التمريرات الحاسمة</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for rating in report.home_ratings %}
-                    <tr>
-                        <td>{{ rating.player.name }}</td>
-                        <td>{{ rating.player.position }}</td>
-                        <td>{{ rating.rating }}</td>
-                        <td>{{ rating.goals }}</td>
-                        <td>{{ rating.assists }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        
-        <div class="away-ratings">
-            <h3>تقييمات {{ report.away.name }}</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>اللاعب</th>
-                        <th>المركز</th>
-                        <th>التقييم</th>
-                        <th>الأهداف</th>
-                        <th>التمريرات الحاسمة</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for rating in report.away_ratings %}
-                    <tr>
-                        <td>{{ rating.player.name }}</td>
-                        <td>{{ rating.player.position }}</td>
-                        <td>{{ rating.rating }}</td>
-                        <td>{{ rating.goals }}</td>
-                        <td>{{ rating.assists }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+
+    <!-- Player Ratings -->
+    <div class="card">
+        <div class="card-header"><h3>تقييمات اللاعبين</h3></div>
+        <div class="ratings-grid">
+            <div>
+                <h4 style="color:#e94560;margin-bottom:0.5rem;font-size:0.9rem;">{{ report.home.name }}</h4>
+                <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>اللاعب</th>
+                            <th>المركز</th>
+                            <th>التقييم</th>
+                            <th>أهداف</th>
+                            <th>تمريرات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for rating in report.home_ratings %}
+                        <tr>
+                            <td style="text-align:right;font-weight:bold;">{{ rating.player.name }}</td>
+                            <td><span class="pos-tag {{ rating.player.position }}">{{ rating.player.position }}</span></td>
+                            <td style="color:{{ '#2ecc71' if rating.rating >= 7 else '#f39c12' if rating.rating >= 6 else '#e74c3c' }};font-weight:bold;">{{ rating.rating }}</td>
+                            <td>{{ rating.goals }}</td>
+                            <td>{{ rating.assists }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                </div>
+            </div>
+            <div>
+                <h4 style="color:#3498db;margin-bottom:0.5rem;font-size:0.9rem;">{{ report.away.name }}</h4>
+                <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>اللاعب</th>
+                            <th>المركز</th>
+                            <th>التقييم</th>
+                            <th>أهداف</th>
+                            <th>تمريرات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for rating in report.away_ratings %}
+                        <tr>
+                            <td style="text-align:right;font-weight:bold;">{{ rating.player.name }}</td>
+                            <td><span class="pos-tag {{ rating.player.position }}">{{ rating.player.position }}</span></td>
+                            <td style="color:{{ '#2ecc71' if rating.rating >= 7 else '#f39c12' if rating.rating >= 6 else '#e74c3c' }};font-weight:bold;">{{ rating.rating }}</td>
+                            <td>{{ rating.goals }}</td>
+                            <td>{{ rating.assists }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                </div>
+            </div>
         </div>
     </div>
-    
-    <a href="{{ url_for('dashboard') }}" class="btn-back">العودة للوحة</a>
-</div>
+
+    <a href="{{ url_for('dashboard') }}" class="btn-back">← العودة للوحة</a>
+</section>
 {% endblock %}

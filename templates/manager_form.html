@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}بيانات المدرب{% endblock %}
+{% block content %}
+<section class="setup-screen">
+    <div class="setup-container">
+        <div class="setup-header">
+            <div class="setup-icon"><i class="fas fa-user-tie"></i></div>
+            <h1>بيانات المدرب</h1>
+            <p class="setup-subtitle">لقد اخترت فريق <strong style="color:#e94560;">{{ team.name }}</strong>، أدخل اسمك لتبدأ</p>
+        </div>
+        <form action="{{ url_for('manager_form', slot_id=slot_id, team_id=team.id) }}" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <div class="form-group">
+                <label for="manager_name">اسم المدرب</label>
+                <input type="text" id="manager_name" name="manager_name" class="form-control" placeholder="أدخل اسمك" required autofocus>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary btn-lg">ابدأ اللعبة</button>
+                <a href="{{ url_for('select_team', slot_id=slot_id, league_id=team.league_id) }}" class="btn btn-secondary">رجوع</a>
+            </div>
+        </form>
+    </div>
+</section>
+{% endblock %}

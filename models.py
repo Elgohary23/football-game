@@ -70,10 +70,16 @@ class League(db.Model):
 
 class GameState(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    manager_name = db.Column(db.String(50), default="المدرب")
+    manager_nationality = db.Column(db.String(50), default="غير محدد")
     current_day = db.Column(db.Integer, default=1)
     current_week = db.Column(db.Integer, default=1)
     season_over = db.Column(db.Boolean, default=False)
     user_league_id = db.Column(db.Integer, db.ForeignKey('league.id'), nullable=True)
+    manager_wins = db.Column(db.Integer, default=0)
+    manager_losses = db.Column(db.Integer, default=0)
+    manager_draws = db.Column(db.Integer, default=0)
+    trophies = db.Column(db.Integer, default=0)
 
 
 class Match(db.Model):
@@ -116,6 +122,7 @@ class PlayerRating(db.Model):
     assists = db.Column(db.Integer, default=0)
     
     player = db.relationship('Player')
+    match = db.relationship('Match')
 
 
 class TransferOffer(db.Model):

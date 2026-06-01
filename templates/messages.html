@@ -1,60 +1,82 @@
 {% extends "base.html" %}
-
 {% block title %}الرسائل{% endblock %}
-
 {% block content %}
-<div class="messages-page">
-    <h1>الرسائل</h1>
-    
-    {% if messages or pending_offers %}
-        {% if messages %}
-        <div class="messages-list">
-            {% for msg in messages %}
-                <div class="message-item {% if not msg.read %}unread{% endif %} {% if msg.urgent %}urgent{% endif %}">
-                    <div class="message-header">
-                        <span class="message-type">{{ msg.type }}</span>
-                        {% if msg.urgent %}
-                            <span class="urgent-badge">عاجل</span>
-                        {% endif %}
-                    </div>
-                    <h3>{{ msg.title }}</h3>
-                    <p>{{ msg.content }}</p>
-                    <div class="message-footer">
-                        <span>اليوم: {{ msg.created_day }}</span>
-                        {% if not msg.read %}
-                            <a href="{{ url_for('message_read', message_id=msg.id) }}" class="btn-small">تمت القراءة</a>
-                        {% endif %}
-                    </div>
+<section class="dashboard">
+    <h1 style="color:#e94560;margin-bottom:1rem;">الرسائل</h1>
+
+    <div class="messages-layout">
+        <!-- Message List -->
+        <div class="messages-list-pane" id="messageListPane">
+            {% if messages %}
+                {% for msg in messages %}
+                <div class="message-list-item {% if not msg.read %}unread{% endif %} {% if msg.urgent %}urgent{% endif %}" data-id="{{ msg.id }}">
+                    <div class="ml-title">{{ msg.title }}</div>
+                    <div class="ml-preview">{{ msg.content[:60] }}{% if msg.content|length > 60 %}...{% endif %}</div>
+                    <div class="ml-day">اليوم {{ msg.created_day }}{% if msg.urgent %} • <span style="color:#e94560;">عاجل</span>{% endif %}</div>
                 </div>
-            {% endfor %}
+                {% endfor %}
+            {% else %}
+                <div class="empty-state" style="padding:2rem;">لا توجد رسائل</div>
+            {% endif %}
         </div>
-        {% endif %}
-        
-        {% if pending_offers %}
-        <div class="transfer-offers">
-            <h2>عروض الانتقال المعلقة</h2>
-            {% for offer in pending_offers %}
-                {% set player = offer.player %}
-                <div class="offer-item">
-                    <p>
-                        {% if offer.from_team.is_player_team %}
-                            فريق {{ offer.to_team.name }} يعرض {{ "{:,}".format(offer.amount) }} دولار لشراء {{ player.name }}
-                        {% else %}
-                            فريق {{ offer.from_team.name }} يعرض عليك بيع {{ player.name }} مقابل {{ "{:,}".format(offer.amount) }} دولار
-                        {% endif %}
-                    </p>
-                    <div class="offer-actions">
-                        <a href="{{ url_for('accept_transfer', offer_id=offer.id) }}" class="btn-accept">قبول</a>
-                        <a href="{{ url_for('reject_transfer', offer_id=offer.id) }}" class="btn-reject">رفض</a>
-                    </div>
-                </div>
-            {% endfor %}
+
+        <!-- Reading Pane -->
+        <div class="message-read-pane" id="messageReadPane">
+            {% if first_msg %}
+            <div class="msg-title">{{ first_msg.title }}</div>
+            <div class="msg-meta">اليوم {{ first_msg.created_day }}{% if first_msg.urgent %} • <span style="color:#e94560;">عاجل</span>{% endif %} • {{ first_msg.type }}</div>
+            <div class="msg-body">{{ first_msg.content }}</div>
+            {% else %}
+            <div class="empty-state">اختر رسالة لقراءتها</div>
+            {% endif %}
         </div>
-        {% endif %}
-    {% else %}
-        <p class="empty-state">لا توجد رسائل أو عروض انتقال</p>
+    </div>
+
+    <!-- Transfer Offers -->
+    {% if pending_offers %}
+    <div class="section-divider"></div>
+    <div class="card">
+        <div class="card-header"><h3>عروض الانتقال المعلقة</h3></div>
+        {% for offer in pending_offers %}
+        {% set player = offer.player %}
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:0.6rem 0;border-bottom:1px solid #1e1e3a;">
+            <div style="font-size:0.85rem;">
+                {% if offer.from_team.is_player_team %}
+                {{ offer.to_team.name }} يعرض <strong class="money-text">${{ "{:,}".format(offer.amount) }}</strong> لشراء {{ player.name }}
+                {% else %}
+                {{ offer.from_team.name }} يعرض بيع {{ player.name }} مقابل <strong class="money-text">${{ "{:,}".format(offer.amount) }}</strong>
+                {% endif %}
+            </div>
+            <div style="display:flex;gap:0.5rem;">
+                <a href="{{ url_for('accept_transfer', offer_id=offer.id) }}" class="btn-accept">قبول</a>
+                <a href="{{ url_for('reject_transfer', offer_id=offer.id) }}" class="btn-reject">رفض</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
     {% endif %}
-    
-    <a href="{{ url_for('dashboard') }}" class="btn-back">العودة للوحة</a>
-</div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const pane = document.getElementById('messageReadPane');
+    document.querySelectorAll('.message-list-item').forEach(item => {
+        item.addEventListener('click', function() {
+            document.querySelectorAll('.message-list-item').forEach(i => i.classList.remove('active'));
+            this.classList.add('active');
+            const id = this.dataset.id;
+            fetch('/inbox_api/' + id)
+                .then(r => r.json())
+                .then(data => {
+                    this.classList.remove('unread');
+                    pane.innerHTML = '<div class="msg-title">' + data.title + '</div>' +
+                        '<div class="msg-meta">اليوم ' + data.created_day + (data.urgent ? ' • <span style="color:#e94560;">عاجل</span>' : '') + ' • ' + data.type + '</div>' +
+                        '<div class="msg-body">' + data.content + '</div>';
+                });
+        });
+    });
+});
+</script>
 {% endblock %}

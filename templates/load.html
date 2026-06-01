@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}اختيار الحفظ{% endblock %}
+{% block content %}
+<section class="load-screen">
+    <h1>اختيار الحفظ</h1>
+    <div class="slots-grid">
+        {% for slot in slots %}
+        <div class="slot-card {% if slot.exists %}has-save{% else %}empty{% endif %} {% if active == slot.id %}active{% endif %}">
+            <h2>Slot {{ slot.id }}</h2>
+            {% if slot.exists %}
+            <div class="save-info">
+                <p><strong>النادي:</strong> {{ slot.team }}</p>
+                <p><strong>المدرب:</strong> {{ slot.manager }}</p>
+                {% if slot.nationality %}
+                <p><strong>الجنسية:</strong> {{ slot.nationality }}</p>
+                {% endif %}
+                <p><strong>آخر لعب:</strong> اليوم {{ slot.day }} | الأسبوع {{ slot.week }}</p>
+            </div>
+            <div class="slot-actions">
+                <form action="{{ url_for('load_slot', slot_id=slot.id) }}" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <button type="submit" class="btn btn-primary btn-sm">تحميل</button>
+                </form>
+                <form action="{{ url_for('delete_game', slot_id=slot.id) }}" method="POST" onsubmit="return confirm('هل أنت متأكد من حذف هذا الحفظ؟');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <button type="submit" class="btn btn-danger btn-sm">حذف</button>
+                </form>
+            </div>
+            {% else %}
+            <p class="empty-text">فارغ</p>
+            <form action="{{ url_for('new_game', slot_id=slot.id) }}" method="POST" class="new-game-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" class="btn btn-success btn-sm">لعبة جديدة</button>
+            </form>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

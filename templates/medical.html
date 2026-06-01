@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}المركز الطبي{% endblock %}
+{% block content %}
+<section class="dashboard">
+    <h1 style="color:#e94560;margin-bottom:1rem;">المركز الطبي</h1>
+
+    <div class="medical-grid">
+        <!-- Injured Players -->
+        <div class="card">
+            <div class="card-header"><h3>اللاعبون المصابون</h3></div>
+            {% if injured %}
+                {% for p in injured %}
+                <div class="injury-card">
+                    <div class="ic-info">
+                        <div class="ic-name">{{ p.name }}</div>
+                        <div style="font-size:0.75rem;color:#888;">
+                            <span class="pos-tag {{ p.position }}" style="font-size:0.6rem;">{{ p.position }}</span>
+                            {{ p.attack }}/{{ p.defense }}
+                        </div>
+                    </div>
+                    <div style="text-align:left;">
+                        <div class="ic-days"><i class="fas fa-clock"></i> {{ p.injury_days }} يوم</div>
+                        <div class="ic-fitness">اللياقة: {{ p.fitness }}%</div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">لا يوجد لاعبون مصابون</div>
+            {% endif %}
+        </div>
+
+        <!-- Fit Players -->
+        <div class="card">
+            <div class="card-header"><h3>اللاعبون الجاهزون</h3></div>
+            {% if fit %}
+                {% for p in fit %}
+                <div class="fitness-card">
+                    <div class="fc-name">{{ p.name }}</div>
+                    <div style="display:flex;align-items:center;gap:0.8rem;">
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width:{{ p.fitness }}%;background:{{ '#e74c3c' if p.fitness < 30 else '#f39c12' if p.fitness < 60 else '#2ecc71' }}"></div>
+                        </div>
+                        <span class="fc-fitness">{{ p.fitness }}%</span>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">جميع اللاعبين مصابون!</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <a href="{{ url_for('dashboard') }}" class="btn-back">← العودة للوحة</a>
+</section>
+{% endblock %}

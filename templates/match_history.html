@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}تاريخ المباريات{% endblock %}
+{% block content %}
+<section class="dashboard">
+    <h1 style="color:#e94560;margin-bottom:1rem;">تاريخ المباريات</h1>
+
+    <div class="card">
+        {% if matches %}
+            {% for m in matches %}
+            <div class="history-item">
+                <div class="hi-teams">
+                    <strong>{{ m.home_team.name }}</strong> vs <strong>{{ m.away_team.name }}</strong>
+                </div>
+                <div class="hi-score">{{ m.home_score }} - {{ m.away_score }}</div>
+                <div style="display:flex;align-items:center;gap:0.5rem;">
+                    <span class="hi-week">أ{{ m.week }}</span>
+                    <a href="{{ url_for('match_report', match_id=m.id) }}" class="btn-icon" title="تقرير"><i class="fas fa-file-alt"></i></a>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="empty-state">لم يتم لعب أي مباريات بعد</div>
+        {% endif %}
+    </div>
+
+    <a href="{{ url_for('dashboard') }}" class="btn-back">← العودة للوحة</a>
+</section>
+{% endblock %}

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}إدارة المرافق{% endblock %}
+{% block content %}
+<section class="dashboard">
+    <h1 style="color:#e94560;margin-bottom:0.5rem;">المرافق</h1>
+    <p style="color:#888;font-size:0.85rem;margin-bottom:1.5rem;">الميزانية المتاحة: <strong class="money-text">${{ "{:,}".format(player_team.budget) }}</strong></p>
+
+    <div class="facilities-grid">
+        <div class="facility-card">
+            <div class="fac-icon"><i class="fas fa-dumbbell"></i></div>
+            <h3>مرافق التدريب</h3>
+            <div class="fac-level">المستوى {{ player_team.training_facilities or 3 }} / 10</div>
+            <div class="facility-bar">
+                <div class="fac-fill" style="width:{{ ((player_team.training_facilities or 3) / 10) * 100 }}%"></div>
+            </div>
+            {% if (player_team.training_facilities or 3) < 10 %}
+            <div class="fac-cost">تكلفة الترقية: ${{ "{:,}".format(upgrade_cost_training) }}</div>
+            <form action="/upgrade_facility/training" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" class="btn btn-primary" {% if player_team.budget < upgrade_cost_training %}disabled{% endif %}>
+                    ترقية {% if player_team.budget < upgrade_cost_training %}(الميزانية غير كافية){% endif %}
+                </button>
+            </form>
+            {% else %}
+            <div style="color:#2ecc71;font-weight:bold;">المستوى الأقصى!</div>
+            {% endif %}
+        </div>
+
+        <div class="facility-card">
+            <div class="fac-icon"><i class="fas fa-graduation-cap"></i></div>
+            <h3>أكاديمية الشباب</h3>
+            <div class="fac-level">المستوى {{ player_team.youth_facilities or 3 }} / 10</div>
+            <div class="facility-bar">
+                <div class="fac-fill" style="width:{{ ((player_team.youth_facilities or 3) / 10) * 100 }}%"></div>
+            </div>
+            {% if (player_team.youth_facilities or 3) < 10 %}
+            <div class="fac-cost">تكلفة الترقية: ${{ "{:,}".format(upgrade_cost_youth) }}</div>
+            <form action="/upgrade_facility/youth" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" class="btn btn-primary" {% if player_team.budget < upgrade_cost_youth %}disabled{% endif %}>
+                    ترقية {% if player_team.budget < upgrade_cost_youth %}(الميزانية غير كافية){% endif %}
+                </button>
+            </form>
+            {% else %}
+            <div style="color:#2ecc71;font-weight:bold;">المستوى الأقصى!</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <a href="{{ url_for('dashboard') }}" class="btn-back">← العودة للوحة</a>
+</section>
+{% endblock %}

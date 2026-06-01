@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+{% block title %}إدارة التشكيلة{% endblock %}
+{% block content %}
+<section class="dashboard">
+    <div class="manager-record" style="grid-template-columns:repeat(4,1fr);">
+        <div class="record-item">
+            <div class="record-label">تصنيف الفريق</div>
+            <div class="record-value" style="color:#e94560;">{{ tier }}</div>
+        </div>
+        <div class="record-item">
+            <div class="record-label">القوة الإجمالية</div>
+            <div class="record-value">{{ "%.1f"|format(rating) }}</div>
+        </div>
+        <div class="record-item">
+            <div class="record-label">متوسط الهجوم</div>
+            <div class="record-value" style="color:#e94560;">{{ "%.1f"|format(avg_attack) }}</div>
+        </div>
+        <div class="record-item">
+            <div class="record-label">متوسط الدفاع</div>
+            <div class="record-value" style="color:#3498db;">{{ "%.1f"|format(avg_defense) }}</div>
+        </div>
+    </div>
+
+    <div class="squad-layout">
+        <!-- Player Table -->
+        <div class="card">
+            <div class="card-header">
+                <h3>اللاعبون</h3>
+                <span style="color:#888;font-size:0.8rem;">{{ starters|length }}/11 أساسي</span>
+            </div>
+            <div class="squad-filters">
+                <button class="filter-btn active" data-filter="all">الكل</button>
+                <button class="filter-btn" data-filter="GK">حراس</button>
+                <button class="filter-btn" data-filter="DEF">دفاع</button>
+                <button class="filter-btn" data-filter="MID">وسط</button>
+                <button class="filter-btn" data-filter="FWD">هجوم</button>
+                <button class="filter-btn" data-filter="starter">أساسي</button>
+            </div>
+            <div class="table-container" style="max-height:500px;overflow-y:auto;">
+            <table class="sortable" id="squadTable">
+                <thead>
+                    <tr>
+                        <th data-sort="pos">المركز</th>
+                        <th data-sort="name">الاسم</th>
+                        <th data-sort="age">العمر</th>
+                        <th data-sort="att">هج</th>
+                        <th data-sort="def">دف</th>
+                        <th data-sort="pot">كامن</th>
+                        <th>الشخصية</th>
+                        <th data-sort="val">القيمة</th>
+                        <th>اللياقة</th>
+                        <th>تشكيلة</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for player in players %}
+                    <tr class="player-row {{ 'row-starter' if player.is_starting }} {{ 'row-injured' if player.injury_days > 0 }}" data-pos="{{ player.position }}" data-starter="{{ '1' if player.is_starting else '0' }}">
+                        <td><span class="pos-tag {{ player.position }}">{{ player.position }}</span></td>
+                        <td style="text-align:right;"><a href="#" class="player-name-link" data-id="{{ player.id }}" style="color:#e0e0e0;text-decoration:none;font-weight:bold;">{{ player.name }}</a></td>
+                        <td>{{ player.age }}</td>
+                        <td>{{ player.attack }}</td>
+                        <td>{{ player.defense }}</td>
+                        <td><span class="pot-badge">{{ player.potential }}</span></td>
+                        <td><span class="personality-tag" data-tooltip="{% if player.personality == 'Leader' %}قائد - يرفع معنويات الفريق{% elif player.personality == 'Ambitious' %}طموح - يسعى للتطور دائماً{% elif player.personality == 'Loyal' %}مخلص - لن يطلب الرحيل{% elif player.personality == 'Glass' %}هش - عرضة للإصابات{% elif player.personality == 'Professional' %}محترف - يحافظ على لياقته{% elif player.personality == 'Lazy' %}كسول - قد ينخفض مستواه{% else %}طبيعي - شخصية متوازنة{% endif %}">{{ player.personality }}</span></td>
+                        <td class="money-text">${{ "{:,}".format(player.market_value) }}</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width:{{ player.fitness }}%;background:{{ '#e74c3c' if player.fitness < 30 else '#f39c12' if player.fitness < 60 else '#2ecc71' }}"></div>
+                            </div>
+                        </td>
+                        <td>
+                            {% if player.injury_days > 0 %}
+                            <span style="color:#e74c3c;font-size:0.7rem;">مصاب</span>
+                            {% else %}
+                            <form action="/toggle_starter/{{ player.id }}" method="POST">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <button type="submit" class="btn-icon" title="{{ 'إبعاد' if player.is_starting else 'إضافة' }}">
+                                    <i class="fas {{ 'fa-check-circle' if player.is_starting else 'fa-plus-circle' }}"></i>
+                                </button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            </div>
+        </div>
+
+        <!-- Pitch -->
+        <div class="pitch-container">
+            <div class="card-header"><h3>التشكيلة الأساسية</h3></div>
+            <div class="pitch">
+                <div class="pitch-row">
+                    {% for p in starters if p.position == 'FWD' %}
+                    <div class="pitch-player pp-fwd">
+                        <span class="pp-name">{{ p.name.split()[-1] }}</span>
+                        <span class="pp-pos">{{ p.attack }}</span>
+                    </div>
+                    {% endfor %}
+                    {% if starters|selectattr('position', 'equalto', 'FWD')|list|length == 0 %}
+                    <div class="pitch-player" style="opacity:0.3;"><span class="pp-name">—</span></div>
+                    <div class="pitch-player" style="opacity:0.3;"><span class="pp-name">—</span></div>
+                    {% endif %}
+                </div>
+                <div class="pitch-row">
+                    {% for p in starters if p.position == 'MID' %}
+                    <div class="pitch-player pp-mid">
+                        <span class="pp-name">{{ p.name.split()[-1] }}</span>
+                        <span class="pp-pos">{{ p.attack }}/{{ p.defense }}</span>
+                    </div>
+                    {% endfor %}
+                    {% if starters|selectattr('position', 'equalto', 'MID')|list|length == 0 %}
+                    <div class="pitch-player" style="opacity:0.3;"><span class="pp-name">—</span></div>
+                    <div class="pitch-player" style="opacity:0.3;"><span class="pp-name">—</span></div>
+                    <div class="pitch-player" style="opacity:0.3;"><span class="pp-name">—</span></div>
+                    <div class="pitch-player" style="opacity:0.3;"><span class="pp-name">—</span></div>
+                    {% endif %}
+                </div>
+                <div class="pitch-row">
+                    {% for p in starters if p.position == 'DEF' %}
+                    <div class="pitch-player pp-def">
+                        <span class="pp-name">{{ p.name.split()[-1] }}</span>
+                        <span class="pp-pos">{{ p.defense }}</span>
+                    </div>
+                    {% endfor %}
+                    {% if starters|selectattr('position', 'equalto', 'DEF')|list|length == 0 %}
+                    <div class="pitch-player" style="opacity:0.3;"><span class="pp-name">—</span></div>
+                    <div class="pitch-player" style="opacity:0.3;"><span class="pp-name">—</span></div>
+                    <div class="pitch-player" style="opacity:0.3;"><span class="pp-name">—</span></div>
+                    <div class="pitch-player" style="opacity:0.3;"><span class="pp-name">—</span></div>
+                    {% endif %}
+                </div>
+                <div class="pitch-row">
+                    {% for p in starters if p.position == 'GK' %}
+                    <div class="pitch-player pp-gk">
+                        <span class="pp-name">{{ p.name.split()[-1] }}</span>
+                        <span class="pp-pos">GK</span>
+                    </div>
+                    {% endfor %}
+                    {% if starters|selectattr('position', 'equalto', 'GK')|list|length == 0 %}
+                    <div class="pitch-player" style="opacity:0.3;"><span class="pp-name">—</span></div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bench -->
+    <div class="card">
+        <div class="card-header"><h3>دكة الاحتياط</h3></div>
+        <div style="display:flex;flex-wrap:wrap;gap:0.5rem;">
+            {% for p in bench %}
+            <div style="background:#1a1a2e;border:1px solid #2a2a4a;border-radius:4px;padding:0.4rem 0.8rem;font-size:0.8rem;display:flex;align-items:center;gap:0.5rem;">
+                <span class="pos-tag {{ p.position }}" style="font-size:0.6rem;">{{ p.position }}</span>
+                <span style="font-weight:bold;">{{ p.name }}</span>
+                {% if p.injury_days > 0 %}<span style="color:#e74c3c;font-size:0.7rem;">مصاب {{ p.injury_days }}ي</span>{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+<!-- Player Profile Modal -->
+<div class="modal-overlay" id="playerModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="modalPlayerName">—</h2>
+            <button class="modal-close" id="modalClose">&times;</button>
+        </div>
+        <div class="modal-body" id="modalBody">
+            <div class="modal-stats" id="modalStats"></div>
+            <div class="modal-section">
+                <h4>آخر التقييمات</h4>
+                <div id="modalRatings"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Player modal
+    const modal = document.getElementById('playerModal');
+    const modalClose = document.getElementById('modalClose');
+    const modalName = document.getElementById('modalPlayerName');
+    const modalStats = document.getElementById('modalStats');
+    const modalRatings = document.getElementById('modalRatings');
+
+    document.querySelectorAll('.player-name-link').forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            const playerId = this.dataset.id;
+            fetch('/player_profile/' + playerId)
+                .then(r => r.json())
+                .then(data => {
+                    modalName.textContent = data.name + ' (' + data.position + ')';
+                    modalStats.innerHTML = `
+                        <div class="modal-stat"><span class="modal-stat-label">العمر</span><span class="modal-stat-value">${data.age}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">الطول</span><span class="modal-stat-value">${data.height} سم</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">الوزن</span><span class="modal-stat-value">${data.weight} كج</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">مكان الولادة</span><span class="modal-stat-value">${data.region}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">الهجوم</span><span class="modal-stat-value">${data.attack}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">الدفاع</span><span class="modal-stat-value">${data.defense}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">الكامنة</span><span class="modal-stat-value">${data.potential}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">الشخصية</span><span class="modal-stat-value">${data.personality}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">القيمة</span><span class="modal-stat-value money-text">$${Number(data.market_value).toLocaleString()}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">اللياقة</span><span class="modal-stat-value">${data.fitness}%</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">المباريات</span><span class="modal-stat-value">${data.matches_played}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">الأهداف</span><span class="modal-stat-value">${data.goals}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">التمريرات الحاسمة</span><span class="modal-stat-value">${data.assists}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">متوسط التقييم</span><span class="modal-stat-value">${data.avg_rating}</span></div>
+                    `;
+                    if (data.recent_ratings && data.recent_ratings.length > 0) {
+                        let html = '<table><thead><tr><th>تقييم</th><th>أهداف</th><th>تمريرات</th></tr></thead><tbody>';
+                        data.recent_ratings.forEach(r => {
+                            html += `<tr><td>${r.rating}</td><td>${r.goals}</td><td>${r.assists}</td></tr>`;
+                        });
+                        html += '</tbody></table>';
+                        modalRatings.innerHTML = html;
+                    } else {
+                        modalRatings.innerHTML = '<div class="empty-state">لا توجد تقييمات بعد</div>';
+                    }
+                    modal.classList.add('active');
+                });
+        });
+    });
+
+    modalClose.addEventListener('click', function() { modal.classList.remove('active'); });
+    modal.addEventListener('click', function(e) { if (e.target === modal) modal.classList.remove('active'); });
+
+    // Filters
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            const filter = this.dataset.filter;
+            document.querySelectorAll('#squadTable tbody tr').forEach(row => {
+                if (filter === 'all') { row.style.display = ''; }
+                else if (filter === 'starter') { row.style.display = row.dataset.starter === '1' ? '' : 'none'; }
+                else { row.style.display = row.dataset.pos === filter ? '' : 'none'; }
+            });
+        });
+    });
+
+    // Sortable table
+    const table = document.getElementById('squadTable');
+    if (table) {
+        table.querySelectorAll('th[data-sort]').forEach(th => {
+            th.addEventListener('click', function() {
+                const key = this.dataset.sort;
+                const tbody = table.querySelector('tbody');
+                const rows = Array.from(tbody.querySelectorAll('tr'));
+                const isAsc = this.classList.contains('sort-asc');
+                table.querySelectorAll('th').forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
+                this.classList.add(isAsc ? 'sort-desc' : 'sort-asc');
+
+                rows.sort((a, b) => {
+                    let va, vb;
+                    if (key === 'name') {
+                        va = a.cells[1].textContent.trim();
+                        vb = b.cells[1].textContent.trim();
+                        return isAsc ? vb.localeCompare(va) : va.localeCompare(vb);
+                    } else if (key === 'pos') {
+                        const order = {GK:0, DEF:1, MID:2, FWD:3};
+                        va = order[a.cells[0].textContent.trim()] || 0;
+                        vb = order[b.cells[0].textContent.trim()] || 0;
+                    } else {
+                        const idx = {age:2, att:3, def:4, pot:5, val:7}[key] || 0;
+                        va = parseFloat(a.cells[idx]?.textContent.replace(/[$,]/g,'')) || 0;
+                        vb = parseFloat(b.cells[idx]?.textContent.replace(/[$,]/g,'')) || 0;
+                    }
+                    return isAsc ? (va - vb) : (vb - va);
+                });
+                rows.forEach(r => tbody.appendChild(r));
+            });
+        });
+    }
+});
+</script>
+{% endblock %}

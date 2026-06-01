@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}اختيار الفريق - {{ league.name }}{% endblock %}
+{% block content %}
+<section class="load-screen">
+    <div style="display:flex;gap:0.5rem;margin-bottom:1.5rem;font-size:0.8rem;color:#888;">
+        <a href="{{ url_for('load_game') }}" style="color:#888;text-decoration:none;">الرئيسية</a>
+        <span style="color:#444;">›</span>
+        <a href="{{ url_for('select_division', slot_id=slot_id) }}" style="color:#888;text-decoration:none;">الدوري</a>
+        <span style="color:#444;">›</span>
+        <span style="color:#e94560;">{{ league.name }}</span>
+    </div>
+    <div class="setup-header">
+        <h1>{{ league.name }}</h1>
+        <p class="setup-subtitle">اختر الفريق الذي تريد تدريبه</p>
+    </div>
+    <div class="team-grid">
+        {% for team in teams %}
+        <a href="{{ url_for('manager_form', slot_id=slot_id, team_id=team.id) }}" class="team-card">
+            <h3>{{ team.name }}</h3>
+            <div class="team-budget">${{ "{:,}".format(team.budget) }}</div>
+            <div class="team-power">القوة: <strong>{{ "%.1f"|format(team.rating) }}</strong></div>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}
