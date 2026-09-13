@@ -8,13 +8,13 @@
     <div class="card" style="text-align:center;padding:2rem;">
         <h2 style="color:#e94560;">انتهى الموسم!</h2>
         <p style="color:#888;margin:1rem 0;">شكراً للعب.</p>
-        <a href="{{ url_for('dashboard') }}" class="btn btn-primary">العودة للوحة التحكم</a>
+        <a href="{{ url_for('main.dashboard') }}" class="btn btn-primary">العودة للوحة التحكم</a>
     </div>
     {% elif not match %}
     <div class="card" style="text-align:center;padding:2rem;">
         <h2 style="color:#888;">لا توجد مباراة هذا الأسبوع</h2>
         <p style="color:#888;margin:0.5rem 0;">الأيام المتبقية: {{ 7 - (state.current_day % 7) }}</p>
-        <a href="{{ url_for('dashboard') }}" class="btn btn-primary" style="margin-top:1rem;">العودة للوحة التحكم</a>
+        <a href="{{ url_for('main.dashboard') }}" class="btn btn-primary" style="margin-top:1rem;">العودة للوحة التحكم</a>
     </div>
     {% else %}
     {% set home_players = match.home_team.players if match.home_team else [] %}
@@ -65,7 +65,7 @@
             <div class="match-result-display">
                 <div class="score-big">{{ match.home_score }} - {{ match.away_score }}</div>
                 <div class="match-status">انتهت المباراة</div>
-                <a href="{{ url_for('match_report', match_id=match.id) }}" class="btn btn-primary btn-sm" style="margin-top:0.8rem;">تقرير المباراة</a>
+                <a href="{{ url_for('main.match_report', match_id=match.id) }}" class="btn btn-primary btn-sm" style="margin-top:0.8rem;">تقرير المباراة</a>
             </div>
             {% else %}
             <div class="stats-comparison">
@@ -98,8 +98,8 @@
                 <div class="stat-comp">
                     <div class="stat-label">المعنويات</div>
                     <div class="stat-numbers">
-                        <span class="home">{{ match.home_team.morale }}%</span>
-                        <span>{{ match.away_team.morale }}%</span>
+                        <span class="home {{ 'morale-good' if match.home_team.morale >= 70 else ('morale-mid' if match.home_team.morale >= 40 else 'morale-bad') }}">{{ match.home_team.morale }}%</span>
+                        <span class="{{ 'morale-good' if match.away_team.morale >= 70 else ('morale-mid' if match.away_team.morale >= 40 else 'morale-bad') }}">{{ match.away_team.morale }}%</span>
                     </div>
                     <div class="stat-bar">
                         {% set h_mor = match.home_team.morale %}

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}مقارنة اللاعبين{% endblock %}
+{% block content %}
+<section class="dashboard">
+    <h1 style="color:#e94560;margin-bottom:1rem;">مقارنة اللاعبين</h1>
+
+    <div class="card" style="margin-bottom:1rem;">
+        <form method="GET" action="/compare" class="tactics-grid">
+            <div>
+                <label>اللاعب الأول</label>
+                <select name="player_a" class="filter-input">
+                    <option value="">— اختر —</option>
+                    {% for p in players %}
+                    <option value="{{ p.id }}" {% if a_id == p.id %}selected{% endif %}>{{ p.name }} ({{ p.position }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>اللاعب الثاني</label>
+                <select name="player_b" class="filter-input">
+                    <option value="">— اختر —</option>
+                    {% for p in players %}
+                    <option value="{{ p.id }}" {% if b_id == p.id %}selected{% endif %}>{{ p.name }} ({{ p.position }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button class="btn btn-primary">قارن</button>
+        </form>
+    </div>
+
+    {% if not comparison %}
+    <div class="card" style="text-align:center;padding:2rem;color:#888;">
+        اختر لاعبين للمقارنة بينهما.
+    </div>
+    {% endif %}
+
+    {% if comparison %}
+    {% set stats = [
+        ('attack', 'الهجوم'), ('defense', 'الدفاع'), ('potential', 'الإمكانيات'),
+        ('speed', 'السرعة'), ('stamina', 'اللياقة'), ('technique', 'المهارة'),
+        ('sharpness', 'جاهزية المباراة'), ('goals', 'الأهداف'), ('assists', 'الصناعة')
+    ] %}
+    <div class="card">
+        <table class="compare-table">
+            <thead>
+                <tr>
+                    <th>الخاصية</th>
+                    <th><strong>{{ comparison.a.name }}</strong><br><span class="pos-tag {{ comparison.a.position }}">{{ comparison.a.position }}</span></th>
+                    <th></th>
+                    <th><strong>{{ comparison.b.name }}</strong><br><span class="pos-tag {{ comparison.b.position }}">{{ comparison.b.position }}</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>العمر</td>
+                    <td style="text-align:center;">{{ comparison.a.age }}</td>
+                    <td></td>
+                    <td style="text-align:center;">{{ comparison.b.age }}</td>
+                </tr>
+                <tr>
+                    <td>التقييم</td>
+                    <td style="text-align:center;">{{ comparison.a.rating }}</td>
+                    <td></td>
+                    <td style="text-align:center;">{{ comparison.b.rating }}</td>
+                </tr>
+                {% for key, label in stats %}
+                {% set av = comparison.a[key]|int %}
+                {% set bv = comparison.b[key]|int %}
+                {% set total = av + bv %}
+                <tr>
+                    <td>{{ label }}</td>
+                    <td style="text-align:center;">{{ av }}</td>
+                    <td style="width:40%;">
+                        <div class="same-row-bar">
+                            <div class="abar" style="width:{{ (av / total * 100) if total > 0 else 50 }}%;background:#e94560;"></div>
+                            <div class="abar" style="width:{{ (bv / total * 100) if total > 0 else 50 }}%;background:#2ecc71;"></div>
+                        </div>
+                    </td>
+                    <td style="text-align:center;">{{ bv }}</td>
+                </tr>
+                {% endfor %}
+                <tr>
+                    <td>القيمة السوقية</td>
+                    <td style="text-align:center;color:#f39c12;">${{ "{:,}".format(comparison.a.market_value) }}</td>
+                    <td></td>
+                    <td style="text-align:center;color:#f39c12;">${{ "{:,}".format(comparison.b.market_value) }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</section>
+
+<style>
+.compare-table th, .compare-table td { padding: 0.55rem 0.7rem; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.compare-table th:first-child { text-align: right; }
+.same-row-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; direction: ltr; }
+.abar { height: 100%; }
+</style>
+{% endblock %}

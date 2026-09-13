@@ -8,7 +8,7 @@
             <h1>بيانات المدرب</h1>
             <p class="setup-subtitle">أدخل اسمك كمدرب لتبدأ المغامرة</p>
         </div>
-        <form method="POST" action="{{ url_for('new_manager', slot_id=slot_id) }}">
+        <form method="POST" action="{{ url_for('save.new_manager', slot_id=slot_id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <div class="form-group">
                 <label for="manager_name">اسم المدرب</label>
@@ -16,7 +16,7 @@
             </div>
             <div class="form-actions">
                 <button type="submit" class="btn btn-primary">التالي</button>
-                <a href="{{ url_for('load_game') }}" class="btn btn-secondary">إلغاء</a>
+                <a href="{{ url_for('save.load_game') }}" class="btn btn-secondary">إلغاء</a>
             </div>
         </form>
     </div>

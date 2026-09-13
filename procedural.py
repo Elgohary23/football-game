@@ -1,6 +1,12 @@
 import random
 import numpy as np
 
+from config import (
+    TRAITS_PER_PLAYER_MAX,
+    TRAITS_PER_PLAYER_MIN,
+    TRAITS_POOL,
+)
+
 # Weighted lists for name generation
 FIRST_NAMES = {
     "Europe": ["Thomas", "Lucas", "Marc", "Julian", "Oliver", "Harry", "Jack", "Noah", "Leo", "Theo"],
@@ -94,3 +100,32 @@ def generate_player_stats(tier_level=3, position="MID", region="Europe"):
         "market_value": int(val),
         "region": region
     }
+
+
+def generate_player_traits() -> list:
+    """Roll a small set of hidden traits for a new player (FM: Traits)."""
+    count = random.randint(TRAITS_PER_PLAYER_MIN, TRAITS_PER_PLAYER_MAX)
+    return random.sample(TRAITS_POOL, k=count)
+
+
+def roll_physicals(age: int) -> dict:
+    """Base stamina/speed/technique derived from age for procedural players."""
+    # Physical peak ~24, technical keeps rising into the late 20s.
+    physical_peak = 1.0 - max(0, age - 24) * 0.02
+    technical = 1.0 + min(0.2, max(0, age - 24) * 0.015)
+    return {
+        "stamina": max(30, min(100, int(random.gauss(70, 15) * physical_peak))),
+        "speed": max(30, min(100, int(random.gauss(65, 18) * physical_peak))),
+        "technique": max(30, min(100, int(random.gauss(55, 18) * technical))),
+    }
+
+
+def generate_region_talent(region: str, scout_level: int) -> dict:
+    """Scout discovery: a young high-potential prospect from a region."""
+    name = generate_player_name(region)
+    pos = random.choices(["GK", "DEF", "MID", "FWD"], weights=[1, 3, 3, 2], k=1)[0]
+    tier_level = 1 if scout_level >= 4 else (2 if scout_level >= 2 else 3)
+    stats = generate_player_stats(tier_level=tier_level, position=pos, region=region)
+    stats["age"] = random.randint(16, 19)
+    stats["potential"] = max(stats["potential"], random.randint(80, 96))
+    return {"name": name, "position": pos, "stats": stats, "traits": generate_player_traits()}

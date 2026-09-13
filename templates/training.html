@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}التدريب والتطوير{% endblock %}
+{% block content %}
+<section class="dashboard">
+    <h1 style="color:#e94560;font-size:1.4rem;margin-bottom:0.5rem;"><i class="fas fa-dumbbell"></i> التدريب والتطوير</h1>
+    <p style="color:#888;font-size:0.85rem;margin-bottom:1.5rem;">مستوى مرافق التدريب: <strong>{{ player_team.training_facilities or 3 }}/10</strong> | الميزانية: <strong class="money-text">${{ "{:,}".format(player_team.budget) }}</strong></p>
+
+    <div class="card" style="margin-bottom:1rem;">
+        <div class="card-header"><h3>إعدادات التدريب</h3></div>
+        <form action="/training/save" method="POST" class="training-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <div class="training-grid">
+                <div class="form-group">
+                    <label>تركيز التدريب</label>
+                    <select name="focus" class="form-control">
+                        <option value="balanced" {% if (player_team.training_focus or 'balanced') == 'balanced' %}selected{% endif %}>متوازن</option>
+                        <option value="attack" {% if (player_team.training_focus or '') == 'attack' %}selected{% endif %}>هجومي</option>
+                        <option value="defense" {% if (player_team.training_focus or '') == 'defense' %}selected{% endif %}>دفاعي</option>
+                        <option value="physical" {% if (player_team.training_focus or '') == 'physical' %}selected{% endif %}>لياقة بدنية</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>شدة التدريب</label>
+                    <input type="range" name="intensity" min="1" max="10" value="{{ player_team.training_intensity or 5 }}" class="intensity-slider" id="intensitySlider">
+                    <div class="intensity-value" id="intensityValue">{{ player_team.training_intensity or 5 }}/10</div>
+                </div>
+            </div>
+            <div class="training-tip">
+                <i class="fas fa-info-circle"></i> التدريب عالي الشدة يزيد معدل النمو لكنه يقلل لياقة اللاعبين. التدريب الهجومي يركز على مهاجمي الوسط والهجوم، والدفاعي على المدافعين والحارس.
+            </div>
+            <div class="form-actions" style="justify-content:flex-start;margin-top:1rem;">
+                <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> حفظ الإعدادات</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3>تطوير اللاعبين (شهرياً)</h3></div>
+        <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>اللاعب</th>
+                    <th>المركز</th>
+                    <th>العمر</th>
+                    <th>الهجوم</th>
+                    <th>الدفاع</th>
+                    <th>الكامنة</th>
+                    <th>اللياقة</th>
+                    <th>القيمة</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in players %}
+                <tr class="{{ 'row-starter' if p.is_starting }}">
+                    <td style="text-align:right;font-weight:bold;color:#e0e0e0;">{{ p.name }}</td>
+                    <td><span class="pos-tag {{ p.position }}">{{ p.position }}</span></td>
+                    <td>{{ p.age }}</td>
+                    <td>{{ p.attack }}</td>
+                    <td>{{ p.defense }}</td>
+                    <td><span class="pot-badge">{{ p.potential }}</span></td>
+                    <td>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width:{{ p.fitness }}%;background:{{ '#e74c3c' if p.fitness < 30 else '#f39c12' if p.fitness < 60 else '#2ecc71' }};"></div>
+                        </div>
+                    </td>
+                    <td class="money-text">${{ "{:,}".format(p.market_value) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+</section>
+
+<style>
+.training-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+}
+.intensity-slider {
+    width: 100%;
+    accent-color: #e94560;
+}
+.intensity-value {
+    text-align: center;
+    color: #e94560;
+    font-weight: bold;
+    font-size: 0.9rem;
+    margin-top: 0.3rem;
+}
+.training-tip {
+    background: rgba(233,69,96,0.06);
+    border: 1px solid rgba(233,69,96,0.2);
+    border-radius: 6px;
+    padding: 0.7rem 1rem;
+    font-size: 0.8rem;
+    color: #aaa;
+    margin-top: 1rem;
+}
+@media (max-width: 768px) {
+    .training-grid { grid-template-columns: 1fr; }
+}
+</style>
+{% endblock %}

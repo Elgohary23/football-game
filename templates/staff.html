@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}الطاقم التدريبي{% endblock %}
+{% block content %}
+<section class="dashboard">
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:1rem;">
+        <div>
+            <h1 style="color:#e94560;font-size:1.4rem;"><i class="fas fa-user-tie"></i> الطاقم التدريبي</h1>
+            <p style="color:#888;font-size:0.85rem;">الميزانية: <strong class="money-text">${{ "{:,}".format(player_team.budget) }}</strong></p>
+        </div>
+        <form action="/staff/generate" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <button type="submit" class="btn btn-secondary"><i class="fas fa-sync"></i> توليد طاقم متاح</button>
+        </form>
+    </div>
+
+    <!-- Current Staff -->
+    <div class="card" style="margin-bottom:1rem;">
+        <div class="card-header"><h3>طاقمك التدريبي الحالي</h3></div>
+        {% if team_staff %}
+        <div class="staff-grid">
+            {% for s in team_staff %}
+            <div class="staff-card">
+                <div class="staff-avatar">
+                    <i class="fas {{ 'fa-dumbbell' if s.role == 'fitness' else 'fa-hand-rock' if s.role == 'goalkeeper' else 'fa-chart-line' if s.role == 'analyst' else 'fa-child' }}"></i>
+                </div>
+                <h4>{{ s.name }}</h4>
+                <div class="staff-role">{{ s.specialty }}</div>
+                <div class="staff-level">المستوى {{ s.level }}</div>
+                <div class="staff-bonuses">
+                    {% if s.attack_bonus > 0 %}<span class="bonus-tag attack">+هجوم {{ s.attack_bonus * s.level|float }}</span>{% endif %}
+                    {% if s.defense_bonus > 0 %}<span class="bonus-tag defense">+دفاع {{ s.defense_bonus * s.level|float }}</span>{% endif %}
+                    {% if s.fitness_bonus > 0 %}<span class="bonus-tag fitness">+لياقة {{ s.fitness_bonus * s.level|float }}</span>{% endif %}
+                    {% if s.youth_bonus > 0 %}<span class="bonus-tag youth">+شباب {{ s.youth_bonus * s.level|float }}</span>{% endif %}
+                    {% if s.injury_reduction > 0 %}<span class="bonus-tag injury">-إصابات {{ s.injury_reduction * s.level|float }}</span>{% endif %}
+                </div>
+                <div class="staff-salary">الراتب: ${{ "{:,}".format(s.salary) }}</div>
+                <form action="/staff/fire/{{ s.id }}" method="POST" onsubmit="return confirm('هل أنت متأكد من إقالة {{ s.name }}؟');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <button type="submit" class="btn btn-danger btn-sm"><i class="fas fa-times"></i> إقالة</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">لا يوجد طاقم تدريبي في فريقك بعد. قم بتعيين موظفين لتحسين تطوير اللاعبين!</div>
+        {% endif %}
+    </div>
+
+    <!-- Available Staff -->
+    <div class="card">
+        <div class="card-header"><h3>الطاقم المتاح للتعاقد</h3></div>
+        {% if available_staff %}
+        <div class="staff-grid">
+            {% for s in available_staff %}
+            <div class="staff-card available">
+                <div class="staff-avatar">
+                    <i class="fas {{ 'fa-dumbbell' if s.role == 'fitness' else 'fa-hand-rock' if s.role == 'goalkeeper' else 'fa-chart-line' if s.role == 'analyst' else 'fa-child' }}"></i>
+                </div>
+                <h4>{{ s.name }}</h4>
+                <div class="staff-role">{{ s.specialty }}</div>
+                <div class="staff-level">المستوى {{ s.level }}</div>
+                <div class="staff-bonuses">
+                    {% if s.attack_bonus > 0 %}<span class="bonus-tag attack">+هجوم {{ s.attack_bonus * s.level|float }}</span>{% endif %}
+                    {% if s.defense_bonus > 0 %}<span class="bonus-tag defense">+دفاع {{ s.defense_bonus * s.level|float }}</span>{% endif %}
+                    {% if s.fitness_bonus > 0 %}<span class="bonus-tag fitness">+لياقة {{ s.fitness_bonus * s.level|float }}</span>{% endif %}
+                    {% if s.youth_bonus > 0 %}<span class="bonus-tag youth">+شباب {{ s.youth_bonus * s.level|float }}</span>{% endif %}
+                    {% if s.injury_reduction > 0 %}<span class="bonus-tag injury">-إصابات {{ s.injury_reduction * s.level|float }}</span>{% endif %}
+                </div>
+                <div class="staff-salary">الراتب: ${{ "{:,}".format(s.salary) }}</div>
+                <form action="/staff/hire/{{ s.id }}" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <button type="submit" class="btn btn-success btn-sm" {% if player_team.budget < s.salary %}disabled{% endif %}>
+                        تعيين {% if player_team.budget < s.salary %}(لا توجد ميزانية){% endif %}
+                    </button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">لا يوجد طاقم تدريبي متاح حالياً. اضغط "توليد طاقم متاح".</div>
+        {% endif %}
+    </div>
+</section>
+
+<style>
+.staff-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1rem;
+}
+.staff-card {
+    background: #141428;
+    border: 1px solid #2a2a4a;
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+}
+.staff-card.available { border-color: rgba(46,204,113,0.3); }
+.staff-avatar {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #16213e, #0f3460);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 0.6rem;
+    color: #e94560;
+    font-size: 1.5rem;
+    border: 2px solid;
+}
+.staff-card.available .staff-avatar { border-color: #2ecc71; color: #2ecc71; }
+.staff-card h4 { color: #e0e0e0; font-size: 0.95rem; margin-bottom: 0.2rem; }
+.staff-role { color: #e94560; font-size: 0.8rem; margin-bottom: 0.2rem; }
+.staff-level { color: #888; font-size: 0.75rem; margin-bottom: 0.5rem; }
+.staff-bonuses { display: flex; flex-wrap: wrap; gap: 0.3rem; justify-content: center; margin-bottom: 0.5rem; }
+.bonus-tag { font-size: 0.65rem; padding: 0.15rem 0.4rem; border-radius: 3px; font-weight: bold; }
+.bonus-tag.attack { background: rgba(233,69,96,0.15); color: #e94560; }
+.bonus-tag.defense { background: rgba(52,152,219,0.15); color: #3498db; }
+.bonus-tag.fitness { background: rgba(46,204,113,0.15); color: #2ecc71; }
+.bonus-tag.youth { background: rgba(241,196,15,0.15); color: #f1c40f; }
+.bonus-tag.injury { background: rgba(231,76,60,0.15); color: #e74c3c; }
+.staff-salary { color: #2ecc71; font-size: 0.8rem; font-weight: bold; margin-bottom: 0.6rem; }
+</style>
+{% endblock %}

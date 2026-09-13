@@ -8,7 +8,7 @@
             <h1>بيانات المدرب</h1>
             <p class="setup-subtitle">لقد اخترت فريق <strong style="color:#e94560;">{{ team.name }}</strong>، أدخل اسمك لتبدأ</p>
         </div>
-        <form action="{{ url_for('manager_form', slot_id=slot_id, team_id=team.id) }}" method="POST">
+        <form action="{{ url_for('save.manager_form', slot_id=slot_id, team_id=team.id) }}" method="POST">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <div class="form-group">
                 <label for="manager_name">اسم المدرب</label>
@@ -16,7 +16,7 @@
             </div>
             <div class="form-actions">
                 <button type="submit" class="btn btn-primary btn-lg">ابدأ اللعبة</button>
-                <a href="{{ url_for('select_team', slot_id=slot_id, league_id=team.league_id) }}" class="btn btn-secondary">رجوع</a>
+                <a href="{{ url_for('save.select_team', slot_id=slot_id, league_id=team.league_id) }}" class="btn btn-secondary">رجوع</a>
             </div>
         </form>
     </div>

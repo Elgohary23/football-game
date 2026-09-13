@@ -1,9 +1,53 @@
 {% extends "base.html" %}
-{% block title %}سوق الانتقالات{% endblock %}
+{% block title %}سوق الانتقالات والكشف{% endblock %}
 {% block content %}
 <section class="dashboard">
-    <h1 style="color:#e94560;margin-bottom:0.5rem;">سوق الانتقالات</h1>
-    <p style="color:#888;font-size:0.85rem;margin-bottom:1rem;">الميزانية: <strong class="money-text">${{ "{:,}".format(player_team.budget) }}</strong></p>
+    <h1 style="color:#e94560;margin-bottom:0.5rem;">سوق الانتقالات والكشف</h1>
+    <p style="color:#888;font-size:0.85rem;margin-bottom:1rem;">
+        الميزانية: <strong class="money-text">${{ "{:,}".format(player_team.budget) }}</strong>
+        • ثقة الإدارة: <strong>{{ state.board_confidence if state and state.board_confidence is not none else 60 }}%</strong>
+    </p>
+
+    {% if scouts %}
+    <div class="card" style="margin-bottom:1rem;">
+        <div class="card-header"><h3>الكشافة ومهامهم</h3></div>
+        <table>
+            <thead>
+                <tr><th>الكشاف</th><th>المستوى</th><th>المنطقة المكلّف بها</th><th>إجراء</th></tr>
+            </thead>
+            <tbody>
+                {% for s in scouts %}
+                <tr>
+                    <td style="text-align:right;font-weight:bold;">{{ s.name }}</td>
+                    <td>{{ s.level }}</td>
+                    <td>
+                        {% if s.on_assignment %}
+                        <span class="money-text">{{ s.region }}</span>
+                        <form action="/scout/unassign/{{ s.id }}" method="POST" style="display:inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <button class="btn btn-sm btn-danger">إنهاء المهمة</button>
+                        </form>
+                        {% else %}
+                        <form action="/scout/assign/{{ s.id }}" method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <select name="region" class="filter-input" style="padding:0.25rem;">
+                                {% for r in regions %}
+                                <option value="{{ r }}">{{ r }}</option>
+                                {% endfor %}
+                            </select>
+                            <button class="btn btn-sm btn-success">إرسال الكشاف (تقارير + مواهب)</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p style="color:#777;font-size:0.75rem;margin-top:0.4rem;">
+            <i class="fas fa-info-circle"></i> الكشافة تكشف التقييم الحقيقي للاعبين (المموّهة بعلامة “؟”) وتكتشف مواهب شابة من المنطقة.
+        </p>
+    </div>
+    {% endif %}
 
     <div class="scouting-controls">
         <input type="text" id="searchName" class="filter-input" placeholder="ابحث عن لاعب..." style="flex:1;min-width:150px;">
@@ -29,7 +73,41 @@
         </select>
     </div>
 
+    {% if free_agents %}
+    <div class="card" style="margin-bottom:1rem;">
+        <div class="card-header"><h3>وكلاء أحرار (بدون نادٍ)</h3></div>
+        <div class="table-container" style="max-height:420px;overflow-y:auto;">
+        <table>
+            <thead>
+                <tr><th>الاسم</th><th>المركز</th><th>العمر</th><th>الهجوم</th><th>الدفاع</th><th>القيمة</th><th>إجراء</th></tr>
+            </thead>
+            <tbody>
+                {% for p in free_agents %}
+                <tr>
+                    <td style="text-align:right;font-weight:bold;">{{ p.name }}</td>
+                    <td><span class="pos-tag {{ p.position }}">{{ p.position }}</span></td>
+                    <td>{{ p.age }}</td>
+                    <td>{{ ratings.get(p.id, p.attack) }}</td>
+                    <td>{{ ratings.get(p.id, p.defense) }}</td>
+                    <td class="money-text">${{ "{:,}".format(p.market_value) }}</td>
+                    <td>
+                        <form action="/buy_player/{{ p.id }}" method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <input type="checkbox" name="sell_on" value="0.20" id="sellon-{{ p.id }}"/>
+                            <label for="sellon-{{ p.id }}" style="font-size:0.7rem;color:#888;">-20% مقابل بند بيع مستقبلي</label>
+                            <button class="btn btn-sm btn-success" type="submit" {% if player_team.budget < p.market_value %}disabled title="الميزانية غير كافية"{% endif %}>شراء</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="card">
+        <div class="card-header"><h3>لاعبو الأندية</h3></div>
         <div class="table-container" style="max-height:600px;overflow-y:auto;">
         <table id="scoutTable">
             <thead>
@@ -50,17 +128,36 @@
                     <td style="text-align:right;font-weight:bold;">{{ p.name }}</td>
                     <td><span class="pos-tag {{ p.position }}">{{ p.position }}</span></td>
                     <td>{{ p.age }}</td>
-                    <td>{{ p.attack }}</td>
-                    <td>{{ p.defense }}</td>
+                    <td>
+                        <span title="تقييم الكشافة">{{ ratings.get(p.id, p.attack) }}</span>
+                        {% if '-' in ratings.get(p.id, '') %}<span class="scout-mask" title="تقييم مموّه؛ أرسل كشافاً لمعرفة الحقيقة">؟</span>{% endif %}
+                    </td>
+                    <td>{{ ratings.get(p.id, p.defense) }}</td>
                     <td class="money-text">${{ "{:,}".format(p.market_value) }}</td>
                     <td style="font-size:0.8rem;">{{ p.team.name if p.team else '—' }}</td>
                     <td>
                         <form action="/buy_player/{{ p.id }}" method="POST">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <input type="checkbox" name="sell_on" value="0.20" id="sellon2-{{ p.id }}"/>
+                            <label for="sellon2-{{ p.id }}" style="font-size:0.7rem;color:#888;">-20% لبند بيع مستقبلي</label>
                             <button type="submit" class="btn btn-sm btn-success" {% if player_team.budget < p.market_value %}disabled title="الميزانية غير كافية"{% endif %}>
                                 شراء
                             </button>
                         </form>
+                        <details class="swap-details" style="margin-top:0.4rem;">
+                            <summary style="font-size:0.75rem;color:#3498db;cursor:pointer;">مبادلة لاعب</summary>
+                            <form action="/swap_offer/{{ p.id }}" method="POST" style="margin-top:0.3rem;display:flex;flex-direction:column;gap:0.25rem;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <select name="offered_player_id" class="filter-input" required>
+                                    <option value="">— لاعب من فريقي —</option>
+                                    {% for s in squad %}
+                                    <option value="{{ s.id }}">{{ s.name }} (~${{ "{:,}".format(s.market_value) }})</option>
+                                    {% endfor %}
+                                </select>
+                                <input type="number" name="cash" min="0" step="1000" value="0" class="filter-input" placeholder="أضف نقداً"/>
+                                <button type="submit" class="btn btn-sm btn-primary">إرسال عرض المبادلة</button>
+                            </form>
+                        </details>
                     </td>
                 </tr>
                 {% endfor %}
@@ -69,7 +166,7 @@
         </div>
     </div>
 
-    <a href="{{ url_for('dashboard') }}" class="btn-back">← العودة للوحة</a>
+    <a href="{{ url_for('main.dashboard') }}" class="btn-back">← العودة للوحة</a>
 </section>
 {% endblock %}
 

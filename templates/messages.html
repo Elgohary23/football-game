@@ -48,8 +48,14 @@
                 {% endif %}
             </div>
             <div style="display:flex;gap:0.5rem;">
-                <a href="{{ url_for('accept_transfer', offer_id=offer.id) }}" class="btn-accept">قبول</a>
-                <a href="{{ url_for('reject_transfer', offer_id=offer.id) }}" class="btn-reject">رفض</a>
+                <form action="{{ url_for('inbox.accept_transfer', offer_id=offer.id) }}" method="POST" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <button type="submit" class="btn-accept">قبول</button>
+                </form>
+                <form action="{{ url_for('inbox.reject_transfer', offer_id=offer.id) }}" method="POST" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <button type="submit" class="btn-reject">رفض</button>
+                </form>
             </div>
         </div>
         {% endfor %}

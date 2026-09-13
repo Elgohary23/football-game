@@ -17,18 +17,18 @@
                 <p><strong>آخر لعب:</strong> اليوم {{ slot.day }} | الأسبوع {{ slot.week }}</p>
             </div>
             <div class="slot-actions">
-                <form action="{{ url_for('load_slot', slot_id=slot.id) }}" method="POST">
+                <form action="{{ url_for('save.load_slot', slot_id=slot.id) }}" method="POST">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                     <button type="submit" class="btn btn-primary btn-sm">تحميل</button>
                 </form>
-                <form action="{{ url_for('delete_game', slot_id=slot.id) }}" method="POST" onsubmit="return confirm('هل أنت متأكد من حذف هذا الحفظ؟');">
+                <form action="{{ url_for('save.delete_game', slot_id=slot.id) }}" method="POST" onsubmit="return confirm('هل أنت متأكد من حذف هذا الحفظ؟');">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                     <button type="submit" class="btn btn-danger btn-sm">حذف</button>
                 </form>
             </div>
             {% else %}
             <p class="empty-text">فارغ</p>
-            <form action="{{ url_for('new_game', slot_id=slot.id) }}" method="POST" class="new-game-form">
+            <form action="{{ url_for('save.new_game', slot_id=slot.id) }}" method="POST" class="new-game-form">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <button type="submit" class="btn btn-success btn-sm">لعبة جديدة</button>
             </form>

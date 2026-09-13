@@ -1,0 +1,559 @@
+{% extends "base.html" %}
+{% block title %}التكتيكات الحرة{% endblock %}
+{% block content %}
+<section class="dashboard">
+    <div class="card-header">
+        <h3><i class="fas fa-shield-alt"></i> نظام التكتيكات الحرة</h3>
+        <div>
+            <span id="formationCount" class="lead" style="color:#888;font-size:0.9rem;margin-left:1rem;">0/11 لاعب</span>
+            <button class="btn btn-primary btn-sm" id="saveFormationBtn"><i class="fas fa-save"></i> حفظ التشكيلة</button>
+            <button class="btn btn-secondary btn-sm" id="resetFormationBtn"><i class="fas fa-undo"></i> إعادة ضبط</button>
+        </div>
+    </div>
+
+    <div class="card" style="margin-bottom:1rem;">
+        <div class="card-header"><h3><i class="fas fa-sliders-h"></i> التعليمات التكتيكية</h3></div>
+        <form action="/formation/tactics" method="POST" class="tactics-grid">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <div>
+                <label>ضغط الخصم</label>
+                <select name="pressing_style" class="filter-input">
+                    {% for style in ['low', 'normal', 'high'] %}
+                    <option value="{{ style }}" {% if player_team.pressing_style == style %}selected{% endif %}>{{ {'low': 'منخفض', 'normal': 'متوازن', 'high': 'ضغط مرتفع'}[style] }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>أسلوب المباراة</label>
+                <select name="match_tactic" class="filter-input">
+                    {% for tactic in ['balanced', 'attack', 'defensive', 'time_wasting'] %}
+                    <option value="{{ tactic }}" {% if player_team.match_tactic == tactic %}selected{% endif %}>{{ {'balanced': 'متوازن', 'attack': 'هجومي', 'defensive': 'دفاعي', 'time_wasting': 'إضاعة الوقت'}[tactic] }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button class="btn btn-primary">حفظ التعليمات</button>
+        </form>
+
+        <form action="/formation/takers" method="POST" class="tactics-grid" style="margin-top:0.8rem;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <div>
+                <label>منفذ ركلات الجزاء</label>
+                <select name="penalty_taker_id" class="filter-input">
+                    <option value="">— تلقائي —</option>
+                    {% for p in players %}
+                    <option value="{{ p.id }}" {% if player_team.penalty_taker_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>منفذ الضربات الحرة</label>
+                <select name="freekick_taker_id" class="filter-input">
+                    <option value="">— تلقائي —</option>
+                    {% for p in players %}
+                    <option value="{{ p.id }}" {% if player_team.freekick_taker_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button class="btn btn-primary">حفظ المنفذين</button>
+        </form>
+    </div>
+
+    <div class="card" style="margin-bottom:1rem;">
+        <div class="card-header"><h3><i class="fas fa-clipboard-list"></i> الخطط التكتيكية المحفوظة</h3></div>
+        {% if presets %}
+        <table>
+            <thead>
+                <tr><th>الاسم</th><th>النوع</th><th>الضغط</th><th>الأسلوب</th><th>إجراء</th></tr>
+            </thead>
+            <tbody>
+                {% for pr in presets %}
+                <tr>
+                    <td style="text-align:right;font-weight:bold;">{{ pr.name }}</td>
+                    <td>{{ pr.preset_type }}</td>
+                    <td>{{ pr.pressing_style }}</td>
+                    <td>{{ pr.match_tactic }}</td>
+                    <td>
+                        <form action="/formation/preset/{{ pr.id }}/load" method="POST" style="display:inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <button class="btn btn-sm btn-primary">تطبيق</button>
+                        </form>
+                        <form action="/formation/preset/{{ pr.id }}/delete" method="POST" style="display:inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <button class="btn btn-sm btn-danger">حذف</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color:#777;font-size:0.85rem;">لا توجد خطط محفوظة بعد.</p>
+        {% endif %}
+        <form action="/formation/preset/save" method="POST" class="tactics-grid" style="margin-top:0.8rem;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="text" name="name" class="filter-input" placeholder="اسم الخطة (مثال: خطة الأجيال)" required/>
+            <select name="preset_type" class="filter-input">
+                {% for t in ['standard', 'attacking', 'defensive'] %}
+                <option value="{{ t }}">{{ {'standard': 'قياسية', 'attacking': 'هجومية', 'defensive': 'دفاعية'}[t] }}</option>
+                {% endfor %}
+            </select>
+            <button class="btn btn-success">حفظ الخطة الحالية</button>
+        </form>
+    </div>
+
+    <div class="card" id="pitch-container">
+        <div id="pitch" class="free-pitch">
+            <div class="bench-area">
+                <h4><i class="fas fa-chair"></i> دكة الاحتياط</h4>
+                <div id="bench" class="bench"></div>
+            </div>
+            <div id="pitch-grid" class="pitch-grid"></div>
+        </div>
+    </div>
+
+    <!-- Player pool for selection -->
+    <div class="card">
+        <div class="card-header"><h3>اللاعبون</h3></div>
+        <div id="playerPool" class="player-pool"></div>
+    </div>
+
+    <p style="color:#777;font-size:0.8rem;margin-top:1rem;text-align:center;">
+        <i class="fas fa-info-circle"></i> اسحب اللاعبين وأفلتهم في أي مكان على الملعب بحرية تامة. يمكنك السحب من دكة الاحتياط أو من قائمة اللاعبين.
+    </p>
+</section>
+
+<!-- CSRF token hidden for JS use -->
+<input type="hidden" id="csrfToken" value="{{ csrf_token() }}">
+
+<style>
+.tactics-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; align-items: end; }
+.tactics-grid label { display:block; color:#888; font-size:0.8rem; margin-bottom:0.3rem; }
+.role-select { width: 100%; font-size: 0.65rem; margin-top: 2px; background: #0f3460; color: #fff; border: 1px solid #444; border-radius: 3px; padding: 0 2px; }
+.free-pitch {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.bench-area {
+    padding: 0.8rem;
+    background: rgba(0,0,0,0.3);
+    border: 1px dashed #2a2a4a;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+}
+.bench-area h4 { color:#888; font-size:0.85rem; margin-bottom:0.5rem; }
+.bench { display: flex; flex-wrap: wrap; gap: 0.4rem; min-height: 40px; }
+.pitch-grid {
+    position: relative;
+    width: 100%;
+    height: 550px;
+    background: linear-gradient(180deg, #1b5e20 0%, #2e7d32 50%, #1b5e20 100%);
+    border: 3px solid #fff;
+    border-radius: 8px;
+    overflow: hidden;
+}
+.pitch-grid::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 50%; bottom: 0;
+    width: 2px;
+    background: rgba(255,255,255,0.25);
+}
+.pitch-grid::after {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 80px; height: 80px;
+    border: 2px solid rgba(255,255,255,0.25);
+    border-radius: 50%;
+}
+.pitch-box {
+    position: absolute;
+    width: 75px;
+    height: 55px;
+    background: #1a1a2e;
+    border: 2px solid #e94560;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: #fff;
+    cursor: grab;
+    z-index: 10;
+    transition: transform 0.12s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    user-select: none;
+    touch-action: none;
+    transform: translate(-50%, -50%);
+}
+.pitch-box:hover {
+    box-shadow: 0 0 14px rgba(233,69,96,0.5);
+    transform: translate(-50%, -50%) scale(1.08);
+    cursor: grab;
+}
+.pitch-box.dragging {
+    opacity: 0.6;
+    cursor: grabbing;
+    transform: translate(-50%, -50%) scale(1.12);
+    box-shadow: 0 0 20px rgba(233,69,96,0.8);
+    z-index: 100;
+}
+.pitch-box.GK { border-color: #ff9800; }
+.pitch-box.DEF { border-color: #3498db; }
+.pitch-box.MID { border-color: #2ecc71; }
+.pitch-box.FWD { border-color: #e94560; }
+.pitch-box .pb-name { font-size: 0.75rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }
+.pitch-box .pb-pos { font-size: 0.65rem; color: #aaa; }
+.pitch-box.dragover { outline: 2px dashed #fff; outline-offset: 2px; }
+.bench-player {
+    padding: 0.4rem 0.7rem;
+    background: rgba(20,20,40,0.6);
+    border: 1px solid #2a2a4a;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    cursor: grab;
+    color: #e0e0e0;
+    transition: all 0.15s;
+}
+.bench-player:hover { border-color: #e94560; transform: translateY(-1px); }
+.bench-player .pos-tag { min-width: 2rem; font-size: 0.6rem; }
+.bench-player.dragging { opacity: 0.5; }
+.bench-player.dragover { outline: 2px dashed #e94560; outline-offset: 2px; }
+.player-pool {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+.pool-player {
+    padding: 0.4rem 0.8rem;
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.78rem;
+    cursor: grab;
+    color: #e0e0e0;
+    transition: all 0.15s;
+}
+.pool-player:hover { border-color: #e94560; transform: translateY(-1px); }
+.pool-player .pos-tag { min-width: 2rem; font-size: 0.6rem; }
+.pool-player.dragging { opacity: 0.5; }
+.pool-player.dragover { outline: 2px dashed #e94560; outline-offset: 2px; }
+.tip-highlight {
+    animation: tipPulse 1.5s ease-in-out;
+}
+@keyframes tipPulse {
+    0%, 100% { color: #777; }
+    50% { color: #e94560; }
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const players = {{ players|tojson }};
+    const formationData = {{ formation_data|safe }};
+    const csrfToken = document.getElementById('csrfToken').value;
+
+    const pitchGrid = document.getElementById('pitch-grid');
+    const bench = document.getElementById('bench');
+    const playerPool = document.getElementById('playerPool');
+    const countSpan = document.getElementById('formationCount');
+
+    let positions = {};
+    let placedIds = new Set();
+
+    // Load saved formation or default positions
+    if (formationData && Object.keys(formationData).length > 0) {
+        Object.keys(formationData).forEach(pid => {
+            const pos = formationData[pid];
+            const pl = players.find(p => p.id === parseInt(pid));
+            if (pl) {
+                positions[pid] = pos;
+                placedIds.add(parseInt(pid));
+            }
+        });
+    }
+
+    // Initial population of player pool
+    players.forEach(p => {
+        if (!placedIds.has(p.id)) {
+            const el = createPoolPlayer(p);
+            playerPool.appendChild(el);
+        }
+    });
+
+    // Populate bench and pitch from saved positions
+    renderAll();
+
+    function createPoolPlayer(player) {
+        const div = document.createElement('div');
+        div.className = 'pool-player';
+        div.draggable = true;
+        div.dataset.id = player.id;
+        div.innerHTML = `<span class="pos-tag ${player.position}">${player.position}</span> ${player.name}`;
+        div.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', player.id.toString());
+            div.classList.add('dragging');
+        });
+        div.addEventListener('dragend', () => {
+            div.classList.remove('dragging');
+        });
+        return div;
+    }
+
+    function createBenchPlayer(player) {
+        const div = document.createElement('div');
+        div.className = 'bench-player';
+        div.draggable = true;
+        div.dataset.id = player.id;
+        div.innerHTML = `<span class="pos-tag ${player.position}">${player.position}</span> ${player.name}`;
+        div.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', player.id.toString());
+            div.classList.add('dragging');
+        });
+        div.addEventListener('dragend', () => {
+            div.classList.remove('dragging');
+        });
+        return div;
+    }
+
+    function createPitchBox(player) {
+        const box = document.createElement('div');
+        box.className = `pitch-box ${player.position}`;
+        box.dataset.id = player.id;
+        box.draggable = true;
+        const isInjured = player.injury_days > 0;
+        const name = player.name.split(' ').slice(-1)[0];
+        const savedRole = formationData[player.id] && formationData[player.id].role || 'standard';
+        box.innerHTML = `<span class="pb-name" title="${player.name}">${isInjured ? '🔴 ' : ''}${name}</span><span class="pb-pos">${player.position}</span><select class="role-select" data-role-player="${player.id}">${roleOptions(savedRole)}</select>`;
+        box.title = `${player.name} - ${player.attack}/${player.defense}`;
+
+        box.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', player.id.toString());
+            box.classList.add('dragging');
+        });
+        box.addEventListener('dragend', () => {
+            box.classList.remove('dragging');
+        });
+
+        // Double-click to remove from pitch
+        box.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            if (e.target.tagName === 'SELECT') return;
+            removeFromPitch(player.id);
+        });
+
+        return box;
+    }
+
+    function roleOptions(selected) {
+        const ROLE_OPTIONS = [
+            ['standard', 'متوازن'], ['target_man', 'هدف علوي'], ['poacher', 'محتال'],
+            ['regista', 'ريجيستا'], ['ball_winner', 'كسّار كرات'], ['wing_back', 'ظهير جارف']
+        ];
+        let html = '';
+        ROLE_OPTIONS.forEach(([val, label]) => {
+            html += `<option value="${val}" ${selected === val ? 'selected' : ''}>${label}</option>`;
+        });
+        return html;
+    }
+
+    // Role change → POST to server (delegated so re-renders keep working)
+    pitchGrid.addEventListener('change', function(e) {
+        const sel = e.target;
+        if (!sel || !sel.classList || !sel.classList.contains('role-select')) return;
+        const fd = new URLSearchParams();
+        fd.append('player_id', sel.dataset.rolePlayer);
+        fd.append('role', sel.value);
+        fetch('/formation/role', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': csrfToken },
+            body: fd.toString()
+        }).then(r => r.json()).then(function(d) {
+            if (d.success) { sel.style.borderColor = '#2ecc71'; }
+        }).catch(function() {});
+        sel.addEventListener('click', function(stop) { stop.stopPropagation(); });
+    });
+
+    function removeFromPitch(playerId) {
+        const pid = playerId.toString();
+        const player = players.find(p => p.id === playerId);
+        if (!player) return;
+        delete positions[pid];
+        placedIds.delete(playerId);
+        renderAll();
+    }
+
+    function renderAll() {
+        pitchGrid.innerHTML = '';
+        bench.innerHTML = '';
+        playerPool.innerHTML = '';
+        placedIds.clear();
+
+        // Re-add all positioned players to pitch
+        Object.keys(positions).forEach(pid => {
+            const pl = players.find(p => p.id === parseInt(pid));
+            if (pl) {
+                placedIds.add(pl.id);
+                const box = createPitchBox(pl);
+                const pos = positions[pid];
+                const x = pos.x * pitchGrid.clientWidth / 100;
+                const y = pos.y * pitchGrid.clientHeight / 100;
+                box.style.left = x + 'px';
+                box.style.top = y + 'px';
+                pitchGrid.appendChild(box);
+            }
+        });
+
+        // Fill bench with remaining players
+        players.forEach(p => {
+            if (!placedIds.has(p.id)) {
+                const el = createBenchPlayer(p);
+                bench.appendChild(el);
+            }
+        });
+
+        updateCount();
+    }
+
+    function updateCount() {
+        const count = Object.keys(positions).length;
+        countSpan.textContent = count + '/11 لاعب';
+        const btn = document.getElementById('saveFormationBtn');
+        if (count === 11) {
+            btn.disabled = false;
+            countSpan.style.color = '#2ecc71';
+        } else {
+            btn.disabled = true;
+            countSpan.style.color = '#e94560';
+        }
+    }
+
+    // Drop handling
+    function setupDropTargets() {
+        pitchGrid.addEventListener('dragover', (e) => e.preventDefault());
+        pitchGrid.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const playerId = parseInt(e.dataTransfer.getData('text/plain'));
+            if (isNaN(playerId)) return;
+
+            const player = players.find(p => p.id === playerId);
+            if (!player) return;
+
+            // Check if already on pitch
+            if (placedIds.has(playerId)) return;
+
+            const rect = pitchGrid.getBoundingClientRect();
+            let x = (e.clientX - rect.left) / rect.width * 100;
+            let y = (e.clientY - rect.top) / rect.height * 100;
+            x = Math.max(5, Math.min(95, x));
+            y = Math.max(5, Math.min(95, y));
+
+            positions[playerId.toString()] = { x: Math.round(x), y: Math.round(y) };
+            renderAll();
+        });
+
+        bench.addEventListener('dragover', (e) => e.preventDefault());
+        bench.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const playerId = parseInt(e.dataTransfer.getData('text/plain'));
+            if (isNaN(playerId)) return;
+            removeFromPitch(playerId);
+        });
+
+        playerPool.addEventListener('dragover', (e) => e.preventDefault());
+        playerPool.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const playerId = parseInt(e.dataTransfer.getData('text/plain'));
+            if (isNaN(playerId)) return;
+            removeFromPitch(playerId);
+        });
+    }
+
+    // Move existing pitch box to new location (drag within pitch)
+    pitchGrid.addEventListener('dragover', (e) => e.preventDefault());
+    pitchGrid.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const playerId = parseInt(e.dataTransfer.getData('text/plain'));
+        if (isNaN(playerId)) return;
+
+        // If player already on pitch, move them
+        const pid = playerId.toString();
+        if (positions[pid]) {
+            const rect = pitchGrid.getBoundingClientRect();
+            let x = (e.clientX - rect.left) / rect.width * 100;
+            let y = (e.clientY - rect.top) / rect.height * 100;
+            positions[pid] = { x: Math.max(5, Math.min(95, Math.round(x))), y: Math.max(5, Math.min(95, Math.round(y))) };
+            renderAll();
+        }
+    });
+
+    setupDropTargets();
+
+    // Save formation
+    document.getElementById('saveFormationBtn').addEventListener('click', function() {
+        if (Object.keys(positions).length !== 11) {
+            alert('يجب اختيار 11 لاعباً بالضبط في الملعب!');
+            return;
+        }
+        const hasGK = Object.keys(positions).some(pid => {
+            const pl = players.find(p => p.id === parseInt(pid));
+            return pl && pl.position === 'GK';
+        });
+        if (!hasGK) {
+            alert('يجب أن يكون هناك حارس مرمى (GK) واحد على الأقل في التشكيل الأساسي!');
+            return;
+        }
+        fetch('/formation/save', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({positions: positions})
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert(data.message);
+                window.location.reload();
+            } else {
+                alert(data.error || 'فشل في الحفظ');
+            }
+        })
+        .catch(err => alert('خطأ في الاتصال بالخادم'));
+    });
+
+    // Reset
+    document.getElementById('resetFormationBtn').addEventListener('click', function() {
+        positions = {};
+        placedIds.clear();
+        renderAll();
+    });
+
+    // Make pitch boxes draggable for repositioning
+    pitchGrid.addEventListener('dragstart', (e) => {
+        if (e.target.classList.contains('pitch-box')) {
+            e.dataTransfer.setData('text/plain', e.target.dataset.id);
+            e.target.classList.add('dragging');
+        }
+    });
+    pitchGrid.addEventListener('dragend', (e) => {
+        if (e.target.classList.contains('pitch-box')) {
+            e.target.classList.remove('dragging');
+        }
+    });
+});
+</script>
+{% endblock %}

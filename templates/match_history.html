@@ -14,7 +14,7 @@
                 <div class="hi-score">{{ m.home_score }} - {{ m.away_score }}</div>
                 <div style="display:flex;align-items:center;gap:0.5rem;">
                     <span class="hi-week">أ{{ m.week }}</span>
-                    <a href="{{ url_for('match_report', match_id=m.id) }}" class="btn-icon" title="تقرير"><i class="fas fa-file-alt"></i></a>
+                    <a href="{{ url_for('main.match_report', match_id=m.id) }}" class="btn-icon" title="تقرير"><i class="fas fa-file-alt"></i></a>
                 </div>
             </div>
             {% endfor %}
@@ -23,6 +23,6 @@
         {% endif %}
     </div>
 
-    <a href="{{ url_for('dashboard') }}" class="btn-back">← العودة للوحة</a>
+    <a href="{{ url_for('main.dashboard') }}" class="btn-back">← العودة للوحة</a>
 </section>
 {% endblock %}

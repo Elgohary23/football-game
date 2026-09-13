@@ -1,0 +1,524 @@
+"""Main game blueprint: navigation, dashboard, calendar, match, progression."""
+
+import json
+from datetime import datetime
+
+from flask import Blueprint, flash, redirect, render_template, request, session
+
+bp = Blueprint("main", __name__)
+
+from models import (
+    db,
+    BoardObjective,
+    GameState,
+    League,
+    Match,
+    Player,
+    Team,
+)
+from simulation import (
+    get_current_match,
+    get_match_report,
+    get_pending_actions,
+    get_recent_results,
+    is_match_day,
+    process_promotion_relegation,
+    simulate_calendar,
+    simulate_day,
+)
+from services import (
+    get_league_table,
+    get_season_rounds,
+    get_team_rank,
+    invalidate_league_cache,
+    safe_player_team,
+    safe_state,
+)
+from live_match import (
+    advance_live_mins,
+    advance_week_if_complete,
+    finish_live,
+    finish_match_week,
+    live_state_payload,
+    run_auto_match,
+    start_live,
+    substitute_player,
+)
+
+
+def _involves_player(match: Match) -> bool:
+    return bool(
+        match
+        and (
+            (match.home_team and match.home_team.is_player_team)
+            or (match.away_team and match.away_team.is_player_team)
+        )
+    )
+
+
+def _play_or_start_match_day(state: GameState):
+    """Run the day's match via the new live engine.
+
+    Player fixtures open the interactive live screen; everything else is
+    simulated in auto mode. Returns the match to hand to the UI, if any.
+    """
+    if not is_match_day(state):
+        return None
+    match = get_current_match(state)
+    if not match or match.played:
+        return None
+    if _involves_player(match):
+        if start_live(match, mode="live"):
+            db.session.commit()
+            return match
+        # live already running/finished
+        return match
+    if run_auto_match(match):
+        db.session.commit()
+    return None
+
+
+def _pending_live_match(state: GameState):
+    """A live fixture that still needs to be played by the user."""
+    match = get_current_match(state)
+    if match and _involves_player(match) and not match.played:
+        return match
+    return None
+
+
+@bp.route("/")
+def index():
+    slot = get_active_slot()
+    if slot == 0:
+        return redirect("/load")
+
+    try:
+        state = GameState.query.first()
+        if not state:
+            return redirect("/load")
+
+        if not state.manager_name or state.manager_name == "المدرب":
+            return redirect(f"/setup/{slot}")
+
+        player_team = Team.query.filter_by(is_player_team=True).first()
+        if not player_team:
+            return redirect(f"/select-division/{slot}")
+
+    except Exception:
+        return redirect("/load")
+
+    return redirect("/dashboard")
+
+
+def get_active_slot() -> int:
+    return session.get("active_save", 0)
+
+
+@bp.route("/dashboard")
+def dashboard():
+    state = safe_state()
+    player_team = safe_player_team()
+
+    league_id = player_team.league_id if player_team else None
+    league_table = get_league_table(league_id)
+    team_rank = get_team_rank(league_id, player_team)
+
+    players = (
+        Player.query.filter_by(team_id=player_team.id)
+        .options(db.joinedload(Player.team))
+        .all()
+    )
+    current_match = get_current_match(state)
+    recent_results = get_recent_results(
+        state, league_id if (league_id and player_team) else None
+    )
+    pending_actions = get_pending_actions(state)
+    board_objectives = BoardObjective.query.filter_by(
+        team_id=player_team.id, season=state.season_number or 1
+    ).all()
+
+    return render_template(
+        "dashboard.html",
+        state=state,
+        player_team=player_team,
+        players=players,
+        team_rank=team_rank,
+        current_match=current_match,
+        league_table=league_table,
+        recent_results=recent_results,
+        pending_actions=pending_actions,
+        board_objectives=board_objectives,
+    )
+
+
+@bp.route("/standings")
+def standings():
+    state = safe_state()
+    player_team = safe_player_team()
+    league_id = request.args.get("league_id", type=int) or (
+        player_team.league_id if player_team else None
+    )
+
+    league_table = get_league_table(league_id)
+    team_rank = get_team_rank(league_id, player_team)
+
+    league = db.session.get(League, league_id) if league_id else None
+    leagues = League.query.order_by(League.tier).all()
+
+    return render_template(
+        "standings.html",
+        state=state,
+        player_team=player_team,
+        league_table=league_table,
+        team_rank=team_rank,
+        league=league,
+        leagues=leagues,
+        selected_league_id=league_id,
+    )
+
+
+@bp.route("/calendar")
+def calendar():
+    state = safe_state()
+    player_team = safe_player_team()
+
+    player_matches = (
+        Match.query.filter(
+            (Match.home_team_id == player_team.id)
+            | (Match.away_team_id == player_team.id)
+        )
+        .order_by(Match.date)
+        .all()
+    )
+
+    player_matches_json = {}
+    for m in player_matches:
+        home = m.home_team
+        away = m.away_team
+        player_matches_json[m.date] = {
+            "id": m.id,
+            "home": home.name if home else "?",
+            "away": away.name if away else "?",
+            "home_is_player": home.is_player_team if home else False,
+            "away_is_player": away.is_player_team if away else False,
+            "score": m.result or "—",
+            "played": m.played,
+            "week": m.week,
+            "home_score": m.home_score,
+            "away_score": m.away_score,
+        }
+
+    return render_template(
+        "calendar.html",
+        state=state,
+        player_team=player_team,
+        player_matches_json=json.dumps(player_matches_json),
+        current_date=state.current_date,
+    )
+
+
+@bp.route("/match")
+def match_view():
+    state = safe_state()
+    match = get_current_match(state)
+    scouting = None
+
+    if match:
+        opp = (
+            match.home_team
+            if not match.home_team.is_player_team
+            else match.away_team
+        )
+        if opp and opp.players:
+            danger_man = max(opp.players, key=lambda p: p.attack)
+            starters = [p for p in opp.players if p.is_starting]
+            avg_defense = (
+                sum(p.defense for p in starters) / len(starters)
+                if starters
+                else 0
+            )
+            scouting = {
+                "name": opp.name,
+                "danger_man_name": danger_man.name if danger_man else "N/A",
+                "danger_man_goals": danger_man.goals if danger_man else 0,
+                "avg_defense": avg_defense,
+                "morale_desc": (
+                    "مرتفع"
+                    if opp.morale > 80
+                    else "مستقر"
+                    if opp.morale > 50
+                    else "منخفض"
+                ),
+            }
+
+    return render_template("match.html", match=match, state=state, scouting=scouting)
+
+
+@bp.route("/advance_day", methods=["GET", "POST"])
+def advance_day():
+    state = safe_state()
+    if state.season_over:
+        flash("الموسم انتهى!")
+        return redirect("/")
+
+    simulate_day(state)
+    match = _play_or_start_match_day(state)
+    if match and _involves_player(match):
+        return redirect(f"/live/{match.id}")
+    if state.current_week >= get_season_rounds(state.user_league_id):
+        state.season_over = True
+        flash("انتهى الموسم! اضغط ابدأ الموسم الجديد لتطبيق الصعود والهبوط")
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("حدث خطأ في تقدم اليوم!")
+        return redirect("/")
+
+    return redirect("/")
+
+
+@bp.route("/continue", methods=["GET", "POST"])
+def continue_game():
+    state = safe_state()
+    if state.season_over:
+        flash("الموسم انتهى!")
+        return redirect("/dashboard")
+
+    result = simulate_calendar(7, state)
+    if result["matches_played"] > 0:
+        flash(f"تم محاكاة {result['matches_played']} مباريات")
+
+    match = _pending_live_match(state)
+    if match:
+        if start_live(match, mode="live"):
+            db.session.commit()
+            return redirect(f"/live/{match.id}")
+
+    if state.current_week >= get_season_rounds(state.user_league_id):
+        state.season_over = True
+        flash("انتهى الموسم! اضغط ابدأ الموسم الجديد لتطبيق الصعود والهبوط")
+
+    return redirect("/dashboard")
+
+
+@bp.route("/match_report/<int:match_id>")
+def match_report(match_id):
+    state = safe_state()
+    report = get_match_report(match_id)
+    if not report:
+        flash("المباراة غير موجودة!")
+        return redirect("/dashboard")
+    return render_template("match_report.html", report=report, state=state)
+
+
+# --------------------------------------------------------------------------
+# Live match (new FM-style interactive engine)
+# --------------------------------------------------------------------------
+@bp.route("/live/<int:match_id>")
+def live_view(match_id):
+    state = safe_state()
+    match = db.session.get(Match, match_id)
+    if not match or not (match.live_active or not match.played):
+        flash("لا توجد مباراة حية!")
+        return redirect("/dashboard")
+
+    if not match.live_active:
+        if not _involves_player(match):
+            run_auto_match(match)
+            db.session.commit()
+        else:
+            start_live(match, mode="live")
+            db.session.commit()
+
+    payload = live_state_payload(match)
+    return render_template(
+        "live.html",
+        match=match,
+        state=state,
+        payload=payload,
+    )
+
+
+@bp.route("/live/<int:match_id>/state")
+def live_state(match_id):
+    match = db.session.get(Match, match_id)
+    if not match:
+        return {"error": "not found"}, 404
+    return live_state_payload(match)
+
+
+@bp.route("/live/<int:match_id>/advance", methods=["POST"])
+def live_advance(match_id):
+    match = db.session.get(Match, match_id)
+    if not match or not match.live_active:
+        return {"error": "not live"}, 404
+    minutes = request.form.get("minutes", type=int, default=1) or 1
+    res = advance_live_mins(match, min(15, max(1, minutes)))
+    db.session.commit()
+    return res
+
+
+@bp.route("/live/<int:match_id>/sub", methods=["POST"])
+def live_sub(match_id):
+    match = db.session.get(Match, match_id)
+    if not match or not match.live_active:
+        return {"error": "not live"}, 404
+    team_key = request.form.get("team_key", "home_xp")
+    player_out = request.form.get("player_out", type=int)
+    player_in = request.form.get("player_in", type=int)
+    ok, msg = substitute_player(match, team_key, player_out or 0, player_in or 0)
+    db.session.commit()
+    return {"ok": ok, "message": msg}
+
+
+@bp.route("/live/<int:match_id>/finish", methods=["POST"])
+def live_finish(match_id):
+    state = safe_state()
+    match = db.session.get(Match, match_id)
+    if not match:
+        return {"error": "not found"}, 404
+
+    others_played = 0
+    if not match.played:
+        live = match.live_state or {}
+        cur = live.get("minute", 0) or 0
+        if not live.get("finished"):
+            advance_live_mins(match, max(1, 90 - cur))
+        finish_live(match)
+        others_played = finish_match_week(match)
+        advance_week_if_complete(match)
+        if state.current_week >= get_season_rounds(state.user_league_id):
+            state.season_over = True
+    db.session.commit()
+    return {
+        "finished": True,
+        "season_over": bool(state and state.season_over),
+        "others_played": others_played,
+    }
+
+
+@bp.route("/advance_week", methods=["GET", "POST"])
+def advance_week():
+    state = safe_state()
+    if state.season_over:
+        flash("الموسم انتهى!")
+        return redirect("/")
+
+    while not is_match_day(state) and not state.season_over:
+        simulate_day(state)
+
+    match = _play_or_start_match_day(state)
+    if match and _involves_player(match):
+        return redirect(f"/live/{match.id}")
+    if state.current_week >= get_season_rounds(state.user_league_id):
+        state.season_over = True
+        flash("انتهى الموسم! اضغط ابدأ الموسم الجديد لتطبيق الصعود والهبوط")
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("حدث خطأ في تقدم الأسبوع!")
+        return redirect("/")
+
+    return redirect("/")
+
+
+@bp.route("/simulate_to_date", methods=["POST"])
+def simulate_to_date():
+    state = safe_state()
+    if state.season_over:
+        flash("الموسم انتهى!")
+        return redirect("/dashboard")
+
+    target_date_str = request.form.get("target_date")
+    if not target_date_str:
+        flash("تاريخ غير صالح!")
+        return redirect("/calendar")
+
+    try:
+        target_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+        current_date = datetime.strptime(state.current_date, "%Y-%m-%d").date()
+        days_to_sim = (target_date - current_date).days
+    except Exception:
+        flash("تاريخ غير صالح!")
+        return redirect("/calendar")
+
+    if days_to_sim <= 0:
+        flash("يرجى اختيار تاريخ في المستقبل!")
+        return redirect("/calendar")
+
+    try:
+        db.session.commit()
+        raw_conn = db.engine.raw_connection()
+        cursor = raw_conn.cursor()
+        cursor.execute("PRAGMA synchronous = OFF;")
+        cursor.execute("PRAGMA journal_mode = MEMORY;")
+        cursor.close()
+    except Exception:
+        pass
+
+    matches_played = 0
+    if days_to_sim > 0:
+        result = simulate_calendar(days_to_sim, state)
+        matches_played = result.get("matches_played", 0)
+
+    if state.current_week >= get_season_rounds(state.user_league_id):
+        state.season_over = True
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("حدث خطأ في المحاكاة!")
+        return redirect("/calendar")
+
+    flash(f"تمت المحاكاة! وصلت لتاريخ {state.current_date}، لعبت {matches_played} مباريات")
+    return redirect("/dashboard")
+
+
+@bp.route("/match_history")
+def match_history():
+    state = safe_state()
+    player_team = safe_player_team()
+
+    player_matches = (
+        Match.query.filter(
+            (Match.home_team_id == player_team.id)
+            | (Match.away_team_id == player_team.id)
+        )
+        .filter(Match.played == True)
+        .order_by(Match.week.desc())
+        .limit(30)
+        .all()
+    )
+
+    return render_template(
+        "match_history.html", state=state, player_team=player_team, matches=player_matches
+    )
+
+
+@bp.route("/season_end", methods=["POST"])
+def season_end():
+    state = safe_state()
+    if not state.season_over:
+        flash("الموسم لم ينتهِ بعد!")
+        return redirect("/dashboard")
+
+    process_promotion_relegation(state)
+    state.season_over = False
+    state.current_day = 1
+    state.current_week = 1
+    state.season_number = (state.season_number or 1) + 1
+
+    try:
+        db.session.commit()
+        invalidate_league_cache()
+        flash(f"انتهى الموسم {state.season_number - 1}! بدأ الموسم الجديد بنجاح")
+    except Exception:
+        db.session.rollback()
+        flash("خطأ في إنهاء الموسم!")
+
+    return redirect("/dashboard")

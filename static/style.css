@@ -183,6 +183,18 @@ body {
     transition: box-shadow 0.2s;
 }
 .card:hover { box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+.clickable-card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.clickable-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(233, 69, 96, 0.4);
+    box-shadow: 0 8px 25px rgba(233, 69, 96, 0.15);
+}
+.clickable-card:hover .card-footer-link {
+    background: rgba(233, 69, 96, 0.1);
+    color: #fff !important;
+}
 .card-header {
     display: flex;
     justify-content: space-between;
@@ -223,6 +235,12 @@ body {
 .btn-success { background: #2ecc71; color: white; }
 .btn-danger { background: #e74c3c; color: white; }
 .btn-warning { background: #f39c12; color: #000; }
+
+.live-event { padding: 0.2rem 0.4rem; border-bottom: 1px dashed rgba(255, 255, 255, 0.08); }
+.live-event.goal { color: #2ecc71; font-weight: bold; }
+.live-event.card { color: #e94560; font-weight: bold; }
+.traits-tag { font-size: 0.7rem; color: #2ecc71; }
+.scout-mask { color: #f39c12; font-weight: bold; cursor: help; }
 .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.8rem; }
 .btn-lg { padding: 0.8rem 2rem; font-size: 1rem; }
 .btn-icon {
@@ -1041,4 +1059,106 @@ footer { text-align: center; padding: 1.5rem; color: #444; font-size: 0.8rem; bo
     .calendar-grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }
     .manager-record { grid-template-columns: repeat(2, 1fr); }
     .sub-nav { display: none; }
+    .pitch-grid { height: 400px !important; }
+}
+
+/* ===== Season Over Banner ===== */
+.season-over-banner {
+    background: linear-gradient(135deg, rgba(241,196,15,0.1), rgba(233,69,96,0.1));
+    border: 2px solid #f1c40f;
+    border-radius: 12px;
+    padding: 2rem;
+    text-align: center;
+    margin-bottom: 1rem;
+}
+.season-over-banner h2 { color: #f1c40f; font-size: 1.4rem; margin-bottom: 0.5rem; }
+.season-over-banner p { color: #aaa; margin-bottom: 1rem; font-size: 0.9rem; }
+
+/* ===== Live match lineup chips ===== */
+.match-column { font-size: 0.8rem; }
+.live-chip {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 6px;
+    padding: 0.3rem 0.5rem; margin: 0.15rem 0.1rem; font-size: 0.72rem;
+    white-space: nowrap;
+}
+.live-chip.clickable { cursor: pointer; transition: all 0.15s; }
+.live-chip.clickable:hover { border-color: #e94560; transform: translateY(-1px); }
+.live-chip.sub-in { border-color: #2ecc71; box-shadow: 0 0 0 1px #2ecc71; }
+.live-chip.sub-out { border-color: #e74c3c; box-shadow: 0 0 0 1px #e74c3c; }
+.live-chip .lc-pos { font-size: 0.6rem; opacity: 0.75; }
+.live-chip .lc-rating { font-size: 0.65rem; color: #f39c12; }
+
+/* ===== Formation / Tactics ===== */
+.lead { font-weight: normal; }
+.free-pitch { display: flex; flex-direction: column; gap: 0.5rem; }
+.bench-area h4 { color: #888; }
+.bench-player, .pool-player {
+    transition: all 0.15s;
+}
+.pitch-box {
+    transition: transform 0.1s ease, box-shadow 0.15s ease;
+}
+.pitch-box:active { transform: scale(1.05); }
+
+/* ===== Training ===== */
+.train-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.72rem; font-weight: bold; }
+.train-level { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; }
+.train-level .level-dots { display: flex; gap: 3px; }
+.train-level .level-dot { width: 10px; height: 10px; border-radius: 2px; background: #1e1e3a; }
+.train-level .level-dot.filled { background: #e94560; }
+
+/* ===== Responsive tuning for new screens ===== */
+@media (max-width: 600px) {
+    .pitch-grid { height: 340px !important; }
+    .pitch-box { width: 30px !important; height: 30px !important; font-size: 0.5rem !important; }
+    .pitch-box .pb-name { font-size: 0.45rem !important; }
+}
+
+/* ===== Theme variables + utilities (Tips 18-21) ===== */
+:root {
+    --bg: #0f0f1a;
+    --bg-dark: #16213e;
+    --bg-accent: #1a1a2e;
+    --bg-card: #1a1a2e;
+    --primary: #e94560;
+    --primary-soft: #0f3460;
+    --border: #2a2a4a;
+    --text: #e0e0e0;
+    --text-muted: #888;
+    --success: #2ecc71;
+    --warning: #f39c12;
+    --danger: #e74c3c;
+}
+
+/* Remap base components to variables (keeps current look, enables future theming) */
+body { background: var(--bg); color: var(--text); }
+.main-nav { background: linear-gradient(135deg, var(--bg-dark) 0%, var(--primary-soft) 100%); border-bottom: 2px solid var(--primary); }
+.dropdown-menu { background: var(--bg-accent); border: 1px solid var(--border); }
+.badge { background: var(--primary); }
+.badge-hidden { display: none; }
+footer { color: var(--text-muted); border-top: 1px solid var(--border); }
+
+/* Dynamic morale colors */
+.morale-good { color: var(--success); font-weight: bold; }
+.morale-mid { color: var(--warning); font-weight: bold; }
+.morale-bad { color: var(--danger); font-weight: bold; }
+
+/* Toast for AJAX feedback */
+.toggler-toast {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 50%;
+    transform: translateX(50%);
+    z-index: 2000;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+    transition: opacity 0.5s;
+}
+
+/* Responsive tables: cards on small screens */
+@media (max-width: 600px) {
+    .table-container table { min-width: 560px; }
+    .table-container { -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+    .table-container::-webkit-scrollbar { height: 6px; }
+    .table-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 }

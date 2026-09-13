@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}مباراة حية{% endblock %}
+{% block content %}
+<section class="dashboard">
+    <h1 style="color:#e94560;text-align:center;margin-bottom:1rem;">مباراة حية</h1>
+
+    <div class="card" style="text-align:center;padding:1.2rem;">
+        <div class="score-big" id="liveScore" style="font-size:2.2rem;">{{ payload.home_score }} - {{ payload.away_score }}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-top:0.4rem;">
+            <strong id="liveHomeName">{{ match.home_team.name }}</strong>
+            <span class="match-status" id="liveClock" style="font-size:1rem;">{{ payload.minute }}</span>
+            <strong id="liveAwayName">{{ match.away_team.name }}</strong>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top:1rem;">
+        <div class="card-header"><h3>إحصائيات</h3></div>
+        <div class="stats-comparison">
+            <div class="stat-comp">
+                <div class="stat-label">الاستحواذ</div>
+                <div class="stat-numbers">
+                    <span class="home" id="liveHomePoss">{{ payload.home_possession }}%</span>
+                    <span id="liveAwayPoss">{{ payload.away_possession }}%</span>
+                </div>
+                <div class="stat-bar">
+                    <div class="bar-home" id="hPossBar" style="width:{{ payload.home_possession }}%"></div>
+                    <div class="bar-away" id="aPossBar" style="width:{{ 100 - payload.home_possession }}%"></div>
+                </div>
+            </div>
+            <div class="stat-comp">
+                <div class="stat-label">xG</div>
+                <div class="stat-numbers">
+                    <span class="home" id="liveHomeXg">{{ payload.home_xg }}</span>
+                    <span id="liveAwayXg">{{ payload.away_xg }}</span>
+                </div>
+            </div>
+            <div class="stat-comp">
+                <div class="stat-label">التسديدات (على المرمى)</div>
+                <div class="stat-numbers">
+                    <span class="home" id="liveHomeShots">{{ payload.home_shots }} ({{ 0 }})</span>
+                    <span id="liveAwayShots">{{ payload.away_shots }} ({{ 0 }})</span>
+                </div>
+            </div>
+            <div class="stat-comp">
+                <div class="stat-label">بطاقات</div>
+                <div class="stat-numbers">
+                    <span class="home" id="liveHomeCards">{{ payload.home_yellows }}&nbsp;&nbsp;{{ payload.home_reds }}</span>
+                    <span id="liveAwayCards">{{ payload.away_yellows }}&nbsp;&nbsp;{{ payload.away_reds }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="match-hub" style="margin-top:1rem;">
+        <div class="match-column" id="liveHomeCol">
+            <h4 style="color:#888;font-size:0.8rem;margin:0 0 0.3rem 0;">{{ match.home_team.name }} — التشكيلة</h4>
+            <div id="liveHomePitch" style="min-height:40px;"></div>
+            <h4 style="color:#888;font-size:0.8rem;margin:0.6rem 0 0.3rem 0;">الاحتياط ({{ payload.home_subs }}/3)</h4>
+            <div id="liveHomeBench"></div>
+        </div>
+        <div class="match-column stats">
+            <h3>أحداث المباراة</h3>
+            <div id="liveSubMsg" style="font-size:0.8rem;color:#f39c12;min-height:1.2em;margin-bottom:0.3rem;"></div>
+            <div id="liveFeed" style="max-height:420px;overflow-y:auto;text-align:right;direction:rtl;font-size:0.85rem;padding:0.3rem;"></div>
+        </div>
+        <div class="match-column away" id="liveAwayCol">
+            <h4 style="color:#888;font-size:0.8rem;margin:0 0 0.3rem 0;">{{ match.away_team.name }} — التشكيلة</h4>
+            <div id="liveAwayPitch" style="min-height:40px;"></div>
+            <h4 style="color:#888;font-size:0.8rem;margin:0.6rem 0 0.3rem 0;">الاحتياط ({{ payload.away_subs }}/3)</h4>
+            <div id="liveAwayBench"></div>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top:1rem;text-align:center;">
+        <button class="btn btn-primary" id="btnMinute1">+1 دقيقة</button>
+        <button class="btn btn-primary" id="btnMinute5">+5 دقائق</button>
+        <button class="btn btn-warning" id="btnFinish">إنهاء المباراة</button>
+        <a href="{{ url_for('main.dashboard') }}" class="btn">العودة للوحة</a>
+    </div>
+</section>
+
+{% set initial = payload|tojson %}
+<input type="hidden" id="csrfToken" value="{{ csrf_token() }}">
+<script id="liveInitial" type="application/json" data-live-id="{{ match.id }}">{{ initial }}</script>
+{% endblock %}

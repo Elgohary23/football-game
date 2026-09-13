@@ -18,7 +18,7 @@
     {% endif %}
     <div class="leagues-compare">
         {% for league in leagues %}
-        <a href="{{ url_for('select_team', slot_id=slot_id, league_id=league.id) }}" class="league-row l{{ league.tier }}">
+        <a href="{{ url_for('save.select_team', slot_id=slot_id, league_id=league.id) }}" class="league-row l{{ league.tier }}">
             <div class="league-tier-badge">{{ league.tier }}</div>
             <div>
                 <h3>{{ league.name }}</h3>

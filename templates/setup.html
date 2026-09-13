@@ -8,7 +8,7 @@
             <h1>إعداد المدرب</h1>
             <p class="setup-subtitle">أهلاً بك في عالم كرة القدم! أدخل بياناتك كمدرب لتبدأ المغامرة</p>
         </div>
-        <form action="{{ url_for('setup_coach', slot_id=slot_id) }}" method="POST" class="setup-form">
+        <form action="{{ url_for('save.setup_coach', slot_id=slot_id) }}" method="POST" class="setup-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <div class="form-row">
                 <div class="form-group">
@@ -42,7 +42,7 @@
             </div>
             <div class="form-actions">
                 <button type="submit" class="btn btn-primary">التالي</button>
-                <a href="{{ url_for('load_game') }}" class="btn btn-secondary">إلغاء</a>
+                <a href="{{ url_for('save.load_game') }}" class="btn btn-secondary">إلغاء</a>
             </div>
         </form>
     </div>

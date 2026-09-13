@@ -19,10 +19,42 @@
         </div>
     </div>
 
-    <!-- Possession -->
-    <div class="card">
+    <!-- Match Stats Overview -->
+    <div class="card" style="margin-bottom:1rem;">
+        <div class="card-header"><h3>إحصائيات المباراة</h3></div>
+        <div class="match-stats-grid">
+            <div class="stat-row">
+                <span class="stat-home">{{ report.match.home_shots }}</span>
+                <span class="stat-label-center">التسديدات</span>
+                <span class="stat-away">{{ report.match.away_shots }}</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-home">{{ report.match.home_shots_on_target }}</span>
+                <span class="stat-label-center">على المرمى</span>
+                <span class="stat-away">{{ report.match.away_shots_on_target }}</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-home">{{ report.match.home_corners }}</span>
+                <span class="stat-label-center">ركنيات</span>
+                <span class="stat-away">{{ report.match.away_corners }}</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-home">{{ report.match.home_fouls }}</span>
+                <span class="stat-label-center">أخطاء</span>
+                <span class="stat-away">{{ report.match.away_fouls }}</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-home">{{ report.home_possession }}%</span>
+                <span class="stat-label-center">الاستحواذ</span>
+                <span class="stat-away">{{ report.away_possession }}%</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Possession bar -->
+    <div class="card" style="margin-bottom:1rem;">
         <div class="card-header"><h3>الاستحواذ</h3></div>
-        <div class="stat-comp">
+        <div class="stat-comp" style="margin-top:0.5rem;">
             <div class="stat-numbers">
                 <span class="home">{{ report.home.name }} {{ report.home_possession }}%</span>
                 <span>{{ report.away_possession }}% {{ report.away.name }}</span>
@@ -34,16 +66,36 @@
         </div>
     </div>
 
-    <!-- Events -->
+    <!-- Events Timeline -->
     <div class="card">
         <div class="card-header"><h3>أحداث المباراة</h3></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
             <div>
                 <h4 style="color:#e94560;margin-bottom:0.5rem;font-size:0.9rem;">{{ report.home.name }}</h4>
                 {% for event in report.home_events %}
-                <div style="padding:0.3rem 0;font-size:0.85rem;">
-                    <span style="color:#e94560;font-weight:bold;">{{ event.minute }}'</span>
-                    <span>⚽ هدف!</span>
+                <div class="event-line {{ event.type }}">
+                    <span class="event-minute">{{ event.minute }}'</span>
+                    {% if event.type == 'goal' %}
+                    <span class="event-icon">⚽</span>
+                    <span class="event-text">هدف! {{ event.player }}{% if event.assist %} (تمريرة {{ event.assist }}){% endif %}</span>
+                    {% elif event.type == 'yellow_card' %}
+                    <span class="event-icon" style="color:#f1c40f;">🟨</span>
+                    <span class="event-text">بطاقة صفراء - {{ event.player }}</span>
+                    {% elif event.type == 'red_card' %}
+                    <span class="event-icon" style="color:#e74c3c;">🟥</span>
+                    <span class="event-text">بطاقة حمراء - {{ event.player }}</span>
+                    {% elif event.type == 'shot' %}
+                    <span class="event-icon" style="color:#888;">🎯</span>
+                    <span class="event-text">تسديدة - {{ event.player }}</span>
+                    {% elif event.type == 'corner' %}
+                    <span class="event-icon" style="color:#e94560;">🚩</span>
+                    <span class="event-text">ركنية</span>
+                    {% elif event.type == 'foul' %}
+                    <span class="event-icon" style="color:#888;">❗</span>
+                    <span class="event-text">خطأ - {{ event.player }}</span>
+                    {% else %}
+                    <span class="event-text">{{ event.type }} {{ event.minute }}'</span>
+                    {% endif %}
                 </div>
                 {% endfor %}
                 {% if report.home_events|length == 0 %}
@@ -53,9 +105,29 @@
             <div>
                 <h4 style="color:#3498db;margin-bottom:0.5rem;font-size:0.9rem;">{{ report.away.name }}</h4>
                 {% for event in report.away_events %}
-                <div style="padding:0.3rem 0;font-size:0.85rem;">
-                    <span style="color:#e94560;font-weight:bold;">{{ event.minute }}'</span>
-                    <span>⚽ هدف!</span>
+                <div class="event-line {{ event.type }}">
+                    <span class="event-minute">{{ event.minute }}'</span>
+                    {% if event.type == 'goal' %}
+                    <span class="event-icon">⚽</span>
+                    <span class="event-text">هدف! {{ event.player }}{% if event.assist %} (تمريرة {{ event.assist }}){% endif %}</span>
+                    {% elif event.type == 'yellow_card' %}
+                    <span class="event-icon" style="color:#f1c40f;">🟨</span>
+                    <span class="event-text">بطاقة صفراء - {{ event.player }}</span>
+                    {% elif event.type == 'red_card' %}
+                    <span class="event-icon" style="color:#e74c3c;">🟥</span>
+                    <span class="event-text">بطاقة حمراء - {{ event.player }}</span>
+                    {% elif event.type == 'shot' %}
+                    <span class="event-icon" style="color:#888;">🎯</span>
+                    <span class="event-text">تسديدة - {{ event.player }}</span>
+                    {% elif event.type == 'corner' %}
+                    <span class="event-icon" style="color:#3498db;">🚩</span>
+                    <span class="event-text">ركنية</span>
+                    {% elif event.type == 'foul' %}
+                    <span class="event-icon" style="color:#888;">❗</span>
+                    <span class="event-text">خطأ - {{ event.player }}</span>
+                    {% else %}
+                    <span class="event-text">{{ event.type }} {{ event.minute }}'</span>
+                    {% endif %}
                 </div>
                 {% endfor %}
                 {% if report.away_events|length == 0 %}
@@ -80,6 +152,8 @@
                             <th>التقييم</th>
                             <th>أهداف</th>
                             <th>تمريرات</th>
+                            <th>تسديدات</th>
+                            <th>تدخلات</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -90,6 +164,8 @@
                             <td style="color:{{ '#2ecc71' if rating.rating >= 7 else '#f39c12' if rating.rating >= 6 else '#e74c3c' }};font-weight:bold;">{{ rating.rating }}</td>
                             <td>{{ rating.goals }}</td>
                             <td>{{ rating.assists }}</td>
+                            <td>{{ rating.shots }}</td>
+                            <td>{{ rating.tackles }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -107,6 +183,8 @@
                             <th>التقييم</th>
                             <th>أهداف</th>
                             <th>تمريرات</th>
+                            <th>تسديدات</th>
+                            <th>تدخلات</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -117,6 +195,8 @@
                             <td style="color:{{ '#2ecc71' if rating.rating >= 7 else '#f39c12' if rating.rating >= 6 else '#e74c3c' }};font-weight:bold;">{{ rating.rating }}</td>
                             <td>{{ rating.goals }}</td>
                             <td>{{ rating.assists }}</td>
+                            <td>{{ rating.shots }}</td>
+                            <td>{{ rating.tackles }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -126,6 +206,42 @@
         </div>
     </div>
 
-    <a href="{{ url_for('dashboard') }}" class="btn-back">← العودة للوحة</a>
+    <a href="{{ url_for('main.dashboard') }}" class="btn-back">← العودة للوحة</a>
 </section>
+
+<style>
+.event-line {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0;
+    font-size: 0.82rem;
+    border-bottom: 1px solid #1e1e3a;
+}
+.event-line:last-child { border-bottom: none; }
+.event-minute {
+    font-weight: bold;
+    color: #e94560;
+    min-width: 2.2rem;
+    text-align: left;
+}
+.event-icon { font-size: 0.9rem; }
+.event-text { flex: 1; color: #ccc; }
+.match-stats-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.3rem 0;
+    border-bottom: 1px solid #1e1e3a;
+}
+.stat-row:last-child { border-bottom: none; }
+.stat-home { font-weight: bold; color: #e94560; min-width: 3rem; }
+.stat-away { font-weight: bold; color: #3498db; min-width: 3rem; text-align:left; }
+.stat-label-center { color: #888; font-size: 0.8rem; }
+</style>
 {% endblock %}

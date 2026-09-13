@@ -42,16 +42,25 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <button type="submit" class="btn btn-secondary">تقدم للمباراة</button>
         </form>
-        <a href="{{ url_for('calendar') }}" class="btn btn-secondary">التقويم</a>
-        <a href="{{ url_for('squad') }}" class="btn btn-secondary">التشكيلة</a>
+        <a href="{{ url_for('main.calendar') }}" class="btn btn-secondary">التقويم</a>
+        <a href="{{ url_for('team.squad') }}" class="btn btn-secondary">التشكيلة</a>
     </div>
 
     <!-- Match Day Alert -->
-    {% if state.current_day % 7 == 0 and not state.season_over %}
+    {% if state.season_over %}
+    <div class="season-over-banner">
+        <h2><i class="fas fa-trophy"></i> الموسم انتهى!</h2>
+        <p>اضغط "ابدأ الموسم الجديد" لتطبيق الصعود والهبوط وبدء موسم جديد.</p>
+        <form action="/season_end" method="POST" style="display:inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <button type="submit" class="btn btn-primary"><i class="fas fa-forward"></i> ابدأ الموسم الجديد</button>
+        </form>
+    </div>
+    {% elif state.current_day % 7 == 0 %}
     <div class="match-day-alert"><i class="fas fa-futbol"></i> يوم المباراة! توجه لمركز المباراة</div>
-    {% elif not state.season_over %}
+    {% else %}
     <div class="card" style="text-align:center;font-size:0.85rem;color:#888;">
-        الأيام المتبقية للمباراة: {{ 7 - (state.current_day % 7) }}
+        الأيام المتبقية للمباراة: {{ 7 - (state.current_day % 7) }} &bull; الموسم: {{ state.season_number or 1 }}
     </div>
     {% endif %}
 
@@ -71,9 +80,42 @@
         </div>
         <div class="stat-card">
             <span class="stat-label">المعنويات</span>
-            <span class="stat-value">{{ player_team.morale }}%</span>
+            <span class="stat-value {{ 'morale-good' if player_team.morale >= 70 else ('morale-mid' if player_team.morale >= 40 else 'morale-bad') }}">{{ player_team.morale }}%</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-label">كيمياء الفريق</span>
+            <span class="stat-value {{ 'morale-good' if player_team.chemistry >= 70 else ('morale-mid' if player_team.chemistry >= 40 else 'morale-bad') }}">{{ player_team.chemistry or 0 }}%</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-label">ثقة الإدارة</span>
+            <span class="stat-value {{ 'morale-good' if (state.board_confidence or 60) >= 70 else ('morale-mid' if (state.board_confidence or 60) >= 40 else 'morale-bad') }}">{{ state.board_confidence or 60 }}%</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-label">أهداف الأكاديمية</span>
+            <span class="stat-value">{{ player_team.youth_goals or 0 }}</span>
         </div>
     </div>
+
+    {% if board_objectives %}
+    <!-- Board Objectives -->
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-clipboard-check"></i> أهداف مجلس الإدارة هذا الموسم</h3></div>
+        <div class="board-objectives">
+            {% for obj in board_objectives %}
+            {% set labels = {'avg_age': 'متوسط عمر الفريق', 'youth_goals': 'أهداف من الأكاديمية', 'league_position': 'المركز في الدوري'} %}
+            {% set targets = {'avg_age': 'حتى 23 سنة', 'youth_goals': ' 5 أهداف', 'league_position': ''} %}
+            <div class="objective-item">
+                <span class="objective-label">{{ labels.get(obj.objective_type, obj.objective_type) }}
+                    {% if obj.objective_type == 'avg_age' %}(≤ {{ "%.0f"|format(obj.target_value) }})
+                    {% elif obj.objective_type == 'youth_goals' %}(≥ {{ obj.target_value|int }})
+                    {% endif %}
+                </span>
+                <span class="{{ 'morale-good' if obj.achieved else 'morale-mid' }}">{{ 'تحقق ✓' if obj.achieved else 'قيد التنفيذ' }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
 
     <!-- Squad Depth Analysis -->
     <div class="card">
@@ -109,9 +151,17 @@
     </div>
 
     <div class="dashboard-grid">
-        <!-- League Table -->
-        <div class="card">
-            <div class="card-header"><h3>ترتيب الدوري</h3></div>
+        <!-- League Table Card (Clickable) -->
+        <div class="card clickable-card" onclick="window.location.href='{{ url_for('main.standings') }}'" style="cursor: pointer; position: relative;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; display: flex; align-items: center; gap: 6px;">
+                    <i class="fas fa-list-ol" style="color: #e94560;"></i>
+                    ترتيب الدوري
+                </h3>
+                <a href="{{ url_for('main.standings') }}" class="btn-link-sm" onclick="event.stopPropagation();" style="color: #e94560; font-size: 0.85rem; text-decoration: none; display: flex; align-items: center; gap: 4px;">
+                    الجدول الكامل <i class="fas fa-chevron-left"></i>
+                </a>
+            </div>
             <div class="table-container">
             <table>
                 <thead>
@@ -136,6 +186,9 @@
                 </tbody>
             </table>
             </div>
+            <div class="card-footer-link" style="text-align: center; padding: 0.6rem; border-top: 1px solid rgba(255,255,255,0.05); font-size: 0.82rem; color: #e94560; font-weight: 500;">
+                <i class="fas fa-external-link-alt" style="margin-left: 4px;"></i> اضغط لعرض الترتيب الكامل
+            </div>
         </div>
 
         <!-- Recent Results -->
@@ -148,7 +201,7 @@
                     <span class="score">{{ match.result }}</span>
                     <span style="font-size:0.8rem;">{{ match.away_team.name }}</span>
                     <span class="week-label">أ{{ match.week }}</span>
-                    <a href="{{ url_for('match_report', match_id=match.id) }}" class="btn-icon" title="تقرير"><i class="fas fa-file-alt"></i></a>
+                    <a href="{{ url_for('main.match_report', match_id=match.id) }}" class="btn-icon" title="تقرير"><i class="fas fa-file-alt"></i></a>
                 </div>
                 {% endfor %}
             {% else %}
@@ -161,7 +214,7 @@
     <div class="card">
         <div class="card-header">
             <h3>قائمة اللاعبين</h3>
-            <a href="{{ url_for('squad') }}" class="btn btn-sm btn-secondary">إدارة التشكيلة</a>
+            <a href="{{ url_for('team.squad') }}" class="btn btn-sm btn-secondary">إدارة التشكيلة</a>
         </div>
         <div class="table-container">
         <table id="dash-squad-table">
