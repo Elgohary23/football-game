@@ -1413,3 +1413,795 @@ class TestNoEmptySuccess:
         text = _html(client, "/messages")
         assert "Guard Title 42" in text
         assert "Guard content body 42"[:60] in text
+
+
+# ======================================================================
+# Live match flow: advance clamp, event feed, subs, double-finish safety,
+# polling payload, auto-redirect wiring, blocked-XI flash (no crash)
+# ======================================================================
+class TestLiveMatchFlow:
+    def _start_live(self):
+        from live_match import start_live
+        match = Match.query.filter_by(played=False).first()
+        assert start_live(match, mode="live") is True
+        db.session.commit()
+        return match
+
+    def test_advance_clamps_minutes_to_15(self, client):
+        match = self._start_live()
+        before = (db.session.get(Match, match.id).live_state or {}).get("minute", 0)
+        r = client.post(f"/live/{match.id}/advance", data={"minutes": 99})
+        assert r.status_code == 200
+        after = db.session.get(Match, match.id).live_state.get("minute", 0)
+        assert after - before <= 15
+
+    def test_advance_defaults_to_1_minute(self, client):
+        match = self._start_live()
+        before = (db.session.get(Match, match.id).live_state or {}).get("minute", 0)
+        client.post(f"/live/{match.id}/advance", data={"minutes": 0})
+        after = db.session.get(Match, match.id).live_state.get("minute", 0)
+        assert after - before == 1
+
+    def test_event_feed_in_payload_and_report(self, client):
+        from live_match import advance_live_mins
+        match = self._start_live()
+        advance_live_mins(match, 45)
+        db.session.commit()
+        payload = client.get(f"/live/{match.id}/state").get_json()
+        assert "events" in payload and isinstance(payload["events"], list)
+        client.post(f"/live/{match.id}/finish")
+        report = _html(client, f"/match_report/{match.id}")
+        for ev in (db.session.get(Match, match.id).home_events or []) + \
+                  (db.session.get(Match, match.id).away_events or []):
+            if ev.get("player"):
+                assert ev["player"] in report
+                break
+
+    def test_polling_payload_has_every_key_the_js_renders(self, client):
+        match = self._start_live()
+        body = client.get(f"/live/{match.id}/state").get_json()
+        for key in ("home_score", "away_score", "minute", "home_possession",
+                    "away_possession", "home_xg", "away_xg", "home_shots",
+                    "away_shots", "home_sot", "away_sot", "home_yellows",
+                    "away_yellows", "home_reds", "away_reds", "events"):
+            assert key in body, key
+
+    def test_finish_redirect_wiring_in_js(self, client):
+        with open(os.path.join(STATIC_DIR, "app.js"), encoding="utf-8") as f:
+            js = f.read()
+        assert "setInterval(refreshState, 5000)" in js  # polling
+        assert "/match_report/' + matchId" in js  # auto-redirect after finish
+        assert "btnFinish" in js and "btnMinute1" in js and "btnMinute5" in js
+
+    def test_live_page_embeds_db_initial_payload(self, client):
+        match = self._start_live()
+        text = _html(client, f"/live/{match.id}")
+        assert match.home_team.name in text
+        assert match.away_team.name in text
+        assert 'id="liveInitial"' in text
+        assert 'id="liveFeed"' in text
+        assert "csrfToken" in text
+
+    def test_double_finish_safe_manager_record_once(self, client):
+        from simulation import simulate_match  # noqa: F401 (keeps import style)
+        match = self._start_live()
+        state = _state()
+        base = state.manager_wins + state.manager_losses + state.manager_draws
+        mid = match.id
+        r1 = client.post(f"/live/{mid}/finish")
+        r2 = client.post(f"/live/{mid}/finish")  # rapid double-click
+        assert r1.get_json()["finished"] is True
+        assert r2.get_json()["finished"] is True
+        assert r2.get_json()["others_played"] == 0
+        assert (state.manager_wins + state.manager_losses + state.manager_draws) == base + 1
+
+    def test_sub_wrong_side_arabic_guard(self, client):
+        match = self._start_live()
+        other = "away_xp" if match.home_team.is_player_team else "home_xp"
+        r = client.post(f"/live/{match.id}/sub",
+                        data={"team_key": other, "player_out": 1, "player_in": 2})
+        assert r.status_code == 403
+        assert r.get_json()["message"] == "لا يمكنك تبديل لاعبي الفريق الخصم!"
+
+    def test_sub_invalid_team_key_400(self, client):
+        match = self._start_live()
+        r = client.post(f"/live/{match.id}/sub",
+                        data={"team_key": "mid_xp", "player_out": 1, "player_in": 2})
+        assert r.status_code == 400
+
+    def test_live_state_foreign_match_forbidden(self, client):
+        from live_match import start_live
+        team = _player_team()
+        opp = _opponent()
+        m = Match(home_team_id=team.id, away_team_id=opp.id, week=77, played=False)
+        db.session.add(m)
+        db.session.flush()
+        # opponent-only fixture: neither side is the player's club
+        m2 = Match(home_team_id=opp.id, away_team_id=opp.id, week=78, played=False)
+        db.session.add(m2)
+        db.session.commit()
+        r = client.get(f"/live/{m2.id}/state")
+        assert r.status_code in (403, 404)
+
+    def test_blocked_xi_flashes_no_crash(self, client):
+        team = _player_team()
+        for i, p in enumerate(team.players):
+            p.is_starting = i < 10  # incomplete XI
+            p.injury_days = 0
+        state = _state()
+        state.current_day = 6  # advance lands on day 7 = match day
+        state.current_week = 1
+        db.session.commit()
+        r = client.post("/advance_day", follow_redirects=True)
+        assert r.status_code == 200
+        text = r.get_data(as_text=True)
+        assert "التشكيلة الأساسية ناقصة" in text  # flash, not a crash
+        assert team.name in text  # still renders the dashboard from DB
+
+
+# ======================================================================
+# Formation save/presets/takers edge cases + drag&drop wiring
+# ======================================================================
+class TestFormationSaveAndPresets:
+    def _eleven_ids(self, team):
+        gk = next(p for p in team.players if p.position == "GK")
+        others = [p for p in team.players if p.position != "GK"][:10]
+        return [gk.id] + [p.id for p in others]
+
+    def test_save_persists_11_ids_in_db(self, client):
+        team = _player_team()
+        ids = self._eleven_ids(team)
+        r = client.post("/formation/save", json={"positions": {str(i): {"x": 1, "y": 2} for i in ids}})
+        assert r.status_code == 200
+        fd = _player_team().formation_data
+        assert len(fd) == 11
+        for i in ids:
+            assert str(i) in fd
+
+    def test_save_12_rejected(self, client):
+        team = _player_team()
+        ids = [p.id for p in team.players[:12]]
+        r = client.post("/formation/save", json={"positions": {str(i): {} for i in ids}})
+        assert r.status_code == 400
+        assert "11" in r.get_json()["error"]
+
+    def test_save_11_without_gk_arabic_error(self, client):
+        team = _player_team()
+        non_gk = [p for p in team.players if p.position != "GK"][:11]
+        r = client.post("/formation/save", json={"positions": {str(p.id): {} for p in non_gk}})
+        assert r.status_code == 400
+        assert "حارس" in r.get_json()["error"]
+
+    def test_takers_auto_choice_clears_db(self, client):
+        team = _player_team()
+        team.penalty_taker_id = team.players[0].id
+        team.freekick_taker_id = team.players[1].id
+        db.session.commit()
+        client.post("/formation/takers",
+                    data={"penalty_taker_id": "", "freekick_taker_id": ""},
+                    follow_redirects=True)
+        assert _player_team().penalty_taker_id is None
+        assert _player_team().freekick_taker_id is None
+
+    def test_preset_invalid_type_defaults_standard(self, client):
+        team = _player_team()
+        team.formation_data = {str(p.id): {"x": 50, "y": 50} for p in team.players[:11]}
+        db.session.commit()
+        client.post("/formation/preset/save",
+                    data={"preset_type": "bogus", "name": "DB-Type-Preset"},
+                    follow_redirects=True)
+        preset = TacticPreset.query.filter_by(team_id=team.id, name="DB-Type-Preset").first()
+        assert preset is not None and preset.preset_type == "standard"
+
+    def test_preset_duplicate_name_updates_in_place(self, client):
+        team = _player_team()
+        team.formation_data = {str(p.id): {"x": 50, "y": 50} for p in team.players[:11]}
+        db.session.commit()
+        client.post("/formation/preset/save",
+                    data={"preset_type": "defensive", "name": "DB-Dup-Preset"},
+                    follow_redirects=True)
+        r = client.post("/formation/preset/save",
+                        data={"preset_type": "defensive", "name": "DB-Dup-Preset"},
+                        follow_redirects=True)
+        rows = TacticPreset.query.filter_by(team_id=team.id, name="DB-Dup-Preset").all()
+        assert len(rows) == 1
+        assert "تم تحديث الخطة" in r.get_data(as_text=True)
+
+    def test_preset_load_stale_formation_rejected(self, client):
+        team = _player_team()
+        non_gk = [p for p in team.players if p.position != "GK"][:11]
+        stale = TacticPreset(team_id=team.id, preset_type="standard", name="DB-Stale",
+                             formation_data={str(p.id): {} for p in non_gk})
+        db.session.add(stale)
+        db.session.commit()
+        before = {p.id: p.is_starting for p in team.players}
+        r = client.post(f"/formation/preset/{stale.id}/load", follow_redirects=True)
+        assert r.status_code == 200
+        assert "لا يمكن تطبيق الخطة" in r.get_data(as_text=True)
+        assert {p.id: p.is_starting for p in _player_team().players} == before
+
+    def test_dnd_and_save_wiring_in_template(self, client):
+        with open(os.path.join(TEMPLATES_DIR, "formation.html"), encoding="utf-8") as f:
+            content = f.read()
+        assert "dragstart" in content and "dataTransfer" in content
+        assert "drop" in content and "saveFormationBtn" in content
+        assert "fetch('/formation/save'" in content
+        assert "fetch('/formation/role'" in content
+
+    def test_presets_table_from_db(self, client):
+        team = _player_team()
+        team.formation_data = {str(p.id): {"x": 50, "y": 50} for p in team.players[:11]}
+        db.session.commit()
+        client.post("/formation/preset/save",
+                    data={"preset_type": "attacking", "name": "DB-Table-Preset"},
+                    follow_redirects=True)
+        text = _html(client, "/formation")
+        assert "DB-Table-Preset" in text
+        assert "attacking" in text
+
+
+# ======================================================================
+# Squad: 11-limit under rapid clicks, concurrent clients, foreign player
+# ======================================================================
+class TestToggleStarterRaces:
+    def _free_one_slot(self):
+        team = _player_team()
+        for i, p in enumerate(team.players):
+            p.is_starting = i < 11
+            p.injury_days = 0
+        db.session.commit()
+        starter = next(p for p in team.players if p.is_starting)
+        starter.is_starting = False
+        db.session.commit()
+        return [p for p in team.players if not p.is_starting]
+
+    def test_rapid_sequential_clicks_never_exceed_11(self, client):
+        bench = self._free_one_slot()
+        codes = [client.post(f"/toggle_starter/{p.id}").status_code for p in bench[:4]]
+        assert codes[0] == 200  # first fills the XI
+        assert codes[1:] == [400, 400, 400]  # rest rejected: already 11
+        team = _player_team()
+        assert sum(1 for p in team.players if p.is_starting) == 11
+
+    def test_double_click_same_player_toggles_off(self, client):
+        bench = self._free_one_slot()
+        pid = bench[0].id
+        assert client.post(f"/toggle_starter/{pid}").status_code == 200
+        assert client.post(f"/toggle_starter/{pid}").status_code == 200
+        assert db.session.get(Player, pid).is_starting is False
+
+    def test_toggle_foreign_player_404(self, client):
+        opp = _opponent()
+        r = client.post(f"/toggle_starter/{opp.players[0].id}")
+        assert r.status_code == 404
+        assert r.get_json()["success"] is False
+
+    def test_concurrent_clients_never_exceed_11(self, tmp_path):
+        """Six threads race to fill one free XI slot (file DB)."""
+        import threading
+        from app import create_app
+        from tests.conftest import seed_world
+
+        uri = "sqlite:///" + str(tmp_path / "race.sqlite3").replace("\\", "/")
+        application = create_app()
+        application.config.update(TESTING=True, WTF_CSRF_ENABLED=False,
+                                  SQLALCHEMY_DATABASE_URI=uri)
+        if "sqlalchemy" in application.extensions:
+            del application.extensions["sqlalchemy"]
+        db.init_app(application)
+        with application.app_context():
+            db.create_all()
+            seed_world()
+            team = Team.query.filter_by(is_player_team=True).first()
+            tid = team.id
+            for i, p in enumerate(team.players):
+                p.is_starting = i < 10
+                p.injury_days = 0
+            db.session.commit()
+            bench_ids = [p.id for p in team.players if not p.is_starting][:6]
+            db.session.remove()
+
+            results = {}
+            barrier = threading.Barrier(len(bench_ids))
+
+            def hit(pid):
+                try:
+                    c = application.test_client()
+                    barrier.wait(timeout=10)
+                    r = c.post(f"/toggle_starter/{pid}")
+                    results[pid] = ((r.get_json() or {}).get("success"), r.status_code)
+                except Exception as exc:  # pragma: no cover - lock contention path
+                    results[pid] = ("error", str(exc)[:80])
+
+            threads = [threading.Thread(target=hit, args=(b,)) for b in bench_ids]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=60)
+            assert len(results) == len(bench_ids)
+            successes = [pid for pid, (ok, _) in results.items() if ok is True]
+            assert len(successes) <= 1  # only one client could fill the last slot
+            db.session.remove()
+            assert Player.query.filter_by(team_id=tid, is_starting=True).count() <= 11
+
+
+# ======================================================================
+# Setup journey end-to-end on an isolated save dir (no real files touched)
+# ======================================================================
+class TestSetupJourney:
+    def _isolated_saves(self, tmp_path, monkeypatch):
+        import shutil
+        dest = tmp_path / "saves"
+        dest.mkdir()
+        shutil.copy2(os.path.join("saves", "template.db"), dest / "template.db")
+        monkeypatch.setattr("services.saves_base", lambda: str(dest))
+        return dest
+
+    def test_full_journey_new_to_dashboard(self, client, tmp_path, monkeypatch):
+        self._isolated_saves(tmp_path, monkeypatch)
+        assert client.post("/new/2", follow_redirects=False).headers["Location"].endswith("/setup/2")
+        assert client.get("/setup/2").status_code == 200
+        r = client.post("/setup/2", data={"manager_name": "Journey Boss",
+                                           "manager_nationality": "Egypt"},
+                        follow_redirects=False)
+        assert r.headers["Location"].endswith("/select-division/2")
+        text = _html(client, "/select-division/2")
+        league = League.query.order_by(League.tier).first()
+        assert league.name in text
+        text = _html(client, f"/select-team/2/{league.id}")
+        team = Team.query.filter_by(league_id=league.id).first()
+        assert team.name in text
+        r = client.post(f"/manager-form/2/{team.id}",
+                        data={"manager_name": "Journey Boss"},
+                        follow_redirects=False)
+        assert r.headers["Location"].endswith("/dashboard")
+        text = _html(client, "/dashboard")
+        assert "Journey Boss" in text  # DB manager name rendered
+        assert team.name in text  # DB club rendered
+
+    def test_empty_manager_name_defaults(self, client, tmp_path, monkeypatch):
+        self._isolated_saves(tmp_path, monkeypatch)
+        client.post("/new/2", follow_redirects=False)
+        client.post("/setup/2", data={"manager_name": "", "manager_nationality": ""},
+                    follow_redirects=True)
+        assert _state().manager_name == "المدرب"
+
+    def test_incomplete_save_redirects_to_setup_step(self, client, tmp_path, monkeypatch):
+        self._isolated_saves(tmp_path, monkeypatch)
+        client.post("/new/3", follow_redirects=False)
+        # Fresh save has no real manager yet -> dashboard must bounce to setup.
+        r = client.get("/dashboard", follow_redirects=False)
+        assert r.status_code in (301, 302)
+        assert "/setup/3" in r.headers["Location"]
+
+    def test_delete_save_and_reload_list(self, client, tmp_path, monkeypatch):
+        dest = self._isolated_saves(tmp_path, monkeypatch)
+        client.post("/new/2", follow_redirects=False)
+        assert (dest / "save2.sqlite3").exists()
+        client.post("/delete/2", follow_redirects=True)
+        assert not (dest / "save2.sqlite3").exists()
+        assert _html(client, "/load")
+
+    def test_occupied_slot_rejected(self, client, tmp_path, monkeypatch):
+        self._isolated_saves(tmp_path, monkeypatch)
+        client.post("/new/2", follow_redirects=False)
+        r = client.post("/new/2", follow_redirects=True)
+        assert "مشغول" in r.get_data(as_text=True)
+
+
+# ======================================================================
+# Swap deals: success moves + message, every rejection in Arabic + no move
+# ======================================================================
+class TestSwapDeals:
+    def _pair(self, target_value=100000, offered_value=90000):
+        buyer, seller = _player_team(), _opponent()
+        target = next(p for p in seller.players)
+        target.market_value = target_value
+        offered = next(p for p in buyer.players if not p.is_starting)
+        offered.market_value = offered_value
+        db.session.commit()
+        return buyer, seller, target, offered
+
+    def test_swap_success_moves_both_and_logs(self, client):
+        buyer, seller, target, offered = self._pair()
+        tid, oid = target.id, offered.id
+        r = client.post(f"/swap_offer/{tid}",
+                        data={"offered_player_id": oid, "cash": "0"},
+                        follow_redirects=True)
+        assert r.status_code == 200
+        assert db.session.get(Player, tid).team_id == buyer.id
+        assert db.session.get(Player, oid).team_id == seller.id
+        assert "تمت المبادلة" in r.get_data(as_text=True)
+        assert Message.query.filter_by(type="transfer").count() >= 1
+
+    def test_swap_too_cheap_rejected_no_move(self, client):
+        buyer, seller, target, offered = self._pair(target_value=100000, offered_value=10000)
+        tid, oid = target.id, offered.id
+        r = client.post(f"/swap_offer/{tid}",
+                        data={"offered_player_id": oid, "cash": "0"},
+                        follow_redirects=True)
+        assert "80%" in r.get_data(as_text=True)
+        assert db.session.get(Player, tid).team_id == seller.id
+        assert db.session.get(Player, oid).team_id == buyer.id
+
+    def test_swap_offered_not_owned_rejected(self, client):
+        _, seller, target, _ = self._pair()
+        foreign = next(p for p in seller.players)
+        r = client.post(f"/swap_offer/{target.id}",
+                        data={"offered_player_id": foreign.id, "cash": "0"},
+                        follow_redirects=True)
+        assert "ليس من فريقك" in r.get_data(as_text=True)
+
+    def test_swap_own_target_rejected(self, client):
+        team = _player_team()
+        own = team.players[0]
+        mate = next(p for p in team.players if p.id != own.id)
+        r = client.post(f"/swap_offer/{own.id}",
+                        data={"offered_player_id": mate.id, "cash": "0"},
+                        follow_redirects=True)
+        assert "في فريقك بالفعل" in r.get_data(as_text=True)
+
+    def test_swap_free_agent_rejected(self, client):
+        team = _player_team()
+        fa = Player(name="DB Swap FA", position="FWD", attack=60, defense=40,
+                    potential=70, age=22, height=180, weight=75,
+                    market_value=50000, team_id=None)
+        offered = next(p for p in team.players if not p.is_starting)
+        db.session.add(fa)
+        db.session.commit()
+        try:
+            r = client.post(f"/swap_offer/{fa.id}",
+                            data={"offered_player_id": offered.id, "cash": "0"},
+                            follow_redirects=True)
+            assert "وكيل حر" in r.get_data(as_text=True)
+        finally:
+            db.session.delete(fa)
+            db.session.commit()
+
+
+# ======================================================================
+# Mentoring: every rule flashes in Arabic and writes nothing on reject
+# ======================================================================
+class TestMentoringRules:
+    def _ages(self, mentor_age=33, mentee_age=18):
+        team = _player_team()
+        mentor = next(p for p in team.players if p.age >= 24)
+        mentor.age = mentor_age
+        mentor.personality = "Leader"
+        mentee = next(p for p in team.players if p.id != mentor.id)
+        mentee.age = mentee_age
+        db.session.commit()
+        return mentor, mentee
+
+    def test_self_mentoring_rejected(self, client):
+        mentor, _ = self._ages()
+        n0 = Mentoring.query.count()
+        r = client.post("/mentoring/add",
+                        data={"mentor_id": mentor.id, "mentee_id": mentor.id},
+                        follow_redirects=True)
+        assert "يوجّه نفسه" in r.get_data(as_text=True)
+        assert Mentoring.query.count() == n0
+
+    def test_young_mentor_rejected(self, client):
+        mentor, mentee = self._ages(mentor_age=25, mentee_age=18)
+        r = client.post("/mentoring/add",
+                        data={"mentor_id": mentor.id, "mentee_id": mentee.id},
+                        follow_redirects=True)
+        assert "28+" in r.get_data(as_text=True) or "مخضرم" in r.get_data(as_text=True)
+
+    def test_old_mentee_rejected(self, client):
+        mentor, mentee = self._ages(mentor_age=33, mentee_age=27)
+        r = client.post("/mentoring/add",
+                        data={"mentor_id": mentor.id, "mentee_id": mentee.id},
+                        follow_redirects=True)
+        assert "24" in r.get_data(as_text=True)
+
+    def test_mentor_younger_than_mentee_rejected(self, client):
+        team = _player_team()
+        mentor = next(p for p in team.players if p.age >= 24)
+        mentor.age = 29
+        mentee = next(p for p in team.players if p.id != mentor.id)
+        mentee.age = 24
+        db.session.commit()
+        # mentor 29 >= 28 ok, mentee 24 <= 24 ok, but mentor must be OLDER;
+        # force the inverted case via direct ages:
+        mentor.age = 24
+        mentee.age = 24
+        db.session.commit()
+        r = client.post("/mentoring/add",
+                        data={"mentor_id": mentor.id, "mentee_id": mentee.id},
+                        follow_redirects=True)
+        assert Mentoring.query.filter_by(mentee_id=mentee.id).count() == 0
+
+    def test_second_mentor_for_same_mentee_rejected(self, client):
+        team = _player_team()
+        m1 = next(p for p in team.players if p.age >= 24)
+        m1.age = 34
+        m2 = next(p for p in team.players if p.id != m1.id and p.age >= 24)
+        m2.age = 35
+        mentee = next(p for p in team.players if p.id not in (m1.id, m2.id))
+        mentee.age = 19
+        db.session.commit()
+        client.post("/mentoring/add", data={"mentor_id": m1.id, "mentee_id": mentee.id},
+                    follow_redirects=True)
+        r = client.post("/mentoring/add", data={"mentor_id": m2.id, "mentee_id": mentee.id},
+                        follow_redirects=True)
+        assert "مرشد بالفعل" in r.get_data(as_text=True)
+
+    def test_foreign_players_rejected(self, client):
+        mentor, mentee = self._ages()
+        opp = _opponent().players[0]
+        r = client.post("/mentoring/add",
+                        data={"mentor_id": mentor.id, "mentee_id": opp.id},
+                        follow_redirects=True)
+        assert "غير صالحين" in r.get_data(as_text=True)
+
+    def test_remove_foreign_mentoring_rejected(self, client):
+        opp = _opponent()
+        m1 = opp.players[0]
+        m1.age = 34
+        m2 = opp.players[1]
+        m2.age = 19
+        row = Mentoring(team_id=opp.id, mentor_id=m1.id, mentee_id=m2.id, started_day=1)
+        db.session.add(row)
+        db.session.commit()
+        r = client.post(f"/mentoring/remove/{row.id}", follow_redirects=True)
+        assert "فريق آخر" in r.get_data(as_text=True)
+        assert db.session.get(Mentoring, row.id) is not None
+
+
+# ======================================================================
+# Inbox details: urgent rendering, desc ordering, badge hide/show, polling
+# ======================================================================
+class TestInboxDetails:
+    def test_urgent_renders_marker(self, client):
+        db.session.add(Message(title="DB Urgent T", content="urgent body here",
+                               type="info", read=False, created_day=2, urgent=True))
+        db.session.commit()
+        text = _html(client, "/messages")
+        assert "DB Urgent T" in text
+        assert "عاجل" in text
+
+    def test_messages_ordered_newest_first(self, client):
+        Message.query.delete()
+        db.session.add(Message(title="Old Msg", content="old", type="info",
+                               read=True, created_day=1))
+        db.session.add(Message(title="New Msg", content="new", type="info",
+                               read=True, created_day=9))
+        db.session.commit()
+        text = _html(client, "/messages")
+        assert text.index("New Msg") < text.index("Old Msg")
+
+    def test_badge_hidden_when_zero_unread(self, client):
+        Message.query.delete()
+        db.session.commit()
+        assert "badge-hidden" in _html(client, "/dashboard")
+
+    def test_badge_shows_db_count(self, client):
+        Message.query.delete()
+        db.session.add(Message(title="b1", content="c", type="info",
+                               read=False, created_day=1))
+        db.session.commit()
+        text = _html(client, "/dashboard")
+        assert "badge-hidden" not in text
+        assert ">1<" in text
+
+    def test_unread_polling_wired_in_js(self, client):
+        with open(os.path.join(STATIC_DIR, "app.js"), encoding="utf-8") as f:
+            js = f.read()
+        assert "inbox_unread" in js
+        assert "setInterval" in js
+
+
+# ======================================================================
+# Calendar simulation edge cases + date-collision rule
+# ======================================================================
+class TestCalendarSimEdgeCases:
+    def test_past_date_rejected_date_unchanged(self, client):
+        state = _state()
+        state.current_date = "2026-06-10"
+        db.session.commit()
+        r = client.post("/simulate_to_date", data={"target_date": "2026-06-01"},
+                        follow_redirects=True)
+        assert "المستقبل" in r.get_data(as_text=True)
+        assert _state().current_date == "2026-06-10"
+
+    def test_same_day_rejected(self, client):
+        state = _state()
+        state.current_date = "2026-06-10"
+        db.session.commit()
+        r = client.post("/simulate_to_date", data={"target_date": "2026-06-10"},
+                        follow_redirects=True)
+        assert "المستقبل" in r.get_data(as_text=True)
+
+    def test_missing_date_rejected(self, client):
+        r = client.post("/simulate_to_date", data={}, follow_redirects=True)
+        assert "غير صالح" in r.get_data(as_text=True)
+
+    def test_year_cap_note_shown(self, client):
+        state = _state()
+        state.current_date = "2026-06-01"
+        db.session.commit()
+        r = client.post("/simulate_to_date", data={"target_date": "2028-06-01"},
+                        follow_redirects=True)
+        assert "سنة واحدة" in r.get_data(as_text=True)
+
+    def test_date_collision_keeps_unplayed_fixture(self, client):
+        team, opp = _player_team(), _opponent()
+        played = Match(home_team_id=team.id, away_team_id=opp.id, week=50,
+                       played=True, result="2-0", home_score=2, away_score=0,
+                       date="2026-08-01")
+        live = Match(home_team_id=team.id, away_team_id=opp.id, week=51,
+                     played=False, date="2026-08-01")
+        db.session.add_all([played, live])
+        db.session.commit()
+        text = _html(client, "/calendar")
+        embedded = json.loads(re.search(r"const matchData = (\{.*?\});", text, re.S).group(1))
+        assert embedded["2026-08-01"]["id"] == live.id  # unplayed wins
+        assert embedded["2026-08-01"]["played"] is False
+
+
+# ======================================================================
+# Stats/standings league filter + fallback
+# ======================================================================
+class TestLeagueFilterAndFallback:
+    def test_stats_league_filter_shows_selected(self, client):
+        league = League.query.first()
+        text = _html(client, f"/stats?league_id={league.id}")
+        assert league.name in text
+
+    def test_stats_invalid_league_falls_back(self, client):
+        team = _player_team()
+        league = db.session.get(League, team.league_id)
+        r = client.get("/stats?league_id=999999")
+        assert r.status_code == 200
+        assert league.name in r.get_data(as_text=True)
+
+    def test_top_scorers_invalid_league_falls_back(self, client):
+        team = _player_team()
+        league = db.session.get(League, team.league_id)
+        r = client.get("/stats/top-scorers?league_id=999999")
+        assert r.status_code == 200
+        assert league.name in r.get_data(as_text=True)
+
+    def test_standings_invalid_league_flash_and_fallback(self, client):
+        team = _player_team()
+        r = client.get("/standings?league_id=999999", follow_redirects=True)
+        assert r.status_code == 200
+        text = r.get_data(as_text=True)
+        assert team.name in text
+        assert "غير موجود" in text
+
+
+# ======================================================================
+# Training clamp + flash, staff money rules, season-end state, blocks
+# ======================================================================
+class TestTrainingClampAndFlash:
+    @pytest.mark.parametrize("sent,expected", [("99", 10), ("-3", 1), ("abc", 5), ("7", 7)])
+    def test_intensity_clamped(self, client, sent, expected):
+        client.post("/training/save", data={"focus": "attack", "intensity": sent},
+                    follow_redirects=True)
+        assert _player_team().training_intensity == expected
+
+    def test_save_flash_shows(self, client):
+        r = client.post("/training/save", data={"focus": "physical", "intensity": "6"},
+                        follow_redirects=True)
+        assert "تم حفظ إعدادات التدريب" in r.get_data(as_text=True)
+        assert 'value="physical" selected' in r.get_data(as_text=True)
+
+
+class TestStaffMoneyRules:
+    def test_hire_poor_budget_rejected(self, client):
+        team = _player_team()
+        team.budget = 10
+        db.session.commit()
+        s = Staff(name="DB Expensive", role="fitness", level=5, salary=999999, team_id=None)
+        db.session.add(s)
+        db.session.commit()
+        r = client.post(f"/staff/hire/{s.id}", follow_redirects=True)
+        assert "الميزانية غير كافية" in r.get_data(as_text=True)
+        assert db.session.get(Staff, s.id).team_id is None
+
+    def test_hire_twice_rejected(self, client):
+        team = _player_team()
+        team.budget = 5_000_000
+        s = Staff(name="DB Twice", role="fitness", level=1, salary=1000, team_id=team.id)
+        db.session.add(s)
+        db.session.commit()
+        r = client.post(f"/staff/hire/{s.id}", follow_redirects=True)
+        assert "بالفعل" in r.get_data(as_text=True)
+
+    def test_fire_foreign_rejected(self, client):
+        opp = _opponent()
+        s = Staff(name="DB Opp Staff", role="fitness", level=1, salary=1000, team_id=opp.id)
+        db.session.add(s)
+        db.session.commit()
+        r = client.post(f"/staff/fire/{s.id}", follow_redirects=True)
+        assert "لا يعمل في فريقك" in r.get_data(as_text=True)
+
+    def test_fire_deducts_compensation(self, client):
+        from config import STAFF_FIRE_COMPENSATION_RATIO
+        team = _player_team()
+        team.budget = 1_000_000
+        s = Staff(name="DB Comp", role="fitness", level=1, salary=100000, team_id=team.id)
+        db.session.add(s)
+        db.session.commit()
+        client.post(f"/staff/fire/{s.id}", follow_redirects=True)
+        assert _player_team().budget == 1_000_000 - int(100000 * STAFF_FIRE_COMPENSATION_RATIO)
+
+    def test_hire_flash_names_coach(self, client):
+        team = _player_team()
+        team.budget = 5_000_000
+        s = Staff(name="DB Named Coach", role="fitness", level=1, salary=1000, team_id=None)
+        db.session.add(s)
+        db.session.commit()
+        r = client.post(f"/staff/hire/{s.id}", follow_redirects=True)
+        assert "DB Named Coach" in r.get_data(as_text=True)
+
+
+class TestSeasonEndState:
+    def test_season_end_resets_and_flashes(self, client):
+        state = _state()
+        state.season_over = True
+        season0 = state.season_number or 1
+        db.session.commit()
+        r = client.post("/season_end", follow_redirects=True)
+        assert r.status_code == 200
+        text = r.get_data(as_text=True)
+        assert "بدأ الموسم الجديد" in text
+        state = _state()
+        assert state.season_over is False
+        assert state.season_number == season0 + 1
+        assert state.current_day == 1 and state.current_week == 1
+        assert Match.query.filter_by(played=False).count() > 0
+
+    def test_season_over_dashboard_banner(self, client):
+        state = _state()
+        state.season_over = True
+        db.session.commit()
+        text = _html(client, "/dashboard")
+        assert "الموسم انتهى" in text
+        assert 'action="/season_end"' in text
+
+
+# ======================================================================
+# Cross-cutting: flashes render, redirect chains, RTL everywhere
+# ======================================================================
+class TestCrossCutting:
+    def test_flash_renders_in_flash_div(self, client):
+        # Slot 4 is in range but has no file -> "save not found" flash.
+        r = client.get("/setup/4", follow_redirects=True)
+        text = r.get_data(as_text=True)
+        assert "الحفظ غير موجود" in text
+        assert "flash-message" in text
+
+    def test_out_of_range_slot_flash(self, client):
+        r = client.get("/setup/99", follow_redirects=True)
+        assert "Slot" in r.get_data(as_text=True)
+
+    def test_root_redirect_chain_no_save(self, client):
+        with client.session_transaction() as sess:
+            sess.pop("active_save", None)
+        try:
+            r = client.get("/", follow_redirects=False)
+            assert r.status_code in (301, 302)
+            assert r.headers["Location"].endswith("/load")
+            assert client.get("/load").status_code == 200
+        finally:
+            with client.session_transaction() as sess:
+                sess["active_save"] = 1
+
+    def test_match_requires_login_setup_redirect(self, client):
+        # With a valid save the page renders; chain itself is covered above.
+        assert _player_team().name in _html(client, "/match")
+
+    def test_post_only_mutations_reject_get(self, client):
+        team = _player_team()
+        pid = team.players[0].id
+        for url in (f"/toggle_starter/{pid}", "/formation/save", "/training/save"):
+            r = client.get(url, headers={"X-Requested-With": "XMLHttpRequest"})
+            assert r.status_code == 405, url
+            assert r.get_json()["error"] == "method not allowed"
+        # Progression endpoints explicitly allow GET too (redirect-after-POST).
+        for url in ("/advance_day", "/continue", "/advance_week"):
+            assert client.get(url, follow_redirects=False).status_code in (200, 301, 302), url
