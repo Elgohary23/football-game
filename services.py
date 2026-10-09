@@ -18,6 +18,7 @@ from flask import abort, current_app, session
 
 from config import (
     DB_FILENAME,
+    DEFAULT_BUDGET,
     LOG_FILE,
     LOG_FORMAT,
     MAX_FACILITY_LEVEL,
@@ -34,6 +35,7 @@ from config import (
     STARTERS_LIMIT,
     TEMPLATE_DB_FILENAME,
     TEMPLATE_SCHEMA_VERSION,
+    TIER_BUDGETS,
     TOP_LEAGUE_ROUNDS,
     TRAINING_COST_PER_LEVEL,
     YOUTH_COST_PER_LEVEL,
@@ -244,6 +246,19 @@ def get_season_rounds(league_id: int | None = None) -> int:
         if league:
             return league.rounds()
     return TOP_LEAGUE_ROUNDS
+
+
+def get_budget_for_tier(tier: int | None) -> int:
+    """Starting budget for a club based on its league tier.
+
+    Single source of truth for all tier-based budgets (template build,
+    team selection, tests). Falls back to DEFAULT_BUDGET for unknown tiers.
+    """
+    try:
+        tier_key = int(tier) if tier is not None else 0
+    except (TypeError, ValueError):
+        tier_key = 0
+    return TIER_BUDGETS.get(tier_key, DEFAULT_BUDGET)
 
 
 def calculate_team_tier(team_id: int) -> dict:
@@ -480,6 +495,9 @@ def purchase_player(
 
     player_team.budget -= value
     old_club_id = target.team_id
+    seller = db.session.get(Team, old_club_id) if old_club_id else None
+    if seller is not None:
+        seller.budget = (seller.budget or 0) + value
     target.team_id = player_team.id
     target.is_starting = False
 
@@ -602,16 +620,20 @@ def process_offer_accept(offer_id: int) -> tuple[bool, str]:
         offer.status = 'accepted'
         return True, f"تم بيع {player.name} مقابل {offer.amount} دولار"
 
-    # Incoming purchase (player team buys). Swing offered_player out.
+    # Incoming purchase (player team buys): credit the AI seller, move the
+    # swap player out if any, and honour sell-on clauses like outgoing sales.
     if to_team.budget >= offer.amount:
-        total_value = offer.amount + (
-            db.session.get(Player, offer.offered_player_id).market_value
-            if offer.offered_player_id and db.session.get(Player, offer.offered_player_id)
-            else 0
-        )
         to_team.budget -= offer.amount
+        from_team.budget = (from_team.budget or 0) + offer.amount
         if player:
+            if offer.offered_player_id:
+                swap_player = db.session.get(Player, offer.offered_player_id)
+                if swap_player and swap_player.team_id == to_team.id:
+                    swap_player.team_id = from_team.id
+                    swap_player.is_starting = False
+            _pay_sell_on_clauses(player, offer.amount, from_team)
             player.team_id = to_team.id
+            player.is_starting = False
         offer.status = 'accepted'
         return True, f"تم شراء {player.name if player else 'اللاعب'} مقابل {offer.amount} دولار"
 
@@ -726,6 +748,103 @@ def _discover_region_talent(region: str, scout_level: int, state: GameState) -> 
 # --------------------------------------------------------------------------
 # Template database construction
 # --------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# Round-robin schedule generation (circle method)
+# --------------------------------------------------------------------------
+def generate_round_robin_fixtures(team_ids: list[int]) -> list[tuple[int, int, int]]:
+    """Build a perfect double round-robin: ``[(week, home_id, away_id)]``.
+
+    Guarantees: every team plays exactly once per week, every pair meets
+    twice (once home, once away), total weeks == (n - 1) * 2 for even n.
+    An odd squad gets a BYE (``None``) slot so the maths still holds.
+    """
+    ids = list(dict.fromkeys(team_ids))  # de-dup, keep order
+    if len(ids) < 2:
+        return []
+    if len(ids) % 2 == 1:
+        ids.append(None)  # type: ignore[list-item]  # BYE sentinel
+    n = len(ids)
+    single_rounds = n - 1
+    first_leg: list[tuple[int, int, int]] = []
+    circle = list(ids)
+    for rnd in range(single_rounds):
+        week = rnd + 1
+        for i in range(n // 2):
+            home, away = circle[i], circle[n - 1 - i]
+            if home is None or away is None:
+                continue
+            if i == 0 and rnd % 2 == 1:  # balance home/away on anchor pairing
+                home, away = away, home
+            first_leg.append((week, home, away))
+        circle = [circle[0]] + [circle[-1]] + circle[1:-1]  # rotate, fix first
+    second_leg = [(w + single_rounds, a, h) for (w, h, a) in first_leg]
+    return sorted(first_leg + second_leg, key=lambda f: (f[0], f[1], f[2]))
+
+
+def validate_schedule(fixtures: list[tuple[int, int, int]]) -> list[str]:
+    """Return human-readable violations; empty list means a perfect schedule."""
+    errors: list[str] = []
+    by_week: dict[int, list[int]] = {}
+    for week, home, away in fixtures:
+        if home == away:
+            errors.append(f"week {week}: team {home} plays itself")
+        by_week.setdefault(week, []).extend([home, away])
+    for week, ids in sorted(by_week.items()):
+        if len(ids) != len(set(ids)):
+            errors.append(f"week {week}: a team plays twice -> {sorted(ids)}")
+    seen: dict[tuple[int, int], int] = {}
+    for _week, home, away in fixtures:
+        key = (min(home, away), max(home, away))
+        seen[key] = seen.get(key, 0) + 1
+    for key, count in seen.items():
+        if count != 2:
+            errors.append(f"pair {key}: meets {count}x (expected 2)")
+    return errors
+
+
+def recalculate_standings_from_played() -> int:
+    """Zero every team's standings and re-apply ONLY played matches.
+
+    Returns the number of played matches applied. The caller owns commit.
+    Use after any schedule repair so the table can never drift from results.
+    """
+    from models import Match as _Match
+
+    for team in Team.query.all():
+        team.points = 0
+        team.wins = 0
+        team.losses = 0
+        team.draws = 0
+        team.goals_for = 0
+        team.goals_against = 0
+    played = _Match.query.filter_by(played=True).all()
+    for m in played:
+        home = db.session.get(Team, m.home_team_id)
+        away = db.session.get(Team, m.away_team_id)
+        if not home or not away:
+            continue  # orphan fixture; cleaned by fix_db.py / validation
+        hs, aws = m.home_score or 0, m.away_score or 0
+        home.goals_for += hs
+        home.goals_against += aws
+        away.goals_for += aws
+        away.goals_against += hs
+        if hs > aws:
+            home.points += 3
+            home.wins += 1
+            away.losses += 1
+        elif aws > hs:
+            away.points += 3
+            away.wins += 1
+            home.losses += 1
+        else:
+            home.points += 1
+            away.points += 1
+            home.draws += 1
+            away.draws += 1
+    invalidate_league_cache()
+    return len(played)
+
+
 def generate_match_dates(start_date):
     import datetime
 
@@ -920,7 +1039,7 @@ def _build_template_database() -> None:
             team = Team(
                 name=team_name,
                 morale=random.randint(60, 80),
-                budget=1000000 * (5 - league.tier),
+                budget=get_budget_for_tier(league.tier),
                 reputation=league.reputation + random.randint(-5, 5),
                 is_player_team=False,
                 league_id=league.id,
@@ -964,19 +1083,19 @@ def _build_template_database() -> None:
     db.session.commit()
 
     for league in leagues:
-        teams = Team.query.filter_by(league_id=league.id).all()
-        total_rounds = 38 if league.tier == 1 else 46
-        for week in range(1, total_rounds + 1):
-            random.shuffle(teams)
-            for k in range(0, len(teams), 2):
-                if k + 1 < len(teams):
-                    match = Match(
-                        home_team_id=teams[k].id,
-                        away_team_id=teams[k + 1].id,
-                        week=week,
-                        played=False,
-                    )
-                    db.session.add(match)
+        team_ids = [t.id for t in Team.query.filter_by(league_id=league.id).all()]
+        fixtures = generate_round_robin_fixtures(team_ids)
+        problems = validate_schedule(fixtures)
+        if problems:
+            logger.error("Invalid generated schedule for %s: %s", league.name, problems)
+            raise RuntimeError(f"Schedule generation failed for {league.name}")
+        for week, home_id, away_id in fixtures:
+            db.session.add(Match(
+                home_team_id=home_id,
+                away_team_id=away_id,
+                week=week,
+                played=False,
+            ))
 
     db.session.commit()
 

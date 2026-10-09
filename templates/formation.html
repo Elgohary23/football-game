@@ -424,6 +424,15 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
 
+        // Rebuild the player pool (it was cleared above together with the
+        // pitch/bench). Without this the "اللاعبون" list stays empty and
+        // players can only be dragged from the bench.
+        players.forEach(p => {
+            if (!placedIds.has(p.id)) {
+                playerPool.appendChild(createPoolPlayer(p));
+            }
+        });
+
         updateCount();
     }
 

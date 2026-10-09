@@ -114,8 +114,35 @@ def get_active_slot() -> int:
     return session.get("active_save", 0)
 
 
+def _setup_redirect():
+    """Redirect incomplete saves to the right setup step.
+
+    Prevents /dashboard (and friends) from hitting safe_player_team()
+    -> abort(500) -> errorhandler redirect /load, which looks like
+    'loading fails' with no useful message.
+    """
+    slot = get_active_slot()
+    if not slot:
+        return redirect("/load")
+    try:
+        state = GameState.query.first()
+        if not state:
+            return redirect("/load")
+        if not state.manager_name or state.manager_name == "المدرب":
+            return redirect(f"/setup/{slot}")
+        if not Team.query.filter_by(is_player_team=True).first():
+            flash("أكمل اختيار الفريق أولاً!")
+            return redirect(f"/select-division/{slot}")
+    except Exception:
+        return redirect("/load")
+    return None
+
+
 @bp.route("/dashboard")
 def dashboard():
+    redir = _setup_redirect()
+    if redir:
+        return redir
     state = safe_state()
     player_team = safe_player_team()
 
@@ -153,6 +180,9 @@ def dashboard():
 
 @bp.route("/standings")
 def standings():
+    redir = _setup_redirect()
+    if redir:
+        return redir
     state = safe_state()
     player_team = safe_player_team()
     league_id = request.args.get("league_id", type=int) or (
@@ -179,6 +209,9 @@ def standings():
 
 @bp.route("/calendar")
 def calendar():
+    redir = _setup_redirect()
+    if redir:
+        return redir
     state = safe_state()
     player_team = safe_player_team()
 
@@ -219,6 +252,9 @@ def calendar():
 
 @bp.route("/match")
 def match_view():
+    redir = _setup_redirect()
+    if redir:
+        return redir
     state = safe_state()
     match = get_current_match(state)
     scouting = None
@@ -318,85 +354,141 @@ def match_report(match_id):
 # --------------------------------------------------------------------------
 @bp.route("/live/<int:match_id>")
 def live_view(match_id):
-    state = safe_state()
-    match = db.session.get(Match, match_id)
-    if not match or not (match.live_active or not match.played):
-        flash("لا توجد مباراة حية!")
+    try:
+        state = safe_state()
+        match = db.session.get(Match, match_id)
+        if not match or not (match.live_active or not match.played):
+            flash("لا توجد مباراة حية!")
+            return redirect("/dashboard")
+
+        if not match.live_active:
+            try:
+                if not _involves_player(match):
+                    run_auto_match(match)
+                    db.session.commit()
+                else:
+                    start_live(match, mode="live")
+                    db.session.commit()
+            except Exception:
+                db.session.rollback()
+                flash("تعذر بدء المباراة! حاول مجدداً.")
+                return redirect("/dashboard")
+
+        payload = live_state_payload(match)
+        return render_template(
+            "live.html",
+            match=match,
+            state=state,
+            payload=payload,
+        )
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        flash("حدث خطأ في المباراة الحية!")
         return redirect("/dashboard")
-
-    if not match.live_active:
-        if not _involves_player(match):
-            run_auto_match(match)
-            db.session.commit()
-        else:
-            start_live(match, mode="live")
-            db.session.commit()
-
-    payload = live_state_payload(match)
-    return render_template(
-        "live.html",
-        match=match,
-        state=state,
-        payload=payload,
-    )
 
 
 @bp.route("/live/<int:match_id>/state")
 def live_state(match_id):
-    match = db.session.get(Match, match_id)
-    if not match:
-        return {"error": "not found"}, 404
-    return live_state_payload(match)
+    try:
+        match = db.session.get(Match, match_id)
+        if not match:
+            return {"error": "not found"}, 404
+        return live_state_payload(match)
+    except Exception:
+        return {"error": "could not load live state"}, 500
 
 
 @bp.route("/live/<int:match_id>/advance", methods=["POST"])
 def live_advance(match_id):
-    match = db.session.get(Match, match_id)
-    if not match or not match.live_active:
-        return {"error": "not live"}, 404
-    minutes = request.form.get("minutes", type=int, default=1) or 1
-    res = advance_live_mins(match, min(15, max(1, minutes)))
-    db.session.commit()
-    return res
+    try:
+        match = db.session.get(Match, match_id)
+        if not match or not match.live_active:
+            return {"error": "not live"}, 404
+        minutes = request.form.get("minutes", type=int, default=1) or 1
+        res = advance_live_mins(match, min(15, max(1, minutes)))
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            return {"error": "could not save progress"}, 500
+        return res
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return {"error": "advance failed"}, 500
 
 
 @bp.route("/live/<int:match_id>/sub", methods=["POST"])
 def live_sub(match_id):
-    match = db.session.get(Match, match_id)
-    if not match or not match.live_active:
-        return {"error": "not live"}, 404
-    team_key = request.form.get("team_key", "home_xp")
-    player_out = request.form.get("player_out", type=int)
-    player_in = request.form.get("player_in", type=int)
-    ok, msg = substitute_player(match, team_key, player_out or 0, player_in or 0)
-    db.session.commit()
-    return {"ok": ok, "message": msg}
+    try:
+        match = db.session.get(Match, match_id)
+        if not match or not match.live_active:
+            return {"error": "not live"}, 404
+        team_key = request.form.get("team_key", "home_xp")
+        if team_key not in ("home_xp", "away_xp"):
+            return {"ok": False, "message": "فريق غير صالح!"}, 400
+        player_out = request.form.get("player_out", type=int)
+        player_in = request.form.get("player_in", type=int)
+        ok, msg = substitute_player(match, team_key, player_out or 0, player_in or 0)
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            return {"ok": False, "message": "تعذر حفظ التبديل!"}, 500
+        return {"ok": ok, "message": msg}
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "message": "حدث خطأ أثناء التبديل!"}, 500
 
 
 @bp.route("/live/<int:match_id>/finish", methods=["POST"])
 def live_finish(match_id):
-    state = safe_state()
-    match = db.session.get(Match, match_id)
-    if not match:
-        return {"error": "not found"}, 404
+    try:
+        state = safe_state()
+        match = db.session.get(Match, match_id)
+        if not match:
+            return {"error": "not found"}, 404
 
-    others_played = 0
-    if not match.played:
-        live = match.live_state or {}
-        cur = live.get("minute", 0) or 0
-        if not live.get("finished"):
-            advance_live_mins(match, max(1, 90 - cur))
-        finish_live(match)
-        others_played = finish_match_week(match)
-        advance_week_if_complete(match)
-        if state.current_week >= get_season_rounds(state.user_league_id):
-            state.season_over = True
-    db.session.commit()
-    return {
-        "finished": True,
-        "season_over": bool(state and state.season_over),
-        "others_played": others_played,
-    }
+        others_played = 0
+        if not match.played:
+            live = match.live_state or {}
+            cur = live.get("minute", 0) or 0
+            if not live.get("finished"):
+                advance_live_mins(match, max(1, 90 - cur))
+            finish_live(match)
+            try:
+                from simulation import update_manager_record
+                update_manager_record(match, state)
+            except Exception:
+                pass
+            others_played = finish_match_week(match)
+            advance_week_if_complete(match)
+            if state.current_week >= get_season_rounds(state.user_league_id):
+                state.season_over = True
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            return {"error": "could not save result"}, 500
+        return {
+            "finished": True,
+            "season_over": bool(state and state.season_over),
+            "others_played": others_played,
+        }
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return {"error": "finish failed"}, 500
 
 
 @bp.route("/advance_week", methods=["GET", "POST"])

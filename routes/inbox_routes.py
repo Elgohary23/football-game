@@ -1,6 +1,6 @@
 """Inbox / messages blueprint (Tip 28 authorization in services)."""
 
-from flask import Blueprint, flash, redirect, render_template
+from flask import Blueprint, flash, jsonify, redirect, render_template
 
 bp = Blueprint("inbox", __name__)
 
@@ -48,7 +48,7 @@ def inbox_unread():
         unread = get_unread_count()
     except Exception:
         unread = 0
-    return {"unread": unread}
+    return jsonify({"unread": unread})
 
 
 @bp.route("/inbox_api/<int:message_id>")

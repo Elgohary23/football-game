@@ -136,6 +136,8 @@ def simulate_match(match: Match, state: Optional[GameState] = None, mode: str = 
     can be flushed with a single batch commit (Tip 8).
     """
     try:
+        if match.played:
+            return False  # idempotency: replaying a finished match must not double-count points
         home = match.home_team
         away = match.away_team
         if not home or not away:
@@ -415,6 +417,8 @@ def process_match_player_stats(match: Match, home: Team, away: Team, home_score:
 
                 p.goals += p_goals
                 p.assists += p_assists
+                if p_goals > 0 and p.name and ("(شباب)" in p.name or "(Regen)" in p.name):
+                    team.youth_goals = (team.youth_goals or 0) + p_goals
 
                 shots = random.randint(0, 5) if p.position == "FWD" else random.randint(0, 2)
                 passes = random.randint(15, 55)
@@ -541,6 +545,14 @@ def update_league_table(home: Team, away: Team, h_score: int, a_score: int) -> N
         away.points += 1
         home.draws += 1
         away.draws += 1
+
+    # Table data changed: drop the cached league table immediately so the
+    # next read (same day, e.g. right after a live match) is never stale.
+    try:
+        from services import invalidate_league_cache
+        invalidate_league_cache()
+    except Exception:
+        pass
 
 
 # --------------------------------------------------------------------------
@@ -841,6 +853,8 @@ def simulate_day(state: GameState) -> None:
 
     if state.current_day % DEVELOPMENT_UPDATE_DAYS == 0:
         update_player_evolution()
+        for team in Team.query.all():
+            train_team_monthly(team)
 
     if state.current_day % DEVELOPMENT_UPDATE_DAYS == 0:
         generate_youth_players()
@@ -1052,8 +1066,12 @@ def process_promotion_relegation(state: GameState) -> None:
         upper_league = leagues[i]
         lower_league = leagues[i + 1]
 
-        upper_teams = Team.query.filter_by(league_id=upper_league.id).order_by(Team.points.desc()).all()
-        lower_teams = Team.query.filter_by(league_id=lower_league.id).order_by(Team.points.desc()).all()
+        upper_teams = Team.table_sort_pipeline(
+            Team.query.filter_by(league_id=upper_league.id).all()
+        )
+        lower_teams = Team.table_sort_pipeline(
+            Team.query.filter_by(league_id=lower_league.id).all()
+        )
 
         if not upper_teams or not lower_teams:
             continue
@@ -1090,7 +1108,8 @@ def process_promotion_relegation(state: GameState) -> None:
             team.goals_for = 0
             team.goals_against = 0
             team.morale = min(100, team.morale + 20)
-            team.budget += PROMOTION_BONUS_PER_TIER * upper_league.tier
+            # Higher divisions pay more: tier 1 (PL) earns the biggest bonus.
+            team.budget += PROMOTION_BONUS_PER_TIER * (5 - upper_league.tier)
 
             if team.is_player_team:
                 messages_to_send.append(Message(
@@ -1101,7 +1120,10 @@ def process_promotion_relegation(state: GameState) -> None:
                 state.trophies = (state.trophies or 0) + 1
 
     if not messages_to_send:
-        winner = Team.query.filter_by(league_id=leagues[0].id).order_by(Team.points.desc()).first()
+        top_side = Team.table_sort_pipeline(
+            Team.query.filter_by(league_id=leagues[0].id).all()
+        )
+        winner = top_side[0] if top_side else None
         if winner and winner.is_player_team:
             messages_to_send.append(Message(
                 title="بطولة الدوري!",

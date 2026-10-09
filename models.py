@@ -9,6 +9,7 @@ import math
 from flask_sqlalchemy import SQLAlchemy
 
 from config import (
+    DEFAULT_BUDGET,
     LEADER_MORALE_BONUS,
     MIN_LINEUP_RATING,
     SHORT_SQUAD_PENALTY_CAP,
@@ -24,7 +25,7 @@ class Team(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(50), unique=True)
     morale = db.Column(db.Integer, default=70)
-    budget = db.Column(db.Integer, default=1000000)
+    budget = db.Column(db.Integer, default=DEFAULT_BUDGET)
     reputation = db.Column(db.Integer, default=50)
 
     training_facilities = db.Column(db.Integer, default=3)
@@ -289,6 +290,13 @@ class PlayerRating(db.Model):
 
     player = db.relationship('Player')
     match = db.relationship('Match')
+
+    __table_args__ = (
+        db.CheckConstraint('rating IS NULL OR (rating >= 1.0 AND rating <= 10.0)',
+                           name='ck_player_rating_range'),
+        db.CheckConstraint('goals IS NULL OR goals >= 0', name='ck_player_rating_goals'),
+        db.CheckConstraint('assists IS NULL OR assists >= 0', name='ck_player_rating_assists'),
+    )
 
 
 class TransferOffer(db.Model):

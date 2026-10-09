@@ -84,7 +84,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if (unreadBadge) {
         function refreshUnread() {
             fetch('/inbox_unread', { headers: { 'Accept': 'application/json' } })
-                .then(function(r) { return r.json(); })
+                .then(function(r) {
+                    if (!r.ok) throw new Error('unread ' + r.status);
+                    return r.json();
+                })
                 .then(function(data) {
                     var n = Number(data.unread || 0);
                     unreadBadge.textContent = n;
@@ -311,7 +314,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function refreshState() {
         fetch(stateUrl, { headers: { 'Accept': 'application/json' } })
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                if (!r.ok) throw new Error('state ' + r.status);
+                return r.json();
+            })
             .then(renderState)
             .catch(function() {});
     }
@@ -327,7 +333,10 @@ document.addEventListener('DOMContentLoaded', function() {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': csrfToken() },
             body: body.toString()
         })
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                if (!r.ok) throw new Error('post ' + r.status);
+                return r.json();
+            })
             .then(function(res) {
                 if (res && res.finished) {
                     window.location.href = '/match_report/' + matchId;

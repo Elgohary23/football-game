@@ -17,6 +17,15 @@ MIN_LINEUP_RATING = 10.0
 
 # --- Finance ---
 DEFAULT_BUDGET = 1_000_000
+# Starting budget per league tier (1 = Premier League .. 4 = League Two).
+# Single source of truth — use services.get_budget_for_tier() everywhere
+# instead of hard-coding multipliers.
+TIER_BUDGETS = {
+    1: 4_000_000,
+    2: 3_000_000,
+    3: 2_000_000,
+    4: 1_000_000,
+}
 TRAINING_COST_PER_LEVEL = 200_000
 YOUTH_COST_PER_LEVEL = 150_000
 MAX_FACILITY_LEVEL = 10
@@ -80,7 +89,7 @@ REPUTATION_TOLERANCE = 10
 OLD_DATA_KEEP_PLAYED_MATCHES = 150
 
 # --- Schema migration guard ---
-TEMPLATE_SCHEMA_VERSION = 2  # bump to force a template.db rebuild
+TEMPLATE_SCHEMA_VERSION = 4  # bump to force a template.db rebuild
 
 # --- Advanced tactics (FM features) ---
 PRESSING_STYLES = ("low", "normal", "high")

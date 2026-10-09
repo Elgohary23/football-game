@@ -15,6 +15,8 @@ Highlights:
 import logging
 import random
 
+from sqlalchemy.orm.attributes import flag_modified
+
 from config import (
     AWAY_GOAL_MULTIPLIER,
     CAPTAIN_MORALE_BOOST,
@@ -210,57 +212,61 @@ def _eligible_lineup(team: Team) -> list[Player]:
 
 def start_live(match: Match, mode: str = "live") -> bool:
     """Prepare a live/auto match. Persists state; caller owns commit."""
-    if match.played or match.live_active:
+    try:
+        if match.played or match.live_active:
+            return False
+        home = match.home_team
+        away = match.away_team
+        if not home or not away:
+            return False
+
+        _captain_boost(home)
+        _captain_boost(away)
+
+        home_lineup = _eligible_lineup(home)
+        away_lineup = _eligible_lineup(away)
+
+        h_chem = calculate_chemistry(home, home_lineup)
+        a_chem = calculate_chemistry(away, away_lineup)
+        home.chemistry = h_chem
+        away.chemistry = a_chem
+
+        h_att, h_def = _team_ratings(home, home_lineup, h_chem)
+        a_att, a_def = _team_ratings(away, away_lineup, a_chem)
+
+        state = {
+            "mode": mode,
+            "status": "running",
+            "minute": 0,
+            "home_xp": {
+                "att": h_att, "def": h_def, "chem": h_chem,
+                "lineup": [p.id for p in home_lineup],
+                "bench": [p.id for p in home.players if p.id not in [x.id for x in home_lineup]],
+                "on_pitch": [p.id for p in home_lineup],
+                "score": 0,
+                "shots": 0, "sot": 0, "corners": 0, "fouls": 0,
+                "xg": 0.0, "yellows": 0, "reds": 0,
+                "subs": 0,
+            },
+            "away_xp": {
+                "att": a_att, "def": a_def, "chem": a_chem,
+                "lineup": [p.id for p in away_lineup],
+                "bench": [p.id for p in away.players if p.id not in [x.id for x in away_lineup]],
+                "on_pitch": [p.id for p in away_lineup],
+                "score": 0,
+                "shots": 0, "sot": 0, "corners": 0, "fouls": 0,
+                "xg": 0.0, "yellows": 0, "reds": 0,
+                "subs": 0,
+            },
+            "events": [],
+            "finished": False,
+        }
+        match.live_active = True
+        match.live_state = state
+        return True
+    except Exception:
+        logger.exception("start_live failed for match %s", getattr(match, "id", "?"))
         return False
-    home = match.home_team
-    away = match.away_team
-    if not home or not away:
-        return False
-
-    _captain_boost(home)
-    _captain_boost(away)
-
-    home_lineup = _eligible_lineup(home)
-    away_lineup = _eligible_lineup(away)
-
-    h_chem = calculate_chemistry(home, home_lineup)
-    a_chem = calculate_chemistry(away, away_lineup)
-    home.chemistry = h_chem
-    away.chemistry = a_chem
-
-    h_att, h_def = _team_ratings(home, home_lineup, h_chem)
-    a_att, a_def = _team_ratings(away, away_lineup, a_chem)
-
-    state = {
-        "mode": mode,
-        "status": "running",
-        "minute": 0,
-        "home_xp": {
-            "att": h_att, "def": h_def, "chem": h_chem,
-            "lineup": [p.id for p in home_lineup],
-            "bench": [p.id for p in home.players if p.id not in [x.id for x in home_lineup]],
-            "on_pitch": [p.id for p in home_lineup],
-            "score": 0,
-            "shots": 0, "sot": 0, "corners": 0, "fouls": 0,
-            "xg": 0.0, "yellows": 0, "reds": 0,
-            "subs": 0,
-        },
-        "away_xp": {
-            "att": a_att, "def": a_def, "chem": a_chem,
-            "lineup": [p.id for p in away_lineup],
-            "bench": [p.id for p in away.players if p.id not in [x.id for x in away_lineup]],
-            "on_pitch": [p.id for p in away_lineup],
-            "score": 0,
-            "shots": 0, "sot": 0, "corners": 0, "fouls": 0,
-            "xg": 0.0, "yellows": 0, "reds": 0,
-            "subs": 0,
-        },
-        "events": [],
-        "finished": False,
-    }
-    match.live_active = True
-    match.live_state = state
-    return True
 
 
 def _xpid(state: dict, key: str, team_key: str):
@@ -313,10 +319,17 @@ def _shot_chance(player: Player, opp_def: float) -> tuple[float, float]:
 
 
 def tick_match(match: Match) -> dict:
-    """Advance the live/auto match by one minute, return new events (list)."""
+    """Advance the live/auto match by one minute, return new events (list).
+
+    NOTE: returned events are NOT stored in ``live_state`` here — the caller
+    (``advance_live_mins`` / ``run_auto_match``) must merge them, otherwise
+    scorer attribution and match reports stay empty.
+    """
     home = match.home_team
     away = match.away_team
     state = match.live_state or {}
+    if not home or not away:
+        return {"events": [], "finished": True}
     if state.get("finished"):
         return {"events": [], "finished": True}
 
@@ -325,7 +338,10 @@ def tick_match(match: Match) -> dict:
     if minute > LIVE_MATCH_MINUTES:
         return {"events": [], "finished": True}
 
-    home_xp, away_xp = state["home_xp"], state["away_xp"]
+    home_xp = state.get("home_xp") or {}
+    away_xp = state.get("away_xp") or {}
+    if not home_xp or not away_xp:
+        return {"events": [], "finished": True}
     h_poss, a_poss = possession_split(match, home_xp, away_xp)
     events = []
 
@@ -395,9 +411,8 @@ def tick_match(match: Match) -> dict:
     elif roll < 0.82:
         events.extend(_freekick_event(match, team, team_key, xp, opp_xp, on_pitch, minute))
     elif roll < 0.92:
-        pdf = _penalty_event(match, team, team_key, xp, opp_xp, on_pitch, minute)
-        if pdf:
-            events.append(pdf)
+        pdf_events = _penalty_event(match, team, team_key, xp, opp_xp, on_pitch, minute)
+        events.extend(pdf_events)
     elif roll < 0.97:
         player = random.choice(on_pitch)
         same = player.team_id == home.id
@@ -428,13 +443,19 @@ def _apply_minute_fatigue(match, team, minute, on_pitch) -> None:
 
 
 def possession_split(match, home_xp, away_xp) -> tuple[int, int]:
-    base = 50
-    h_style = (match.home_team.pressing_style or "normal")
-    a_style = (match.away_team.pressing_style or "normal")
-    base += PRESSING_POSSESSION_BONUS.get(h_style, 0) - PRESSING_POSSESSION_BONUS.get(a_style, 0)
-    base += int(((home_xp.get("att", 0)) - (away_xp.get("att", 0))) * 0.2)
-    base = max(35, min(65, base))
-    return base, 100 - base
+    try:
+        home_team = getattr(match, "home_team", None)
+        away_team = getattr(match, "away_team", None)
+        h_style = (getattr(home_team, "pressing_style", None) or "normal")
+        a_style = (getattr(away_team, "pressing_style", None) or "normal")
+        base = 50
+        base += PRESSING_POSSESSION_BONUS.get(h_style, 0) - PRESSING_POSSESSION_BONUS.get(a_style, 0)
+        base += int((((home_xp or {}).get("att", 0)) - ((away_xp or {}).get("att", 0))) * 0.2)
+        base = max(35, min(65, base))
+        return base, 100 - base
+    except Exception:
+        logger.exception("possession_split failed; falling back to 50-50")
+        return 50, 50
 
 
 def _neutral_tick(match, state, minute, events, home_xp, away_xp, h_poss, a_poss):
@@ -452,49 +473,61 @@ def _neutral_tick(match, state, minute, events, home_xp, away_xp, h_poss, a_poss
 
 def finish_live(match: Match, state=None) -> None:
     """Finalise a fully-played live/auto match into persistent match data."""
-    home, away = match.home_team, match.away_team
-    if state is None:
-        state = match.live_state or {}
-    if not state:
-        return
+    try:
+        if match.played:
+            return  # idempotency: never apply the same result to the table twice
+        home, away = match.home_team, match.away_team
+        if home is None or away is None:
+            logger.error("finish_live: match %s missing teams", getattr(match, "id", "?"))
+            return
+        if state is None:
+            state = match.live_state or {}
+        if not state:
+            return
 
-    home_xp, away_xp = state.get("home_xp", {}), state.get("away_xp", {})
-    h_score = _clamp_goals(home_xp.get("score", 0))
-    a_score = _clamp_goals(away_xp.get("score", 0))
+        home_xp, away_xp = state.get("home_xp", {}), state.get("away_xp", {})
+        h_score = _clamp_goals(home_xp.get("score", 0))
+        a_score = _clamp_goals(away_xp.get("score", 0))
 
-    match.home_score = h_score
-    match.away_score = a_score
-    match.result = f"{h_score}-{a_score}"
-    match.played = True
-    match.live_active = False
+        match.home_score = h_score
+        match.away_score = a_score
+        match.result = f"{h_score}-{a_score}"
+        match.played = True
+        match.live_active = False
 
-    h_poss, a_poss = possession_split(match, home_xp, away_xp)
-    match.home_possession = h_poss
-    match.away_possession = a_poss
-    match.home_shots = home_xp.get("shots", 0)
-    match.away_shots = away_xp.get("shots", 0)
-    match.home_shots_on_target = home_xp.get("sot", 0)
-    match.away_shots_on_target = away_xp.get("sot", 0)
-    match.home_corners = home_xp.get("corners", 0)
-    match.away_corners = away_xp.get("corners", 0)
-    match.home_fouls = home_xp.get("fouls", 0)
-    match.away_fouls = away_xp.get("fouls", 0)
-    match.home_xg = round(home_xp.get("xg", 0.0), 2)
-    match.away_xg = round(away_xp.get("xg", 0.0), 2)
+        h_poss, a_poss = possession_split(match, home_xp, away_xp)
+        match.home_possession = h_poss
+        match.away_possession = a_poss
+        match.home_shots = home_xp.get("shots", 0)
+        match.away_shots = away_xp.get("shots", 0)
+        match.home_shots_on_target = home_xp.get("sot", 0)
+        match.away_shots_on_target = away_xp.get("sot", 0)
+        match.home_corners = home_xp.get("corners", 0)
+        match.away_corners = away_xp.get("corners", 0)
+        match.home_fouls = home_xp.get("fouls", 0)
+        match.away_fouls = away_xp.get("fouls", 0)
+        match.home_xg = round(home_xp.get("xg", 0.0), 2)
+        match.away_xg = round(away_xp.get("xg", 0.0), 2)
 
-    events = state.get("events", [])
-    all_home_events = [e for e in events if e.get("team") == "home"]
-    all_away_events = [e for e in events if e.get("team") == "away"]
-    match.home_events = sorted(all_home_events, key=lambda x: x.get("minute", 0))
-    match.away_events = sorted(all_away_events, key=lambda x: x.get("minute", 0))
+        events = state.get("events", [])
+        all_home_events = [e for e in events if e.get("team") == "home"]
+        all_away_events = [e for e in events if e.get("team") == "away"]
+        match.home_events = sorted(all_home_events, key=lambda x: x.get("minute", 0))
+        match.away_events = sorted(all_away_events, key=lambda x: x.get("minute", 0))
 
-    _write_player_stats(match, home, away, h_score, a_score, state)
-    _apply_match_fatigue_live(match, home, away, state)
-    _update_sharpness(match, home, away, state)
-    from simulation import update_league_table
-    update_league_table(home, away, h_score, a_score)
+        _write_player_stats(match, home, away, h_score, a_score, state)
+        _apply_match_fatigue_live(match, home, away, state)
+        _update_sharpness(match, home, away, state)
+        from simulation import update_league_table
+        update_league_table(home, away, h_score, a_score)
 
-    match.live_state = {"status": "finished", "finished": True, "minute": LIVE_MATCH_MINUTES}
+        match.live_state = {"status": "finished", "finished": True, "minute": LIVE_MATCH_MINUTES}
+    except Exception:
+        logger.exception("finish_live failed for match %s", getattr(match, "id", "?"))
+        try:
+            match.live_active = False
+        except Exception:
+            pass
 
 
 def _on_pitch_players(match: Match, team: Team, xp: dict) -> list[Player]:
@@ -511,7 +544,8 @@ def _shot_event(match, team, team_key, xp, opp_xp, on_pitch, minute):
     xp["xg"] += xg
     is_target = random.random() < on_target
     ev = {"minute": minute, "type": "shot", "team": team_key_short(team_key),
-          "player": player.name if player else None}
+          "player": player.name if player else None,
+          "player_id": player.id if player else None}
     if is_target:
         xp["sot"] += 1
         if random.random() < xg:
@@ -521,6 +555,7 @@ def _shot_event(match, team, team_key, xp, opp_xp, on_pitch, minute):
             assister = _pick_assister(team, on_pitch, player)
             if assister:
                 ev["assist"] = assister.name if assister else None
+                ev["assist_id"] = assister.id if assister else None
     else:
         ev["xg"] = xg
     return ev
@@ -542,7 +577,8 @@ def _freekick_event(match, team, team_key, xp, opp_xp, on_pitch, minute):
     score_prob = 0.04 + boost + (att / 1000.0)
     xp["shots"] += 1
     xp["xg"] += score_prob
-    ev = {"minute": minute, "type": "shot", "team": team_key_short(team_key), "player": taker.name}
+    ev = {"minute": minute, "type": "shot", "team": team_key_short(team_key), "player": taker.name,
+          "player_id": taker.id}
     if random.random() < score_prob:
         xp["sot"] += 1
         xp["score"] += 1
@@ -552,14 +588,15 @@ def _freekick_event(match, team, team_key, xp, opp_xp, on_pitch, minute):
     return [ev]
 
 
-def _penalty_event(match, team, team_key, xp, opp_xp, on_pitch, minute):
+def _penalty_event(match, team, team_key, xp, opp_xp, on_pitch, minute) -> list:
+    """Penalty kick. Returns a list of events (penalty + goal on success)."""
     taker = None
     if team.penalty_taker_id:
         taker = next((p for p in on_pitch if p.id == team.penalty_taker_id), None)
     if not taker:
         taker = max(on_pitch, key=lambda p: p.attack) if on_pitch else None
     if not taker:
-        return None
+        return []
     chance = PENALTY_BASE_CHANCE + (taker.attack or 0) * PENALTY_ATTACK_WEIGHT
     if "set_piece_specialist" in (taker.traits or []):
         chance += TRAIT_SET_PIECE_BOOST
@@ -567,15 +604,17 @@ def _penalty_event(match, team, team_key, xp, opp_xp, on_pitch, minute):
     xp["shots"] += 1
     xp["sot"] += 1
     xp["xg"] += chance
-    ev = {"minute": minute, "type": "penalty", "team": team_key_short(team_key), "player": taker.name}
+    ev = {"minute": minute, "type": "penalty", "team": team_key_short(team_key),
+          "player": taker.name, "player_id": taker.id}
     if random.random() < chance:
         xp["score"] += 1
         ev["result"] = "goal"
-        events = [ev, {"minute": minute, "type": "goal", "team": team_key_short(team_key),
-                       "player": taker.name, "penalty": True}]
-        return events[-1]
+        goal_ev = {"minute": minute, "type": "goal", "team": team_key_short(team_key),
+                   "player": taker.name, "player_id": taker.id, "penalty": True,
+                   "xg": round(chance, 2)}
+        return [ev, goal_ev]
     ev["result"] = "missed"
-    return ev
+    return [ev]
 
 
 def _pick_assister(team, on_pitch, scorer):
@@ -596,58 +635,67 @@ def _pick_assister(team, on_pitch, scorer):
 # Live substitutions (FM: substitution anger)
 # --------------------------------------------------------------------------
 def substitute_player(match: Match, team_key: str, player_out_id: int, player_in_id: int) -> tuple[bool, str]:
-    state = match.live_state or {}
-    if state.get("finished"):
-        return False, "المباراة انتهت!"
-    minute = state.get("minute") or 0
-    xp = state.get(team_key) or {}
-    on_pitch = xp.get("on_pitch") or []
-    bench = xp.get("bench") or []
+    try:
+        state = match.live_state or {}
+        if state.get("finished"):
+            return False, "المباراة انتهت!"
+        minute = state.get("minute") or 0
+        xp = state.get(team_key) or {}
+        on_pitch = list(xp.get("on_pitch") or [])
+        bench = list(xp.get("bench") or [])
 
-    if player_out_id not in on_pitch:
-        return False, "اللاعب ليس في الملعب!"
-    if player_in_id not in bench:
-        return False, "اللاعب ليس في قائمة الاحتياط!"
+        if player_out_id not in on_pitch:
+            return False, "اللاعب ليس في الملعب!"
+        if player_in_id not in bench:
+            return False, "اللاعب ليس في قائمة الاحتياط!"
 
-    if team_key == "home_xp":
-        team, opp_key = match.home_team, "away_xp"
-    else:
-        team, opp_key = match.away_team, "home_xp"
+        if team_key == "home_xp":
+            team = match.home_team
+        else:
+            team = match.away_team
+        if team is None:
+            return False, "الفريق غير موجود!"
 
-    p_out = next((p for p in team.players if p.id == player_out_id), None)
-    p_in = next((p for p in team.players if p.id == player_in_id), None)
+        p_out = next((p for p in team.players if p.id == player_out_id), None)
+        p_in = next((p for p in team.players if p.id == player_in_id), None)
 
-    if xp.get("subs", 0) >= 3:
-        return False, "استنفدت التبديلات الثلاثة!"
+        if xp.get("subs", 0) >= 3:
+            return False, "استنفدت التبديلات الثلاثة!"
 
-    on_pitch.remove(player_out_id)
-    bench.append(player_out_id)
-    bench.remove(player_in_id)
-    on_pitch.append(player_in_id)
-    xp["on_pitch"] = on_pitch
-    xp["bench"] = bench
-    xp["subs"] = xp.get("subs", 0) + 1
+        on_pitch.remove(player_out_id)
+        bench.append(player_out_id)
+        bench.remove(player_in_id)
+        on_pitch.append(player_in_id)
+        xp["on_pitch"] = on_pitch
+        xp["bench"] = bench
+        xp["subs"] = xp.get("subs", 0) + 1
 
-    events = state.setdefault("events", [])
-    state["events"] = events
-    events.append({
-        "minute": minute, "type": "sub", "team": team_key_short(team_key),
-        "player_out": p_out.name if p_out else "?",
-        "player_in": p_in.name if p_in else "?",
-    })
+        events = state.setdefault("events", [])
+        state["events"] = events
+        events.append({
+            "minute": minute, "type": "sub", "team": team_key_short(team_key),
+            "player_out": p_out.name if p_out else "?",
+            "player_in": p_in.name if p_in else "?",
+        })
 
-    # FM: early substitution (before 45') upsets the player unless injured.
-    if minute < LIVE_HALF_MINUTES and p_out and (p_out.injury_days == 0):
-        p_out.morale = max(0, (p_out.morale or 50) - 15)
-        msg = Message(
-            title="استياء لاعب",
-            content=f"{p_out.name} غاضب من استبداله المبكر قبل انتهاء الشوط الأول.",
-            type="dynamics", created_day=0, urgent=True,
-        )
-        db.session.add(msg)
-    if p_in:
-        p_in.sharpness = min(100, (p_in.sharpness or 50) + 2)
-    return True, "تم التبديل"
+        # FM: early substitution (before 45') upsets the player unless injured.
+        if minute < LIVE_HALF_MINUTES and p_out and (p_out.injury_days == 0):
+            p_out.morale = max(0, (p_out.morale or 50) - 15)
+            msg = Message(
+                title="استياء لاعب",
+                content=f"{p_out.name} غاضب من استبداله المبكر قبل انتهاء الشوط الأول.",
+                type="dynamics", created_day=0, urgent=True,
+            )
+            db.session.add(msg)
+        if p_in:
+            p_in.sharpness = min(100, (p_in.sharpness or 50) + 2)
+        # Same in-place JSON mutation issue as advance_live_mins: flag explicitly
+        # or the substitution is silently lost on commit.
+        flag_modified(match, "live_state")
+        return True, "تم التبديل"
+    except Exception:
+        logger.exception("substitute_player failed for match %s", getattr(match, "id", "?"))
+        return False, "حدث خطأ أثناء التبديل!"
 
 
 # --------------------------------------------------------------------------
@@ -680,6 +728,16 @@ def _update_sharpness(match, home, away, state) -> None:
                 p.sharpness = max(0, (p.sharpness or 50) - 5)
 
 
+def _event_actor(e: dict, p, id_key: str, name_key: str) -> bool:
+    """Match an event to a player, preferring IDs (names collide: generated
+    squads often contain teammates with identical names). Events from older
+    saves carry names only, so fall back to name matching then."""
+    pid = e.get(id_key)
+    if pid is not None:
+        return str(pid) == str(p.id)
+    return e.get(name_key) == p.name
+
+
 def _write_player_stats(match, home, away, h_score, a_score, state) -> None:
     rows = []
     for team, xp in ((home, state.get("home_xp", {})), (away, state.get("away_xp", {}))):
@@ -691,9 +749,9 @@ def _write_player_stats(match, home, away, h_score, a_score, state) -> None:
             p_goals = 0
             p_assists = 0
             for e in state.get("events", []):
-                if e.get("player") == p.name and e.get("type") == "goal":
+                if e.get("type") == "goal" and _event_actor(e, p, "player_id", "player"):
                     p_goals += 1
-                if e.get("assist") == p.name:
+                if _event_actor(e, p, "assist_id", "assist"):
                     p_assists += 1
             p.goals += p_goals
             p.assists += p_assists
@@ -701,7 +759,8 @@ def _write_player_stats(match, home, away, h_score, a_score, state) -> None:
                 team.youth_goals = (team.youth_goals or 0) + p_goals
 
             minutes = 90 if p.id in lineup_ids else 30
-            shots = sum(1 for e in state.get("events", []) if e.get("player") == p.name and e.get("type") in ("shot", "goal"))
+            shots = sum(1 for e in state.get("events", [])
+                        if e.get("type") in ("shot", "goal") and _event_actor(e, p, "player_id", "player"))
             passes = random.randint(15, 55)
             tackles = random.randint(1, 7) if p.position in ("DEF", "MID") else random.randint(0, 2)
             if p.position in ("DEF", "MID"):
@@ -747,48 +806,102 @@ def team_key_short(team_key: str) -> str:
 # --------------------------------------------------------------------------
 def run_auto_match(match: Match) -> bool:
     """Play a whole match synchronously (AI vs AI or skip)."""
-    if not start_live(match, mode="auto"):
+    try:
+        if not start_live(match, mode="auto"):
+            return False
+        for _ in range(LIVE_MATCH_MINUTES):
+            res = tick_match(match)
+            # tick_match only returns new events; persist them so finish_live
+            # can credit scorers/assists and build the match report.
+            if res.get("events"):
+                state = match.live_state or {}
+                state.setdefault("events", []).extend(res["events"])
+                match.live_state = state
+                # In-place JSON mutation is invisible to SQLAlchemy — without
+                # this flag the events are silently lost on commit.
+                flag_modified(match, "live_state")
+            if (match.live_state or {}).get("finished"):
+                break
+        else:
+            flag_modified(match, "live_state")
+        finish_live(match)
+        return True
+    except Exception:
+        logger.exception("run_auto_match failed for match %s", getattr(match, "id", "?"))
+        try:
+            match.live_active = False
+        except Exception:
+            pass
         return False
-    for _ in range(LIVE_MATCH_MINUTES):
-        tick_match(match)
-        if (match.live_state or {}).get("finished"):
-            break
-    finish_live(match)
-    return True
+
+
+def reset_stuck_live(match: Match) -> None:
+    """Clear a wedged live flag (e.g. after a crash mid-match) so the fixture
+    can be started again instead of freezing the UI."""
+    try:
+        match.live_active = False
+        match.live_state = None
+    except Exception:
+        logger.exception("reset_stuck_live failed for match %s", getattr(match, "id", "?"))
 
 
 def finish_match_week(match: Match) -> int:
     """After the player's match ends, complete every other fixture that week."""
     played = 0
-    others = Match.query.filter_by(week=match.week, played=False).all()
-    for m in others:
-        if m.id == match.id:
-            continue
-        if run_auto_match(m):
-            played += 1
+    try:
+        others = Match.query.filter_by(week=match.week, played=False).all()
+        for m in others:
+            if m.id == match.id:
+                continue
+            try:
+                if run_auto_match(m):
+                    played += 1
+            except Exception:
+                logger.exception("finish_match_week: auto match %s failed", getattr(m, "id", "?"))
+                continue
+    except Exception:
+        logger.exception("finish_match_week failed for week %s", getattr(match, "week", "?"))
     return played
 
 
 def advance_week_if_complete(match: Match) -> None:
     """Roll ``current_week`` forward once every fixture of the week is done."""
-    remaining = Match.query.filter_by(week=match.week, played=False).count()
-    if remaining > 0:
-        return
-    state = GameState.query.first()
-    if state:
-        state.current_week = (state.current_week or 1) + 1
+    try:
+        remaining = Match.query.filter_by(week=match.week, played=False).count()
+        if remaining > 0:
+            return
+        state = GameState.query.first()
+        if state:
+            state.current_week = (state.current_week or 1) + 1
+    except Exception:
+        logger.exception("advance_week_if_complete failed for week %s",
+                         getattr(match, "week", "?"))
 
 
 def advance_live_mins(match: Match, minutes: int) -> dict:
     """Advance a live match by ``minutes``, collecting events."""
-    collected = []
-    for _ in range(minutes):
-        res = tick_match(match)
-        collected.extend(res.get("events", []))
-        if res.get("finished"):
-            break
-    return {"events": collected, "minute": (match.live_state or {}).get("minute", 0),
-            "finished": bool((match.live_state or {}).get("finished"))}
+    try:
+        collected = []
+        for _ in range(minutes):
+            res = tick_match(match)
+            collected.extend(res.get("events", []))
+            if res.get("finished"):
+                break
+        # Persist so the live feed, match report and post-match scorer
+        # attribution (finish_live) all see the same events.
+        state = match.live_state or {}
+        if collected:
+            state.setdefault("events", []).extend(collected)
+        # tick_match mutates the JSON dict in place, which SQLAlchemy does not
+        # flag as dirty (not even on same-object reassignment). Without this,
+        # advancing through quiet minutes (no events) is silently lost on commit.
+        flag_modified(match, "live_state")
+        return {"events": collected, "minute": (match.live_state or {}).get("minute", 0),
+                "finished": bool((match.live_state or {}).get("finished"))}
+    except Exception:
+        logger.exception("advance_live_mins failed for match %s", getattr(match, "id", "?"))
+        return {"events": [], "minute": (match.live_state or {}).get("minute", 0),
+                "finished": False, "error": "advance failed"}
 
 
 def _players_meta(match: Match) -> dict:
@@ -810,16 +923,24 @@ def _players_meta(match: Match) -> dict:
 
 
 def live_state_payload(match: Match) -> dict:
-    """Serialisable state for the live UI."""
-    state = match.live_state or {}
-    home_xp = state.get("home_xp", {})
-    away_xp = state.get("away_xp", {})
-    h_poss, a_poss = possession_split(match, home_xp, away_xp)
-    player_team = Team.query.filter_by(is_player_team=True).first()
-    player_key = "home_xp"
-    if player_team and match.home_team and match.home_team.id != player_team.id:
-        player_key = "away_xp" if (match.away_team and match.away_team.id == player_team.id) else "away_xp"
-    return {
+    """Serialisable state for the live UI. Never raises — returns a safe
+    fallback payload so the frontend shows an error instead of hanging."""
+    try:
+        state = match.live_state or {}
+        home_xp = state.get("home_xp", {}) or {}
+        away_xp = state.get("away_xp", {}) or {}
+        h_poss, a_poss = possession_split(match, home_xp, away_xp)
+        try:
+            player_team = Team.query.filter_by(is_player_team=True).first()
+        except Exception:
+            player_team = None
+        player_key = "home_xp"
+        try:
+            if player_team and match.home_team and match.home_team.id != player_team.id:
+                player_key = "away_xp"
+        except Exception:
+            pass
+        return {
         "minute": state.get("minute", 0),
         "finished": bool(state.get("finished")),
         "home_score": home_xp.get("score", 0),
@@ -843,5 +964,11 @@ def live_state_payload(match: Match) -> dict:
         "player_team_key": player_key,
         "players": _players_meta(match),
         "score": f"{home_xp.get('score', 0)}-{away_xp.get('score', 0)}",
-        "events": state.get("events", []),
+        "events": state.get("events", []) or [],
     }
+    except Exception:
+        logger.exception("live_state_payload failed for match %s",
+                         getattr(match, "id", "?"))
+        return {"minute": 0, "finished": False, "home_score": 0,
+                "away_score": 0, "score": "0-0", "events": [],
+                "error": "could not load live state"}

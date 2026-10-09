@@ -19,6 +19,7 @@ from services import (
     create_new_game,
     delete_save_file,
     get_active_slot,
+    get_budget_for_tier,
     get_slot_metadata,
     get_slot_uri,
     refresh_db_engine,
@@ -39,21 +40,23 @@ def load_game():
         meta = get_slot_metadata(i) if exists else {}
         slots.append({"id": i, "exists": exists, **meta})
 
+    # NOTE: rendering the menu must NOT repoint the DB engine. Switching
+    # slots is an explicit action handled by the POST endpoints below; a GET
+    # with global side effects silently moved every subsequent request (and
+    # every user) onto a different database file.
     if active > 0 and slot_exists(active):
         try:
-            refresh_db_engine(get_slot_uri(active))
             state = GameState.query.first()
             player_team = Team.query.filter_by(is_player_team=True).first()
         except Exception:
             session.pop("active_save", None)
             active = 0
-            refresh_db_engine("sqlite:///db.sqlite3")
             state = None
             player_team = None
     else:
-        session.pop("active_save", None)
+        if active > 0:
+            session.pop("active_save", None)
         active = 0
-        refresh_db_engine("sqlite:///db.sqlite3")
         state = None
         player_team = None
 
@@ -70,6 +73,21 @@ def load_slot(slot_id):
 
     if not switch_to_slot(slot_id):
         flash("فشل في تحميل الحفظ!")
+        return redirect("/load")
+
+    # Resume where the save left off instead of assuming it is complete.
+    # An unfinished save (no manager name / no club chosen) would otherwise
+    # hit /dashboard -> safe_player_team() aborts 500 -> redirect /load loop.
+    try:
+        state = GameState.query.first()
+        if not state:
+            return redirect(f"/setup/{slot_id}")
+        if not state.manager_name or state.manager_name == "المدرب":
+            return redirect(f"/setup/{slot_id}")
+        player_team = Team.query.filter_by(is_player_team=True).first()
+        if not player_team:
+            return redirect(f"/select-division/{slot_id}")
+    except Exception:
         return redirect("/load")
 
     return redirect("/dashboard")
@@ -262,6 +280,11 @@ def manager_form(slot_id, team_id):
 
     for t in Team.query.all():
         t.is_player_team = t.id == team_id
+
+    # Budget follows the club's league tier, so picking a Premier League
+    # club vs a League Two club gives the correct starting funds even if
+    # the save was created from an older template with stale budgets.
+    team.budget = get_budget_for_tier(team.league.tier if team.league else None)
 
     state = GameState.query.first()
     if state:
