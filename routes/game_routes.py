@@ -300,6 +300,12 @@ def advance_day():
     simulate_day(state)
     match = _play_or_start_match_day(state)
     if match and _involves_player(match):
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            flash("حدث خطأ في تقدم اليوم!")
+            return redirect("/")
         return redirect(f"/live/{match.id}")
     if state.current_week >= get_season_rounds(state.user_league_id):
         state.season_over = True
@@ -329,12 +335,30 @@ def continue_game():
     match = _pending_live_match(state)
     if match:
         if start_live(match, mode="live"):
-            db.session.commit()
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                flash("حدث خطأ في تقدم اليوم!")
+                return redirect("/dashboard")
             return redirect(f"/live/{match.id}")
+        # Live fixture already started: make sure the simulated days are saved.
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        return redirect(f"/live/{match.id}")
 
     if state.current_week >= get_season_rounds(state.user_league_id):
         state.season_over = True
         flash("انتهى الموسم! اضغط ابدأ الموسم الجديد لتطبيق الصعود والهبوط")
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("حدث خطأ في تقدم اليوم!")
+        return redirect("/dashboard")
 
     return redirect("/dashboard")
 
@@ -503,6 +527,12 @@ def advance_week():
 
     match = _play_or_start_match_day(state)
     if match and _involves_player(match):
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            flash("حدث خطأ في تقدم الأسبوع!")
+            return redirect("/")
         return redirect(f"/live/{match.id}")
     if state.current_week >= get_season_rounds(state.user_league_id):
         state.season_over = True

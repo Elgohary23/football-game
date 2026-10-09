@@ -326,6 +326,7 @@ def swap_offer(target_id):
 @bp.route("/formation/role", methods=["POST"])
 def save_role():
     from config import PLAYER_ROLES
+    from sqlalchemy.orm.attributes import flag_modified
 
     player_team = safe_player_team()
     player_id = request.form.get("player_id", type=int)
@@ -335,6 +336,8 @@ def save_role():
     fd = player_team.formation_data
     if not isinstance(fd, dict):
         fd = {}
+    else:
+        fd = dict(fd)
     pid = str(player_id)
     entry = fd.get(pid)
     if isinstance(entry, dict):
@@ -344,6 +347,7 @@ def save_role():
     else:
         fd[pid] = {"x": 50, "y": 50, "role": role}
     player_team.formation_data = fd
+    flag_modified(player_team, "formation_data")
     db.session.commit()
     return jsonify({"success": True, "role": role, "player_id": player_id})
 
@@ -683,6 +687,7 @@ def buy_player(player_id):
     except Exception:
         db.session.rollback()
         flash("حدث خطأ أثناء الشراء!")
+        return redirect("/scouting")
 
     flash(message)
     return redirect("/scouting")

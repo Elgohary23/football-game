@@ -278,6 +278,12 @@ def manager_form(slot_id, team_id):
         flash("الفريق غير موجود!")
         return redirect(f"/select-division/{slot_id}")
 
+    if request.method != "POST":
+        state = GameState.query.first()
+        return render_template(
+            "manager_form.html", slot_id=slot_id, team=team, state=state
+        )
+
     for t in Team.query.all():
         t.is_player_team = t.id == team_id
 
@@ -289,6 +295,9 @@ def manager_form(slot_id, team_id):
     state = GameState.query.first()
     if state:
         state.user_league_id = team.league_id
+        manager_name = request.form.get("manager_name", "").strip()
+        if manager_name:
+            state.manager_name = manager_name
 
     from simulation import ensure_board_objectives
     ensure_board_objectives(team, state)
@@ -300,5 +309,5 @@ def manager_form(slot_id, team_id):
         flash("فشل في حفظ البيانات!")
         return redirect(f"/select-division/{slot_id}")
 
-    flash(f"مرحباً {state.manager_name}! تم اختيار فريق {team.name} بنجاح!")
+    flash(f"مرحباً {state.manager_name if state else ''}! تم اختيار فريق {team.name} بنجاح!")
     return redirect("/dashboard")
