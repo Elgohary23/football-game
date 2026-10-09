@@ -7,7 +7,7 @@ fixing until they are all green. Do not declare done with red tests.
 Do not stop after one run — fix, re-run, repeat until pass.
 
 ```bash
-# Fast suite — the default gate (77 tests, ~11s, verified)
+# Fast suite — the default gate (288 tests: backend + frontend, verified)
 python -m pytest tests/test_backend.py tests/test_frontend.py -q
 ```
 

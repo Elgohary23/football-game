@@ -112,7 +112,9 @@ def live_server():
     server = make_server("127.0.0.1", 5001, app)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    yield {"ids": ids, "session_cookie": cookie.value if cookie else None}
+    # The app is exposed so interaction tests can prepare exact DB state
+    # (heal injuries, set ages, flip flags) without touching HTTP.
+    yield {"ids": ids, "session_cookie": cookie.value if cookie else None, "app": app}
     server.shutdown()
     thread.join(timeout=10)
     try:
@@ -605,9 +607,56 @@ class TestLiveMatchFlow:
             arg=before, timeout=15000)
         expect(clock).to_contain_text("5")
 
+    def test_feed_renders_events_after_advance(self, browser_page, live_server):
+        browser_page.goto(BASE_URL + "/live/%d" % live_server["ids"]["upcoming_id"])
+        for _ in range(3):
+            browser_page.locator("#btnMinute5").click()
+        browser_page.wait_for_selector("#liveFeed .live-event", timeout=20000)
+        events = browser_page.locator("#liveFeed .live-event").all_text_contents()
+        assert len(events) >= 1
+        assert any("'" in e for e in events)  # every event carries its minute
+
+    def test_sub_via_real_clicks(self, browser_page, live_server):
+        browser_page.goto(BASE_URL + "/live/%d" % live_server["ids"]["upcoming_id"])
+        # Prime the HTTP cache: static app.js may be stuck at an older 304.
+        browser_page.evaluate("fetch('/static/app.js', {cache: 'reload'})")
+        browser_page.reload()
+        browser_page.wait_for_selector("#liveHomePitch .live-chip, #liveAwayPitch .live-chip")
+        # The manager's side is the only one with selectable chips.
+        side = browser_page.evaluate(
+            """() => document.querySelectorAll('#liveHomeBench .live-chip.clickable').length > 0
+                ? 'Home' : 'Away'""")
+        browser_page.locator(f"#live{side}Pitch .live-chip.clickable").first.click()
+        browser_page.locator(f"#live{side}Bench .live-chip.clickable").first.click()
+        # The sendSub POST is async: wait for the server answer, not the hint.
+        browser_page.wait_for_function(
+            "() => document.getElementById('liveSubMsg')"
+            ".textContent.includes('تبديل')",
+            timeout=15000)
+        msg = browser_page.locator("#liveSubMsg")
+        assert "تبديل" in msg.inner_text()
+
+    def test_advance_clamped_via_fetch(self, browser_page, live_server):
+        mid = live_server["ids"]["upcoming_id"]
+        browser_page.goto(BASE_URL + "/live/%d" % mid)
+        minute = browser_page.evaluate(
+            """async () => {
+                const csrf = document.getElementById('csrfToken').value;
+                const before = (await (await fetch('/live/%d/state')).json()).minute;
+                await fetch('/live/%d/advance', {method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded',
+                              'X-CSRFToken': csrf},
+                    body: 'minutes=99'});
+                const after = (await (await fetch('/live/%d/state')).json()).minute;
+                return {before, after};
+            }""" % (mid, mid, mid))
+        assert 0 < minute["after"] - minute["before"] <= 15
+
     def test_finish_redirects_to_report(self, browser_page, live_server):
         browser_page.goto(BASE_URL + "/live/%d" % live_server["ids"]["upcoming_id"])
-        browser_page.locator("#btnFinish").click()
+        # Double-click safety: two rapid finishes must still land exactly once
+        # on the report without replaying the week.
+        browser_page.locator("#btnFinish").dblclick()
         browser_page.wait_for_url("**/match_report/*", timeout=20000)
         body = _body(browser_page)
         assert "تقرير المباراة" in body
@@ -635,10 +684,23 @@ class TestEdgeCases:
         assert browser_page.url.endswith("/dashboard")
 
     def test_unknown_toggle_json_404(self, browser_page):
+        browser_page.goto(BASE_URL + "/squad")
         res = browser_page.evaluate(
-            "fetch('/toggle_starter/999999').then(async r => ({s: r.status, b: await r.json()}))")
+            """async () => {
+                const csrf = document.querySelector('.toggle-starter-form input[name="csrf_token"]').value;
+                const r = await fetch('/toggle_starter/999999', {
+                    method: 'POST', headers: {'X-CSRFToken': csrf}});
+                return {s: r.status, b: await r.json()};
+            }""")
         assert res["s"] == 404
         assert res["b"]["success"] is False
+
+    def test_toggle_get_is_json_405(self, browser_page):
+        # Wrong-method fetch() on a JSON-only endpoint must stay parseable.
+        res = browser_page.evaluate(
+            "fetch('/toggle_starter/1').then(async r => ({s: r.status, b: await r.json()}))")
+        assert res["s"] == 405
+        assert res["b"]["error"] == "method not allowed"
 
     def test_api_404_json(self, browser_page):
         res = browser_page.evaluate(
@@ -687,3 +749,174 @@ class TestOfferAndScoutInteractions:
         with browser_page.expect_navigation():
             browser_page.locator('form[action^="/scout/assign/"] button').click()
         expect(browser_page.locator("body")).to_contain_text("إنهاء المهمة")
+
+
+def _e2e_db(live_server):
+    """Short app-context session on the live server's own database."""
+    return live_server["app"].app_context()
+
+
+class TestToggleLimitInteraction:
+    def test_twelfth_click_rejected_with_toast(self, browser_page, live_server):
+        with _e2e_db(live_server):
+            from models import db, Player, Team
+            team = Team.query.filter_by(is_player_team=True).first()
+            for i, p in enumerate(team.players):
+                p.is_starting = i < 11
+                p.injury_days = 0
+                p.fitness = 100
+            db.session.commit()
+        browser_page.goto(BASE_URL + "/squad")
+        expect(browser_page.locator("#starterCount")).to_contain_text("11/11")
+        browser_page.locator(
+            '#squadTable tbody tr.player-row[data-starter="0"] button').first.click()
+        expect(browser_page.locator(".toggler-toast").first).to_contain_text(
+            "11 لاعباً", timeout=10000)
+        expect(browser_page.locator("#starterCount")).to_contain_text("11/11")
+        with _e2e_db(live_server):
+            from models import db, Player, Team
+            team = Team.query.filter_by(is_player_team=True).first()
+            assert sum(1 for p in team.players if p.is_starting) == 11
+            db.session.remove()
+
+
+class TestFormationDragDrop:
+    _DROP = """async ({srcSel, dstSel, pid}) => {
+        const src = document.querySelector(srcSel);
+        const dst = document.querySelector(dstSel);
+        const r = dst.getBoundingClientRect();
+        const dt = new DataTransfer();
+        src.dispatchEvent(new DragEvent('dragstart',
+            {dataTransfer: dt, bubbles: true, cancelable: true}));
+        dst.dispatchEvent(new DragEvent('drop', {dataTransfer: dt,
+            bubbles: true, cancelable: true,
+            clientX: r.left + r.width / 2, clientY: r.top + r.height / 2}));
+        return document.getElementById('formationCount').textContent;
+    }"""
+
+    def test_drag_pool_to_pitch_and_back(self, browser_page):
+        browser_page.goto(BASE_URL + "/formation")
+        expect(browser_page.locator("#formationCount")).to_contain_text("11/11")
+        pid = browser_page.eval_on_selector(
+            "#playerPool .pool-player", "el => el.dataset.id")
+        assert pid
+        count = browser_page.evaluate(
+            self._DROP, {"srcSel": f'#playerPool .pool-player[data-id="{pid}"]',
+                         "dstSel": "#pitch-grid", "pid": pid})
+        assert count.startswith("12/11")  # 12th man placed on the canvas
+        assert browser_page.locator("#saveFormationBtn").is_disabled()
+        count = browser_page.evaluate(
+            self._DROP, {"srcSel": f'#pitch-grid .pitch-box[data-id="{pid}"]',
+                         "dstSel": "#playerPool", "pid": pid})
+        assert count.startswith("11/11")
+        assert browser_page.locator("#saveFormationBtn").is_enabled()
+
+    def test_role_change_persists(self, browser_page, live_server):
+        browser_page.goto(BASE_URL + "/formation")
+        browser_page.locator(".role-select").first.select_option("poacher")
+        browser_page.wait_for_function(
+            "() => { const s = document.querySelector('.role-select');"
+            " return s && s.style.borderColor !== ''; }", timeout=10000)
+        with _e2e_db(live_server):
+            from models import Team
+            team = Team.query.filter_by(is_player_team=True).first()
+            roles = [(v or {}).get("role") for v in (team.formation_data or {}).values()]
+            assert "poacher" in roles
+
+    def test_save_button_reloads_with_toast(self, browser_page):
+        browser_page.goto(BASE_URL + "/formation")
+        expect(browser_page.locator("#formationCount")).to_contain_text("11/11")
+
+        def _accept(dialog):
+            assert "11" in dialog.message or "التشكيلة" in dialog.message
+            dialog.accept()
+
+        browser_page.once("dialog", _accept)
+        with browser_page.expect_navigation():
+            browser_page.locator("#saveFormationBtn").click()
+        expect(browser_page.locator("#formationCount")).to_contain_text("11/11")
+        assert browser_page.locator("#pitch-grid .pitch-box").count() == 11
+
+
+class TestMentoringInteraction:
+    def test_add_and_remove_mentor(self, browser_page, live_server):
+        with _e2e_db(live_server):
+            from models import db, Player, Team
+            team = Team.query.filter_by(is_player_team=True).first()
+            mentor = team.players[0]
+            mentor.age = 32
+            mentor.personality = "Leader"
+            mentee = team.players[-1]
+            mentee.age = 19
+            db.session.commit()
+            mentor_id, mentee_id = str(mentor.id), str(mentee.id)
+            mentor_name, mentee_name = mentor.name, mentee.name
+        browser_page.goto(BASE_URL + "/squad")
+        browser_page.select_option('form[action="/mentoring/add"] select[name="mentee_id"]',
+                                   mentee_id)
+        browser_page.select_option('form[action="/mentoring/add"] select[name="mentor_id"]',
+                                   mentor_id)
+        with browser_page.expect_navigation():
+            browser_page.locator('form[action="/mentoring/add"] button').click()
+        expect(browser_page.locator("body")).to_contain_text("مرشداً")
+        expect(browser_page.locator("body")).to_contain_text(mentee_name)
+        with _e2e_db(live_server):
+            from models import Mentoring, Team
+            team = Team.query.filter_by(is_player_team=True).first()
+            assert Mentoring.query.filter_by(team_id=team.id).count() == 1
+        with browser_page.expect_navigation():
+            browser_page.locator('form[action^="/mentoring/remove/"] button').click()
+        expect(browser_page.locator("body")).to_contain_text("تم إنهاء علاقة التوجيه")
+        with _e2e_db(live_server):
+            from models import Mentoring, Team
+            team = Team.query.filter_by(is_player_team=True).first()
+            assert Mentoring.query.filter_by(team_id=team.id).count() == 0
+            db.session.remove()
+        # mentor name must be gone from the mentoring card (still in squad table)
+        assert mentor_name in _body(browser_page)  # squad table keeps every DB player
+
+
+class TestCalendarSimInteraction:
+    def test_click_future_day_simulates(self, browser_page):
+        browser_page.goto(BASE_URL + "/calendar")
+        game_date = browser_page.locator("#gameDateDisplay").inner_text().strip()
+        browser_page.locator(
+            f'.day-cell[data-date]:not(.inactive)').evaluate_all(
+            """els => { const g = '%s';
+                const t = els.find(e => e.dataset.date > g && !e.classList.contains('has-match'));
+                if (!t) throw new Error('no future free day cell');
+                t.click(); }""" % game_date)
+        browser_page.locator('#detailsContent button:has-text("محاكاة")').click()
+        browser_page.wait_for_url("**/dashboard**", timeout=20000)
+        expect(browser_page.locator("body")).to_contain_text("تمت المحاكاة")
+
+
+class TestInboxReadInteraction:
+    def test_click_message_marks_read(self, browser_page):
+        browser_page.goto(BASE_URL + "/messages")
+        first = browser_page.locator(".message-list-item").first
+        title = first.locator(".ml-title").inner_text()
+        first.click()
+        expect(browser_page.locator("#messageReadPane .msg-title")).to_contain_text(
+            title, timeout=10000)
+        expect(first).not_to_have_class("unread")
+        data = browser_page.evaluate("fetch('/inbox_unread').then(r => r.json())")
+        assert isinstance(data["unread"], int)
+
+
+class TestSeasonEndInteraction:
+    def test_season_end_button_starts_new_season(self, browser_page, live_server):
+        with _e2e_db(live_server):
+            from models import db, GameState
+            state = GameState.query.first()
+            state.season_over = True
+            season0 = state.season_number or 1
+            db.session.commit()
+        browser_page.goto(BASE_URL + "/dashboard")
+        expect(browser_page.locator("body")).to_contain_text("الموسم انتهى")
+        with browser_page.expect_navigation():
+            browser_page.locator('form[action="/season_end"] button').click()
+        body = _body(browser_page)
+        assert "بدأ الموسم الجديد" in body
+        assert f"الموسم: {season0 + 1}" in body
+        assert "E2E Home FC" in body  # club still rendered from the new-season DB

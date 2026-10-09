@@ -65,12 +65,17 @@ def create_app() -> Flask:
             pass
         return ctx
 
+    # JSON-only endpoint families: they have no human page, only fetch()
+    # callers, so a redirect would break response.json() for every caller.
+    _JSON_PREFIXES = ("/static/", "/live/", "/inbox", "/api/",
+                      "/toggle_starter", "/formation", "/player_profile")
+
     @app.errorhandler(405)
     def method_not_allowed(e):
         # Same JSON-vs-redirect split as the 404 handler: a wrong-method
         # fetch() gets JSON it can parse instead of an HTML redirect.
         wants_json = (
-            (request.path or "").startswith(("/static/", "/live/", "/inbox", "/api/"))
+            (request.path or "").startswith(_JSON_PREFIXES)
             or request.headers.get("X-Requested-With") == "XMLHttpRequest"
             or request.accept_mimetypes.best == "application/json"
             or "application/json" in (request.headers.get("Accept") or "")
@@ -89,7 +94,7 @@ def create_app() -> Flask:
         # API / fetch / static callers expect JSON, not an HTML redirect
         # (a redirect breaks response.json() and logs a misleading 404).
         wants_json = (
-            path.startswith(("/static/", "/live/", "/inbox", "/api/"))
+            path.startswith(_JSON_PREFIXES)
             or request.headers.get("X-Requested-With") == "XMLHttpRequest"
             or request.accept_mimetypes.best == "application/json"
             or "application/json" in (request.headers.get("Accept") or "")

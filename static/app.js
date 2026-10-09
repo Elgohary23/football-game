@@ -209,12 +209,13 @@ document.addEventListener('DOMContentLoaded', function() {
     function selectForSub(chip, kind) {
         var id = chip.dataset.id;
         var teamKey = playerTeamKey;
+        // Toggle only the clicked side: clearing the other selection here
+        // made it impossible to ever hold both picks, so no sub could
+        // complete (pitch click cleared bench pick and vice versa).
         if (kind === 'pitch') {
             selectedOut = (selectedOut === id) ? null : id;
-            selectedIn = null;
         } else {
             selectedIn = (selectedIn === id) ? null : id;
-            selectedOut = null;
         }
         refreshSubHighlight();
         if (selectedOut && selectedIn) {
