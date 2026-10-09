@@ -670,7 +670,12 @@ def simulate_to_date():
 
     matches_played = 0
     if days_to_sim > 0:
-        result = simulate_calendar(days_to_sim, state)
+        # Calendar fast-forward is a bulk background sim: every fixture in
+        # the span (including the manager's) is auto-played in the
+        # background and the table/stats/records are updated exactly like a
+        # normal match. Pending transfer offers past their deadline expire
+        # with no moves in or out, so simulating past any event closes it.
+        result = simulate_calendar(days_to_sim, state, background=True)
         matches_played = result.get("matches_played", 0)
 
     if state.current_week >= get_season_rounds(state.user_league_id):

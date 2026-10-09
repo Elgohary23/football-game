@@ -1145,12 +1145,98 @@ def is_match_day(state: GameState) -> bool:
     return state.current_day % DAYS_PER_WEEK == 0
 
 
-def simulate_calendar(days: int, state: GameState) -> dict:
-    res = {"matches_played": 0}
+def expire_transfer_offers(state: GameState) -> int:
+    """Expire pending offers past their deadline (background fast-forward).
+
+    A long simulation that runs past an offer's ``deadline_day`` must NOT
+    leave the squad in limbo or force moves in/out. Expired offers become
+    ``rejected`` so the squad is untouched — the transfer window simply
+    closes with no business done. The caller owns commit.
+    """
+    try:
+        current = state.current_day or 0
+        expired = (
+            TransferOffer.query.filter(
+                TransferOffer.status == "pending",
+                TransferOffer.deadline_day.isnot(None),
+                TransferOffer.deadline_day < current,
+            ).all()
+        )
+        for offer in expired:
+            offer.status = "rejected"
+        return len(expired)
+    except Exception:
+        logger.exception("expire_transfer_offers failed")
+        return 0
+
+
+def _match_involves_player(match: Match) -> bool:
+    try:
+        home = match.home_team
+        away = match.away_team
+        return bool(
+            (home is not None and home.is_player_team)
+            or (away is not None and away.is_player_team)
+        )
+    except Exception:
+        return False
+
+
+def simulate_calendar(days: int, state: GameState, background: bool = False) -> dict:
+    """Fast-forward ``days`` days.
+
+    ``background=False`` (default) keeps the classic behaviour used by
+    ``/continue``: the manager's own fixture is left unplayed and the
+    fast-forward stops at the manager's match day so it can be played live.
+
+    ``background=True`` (used by ``/simulate_to_date``) auto-plays EVERY
+    fixture — including the manager's — with the same engines a normal
+    match uses (live auto engine for the manager's club, ``match_director``
+    for the rest), updating the table, player stats, fatigue and the
+    manager record. Expired transfer offers are rejected so a long
+    fast-forward past any event (e.g. a transfer window) closes it with no
+    moves in or out of the squad.
+    """
+    res = {"matches_played": 0, "expired_offers": 0}
+    # Lazy import: live_match imports from simulation at call time, so a
+    # top-level import here would be circular.
+    run_auto = None
+    if background:
+        try:
+            from live_match import run_auto_match as run_auto
+        except Exception:
+            run_auto = None
     for _ in range(days):
         simulate_day(state)
+        res["expired_offers"] += expire_transfer_offers(state)
         if is_match_day(state):
             matches = Match.query.filter_by(week=state.current_week, played=False).all()
+            if background:
+                for m in matches:
+                    if m.played:
+                        continue
+                    # Per-match SAVEPOINT: one bad fixture (e.g. a rare
+                    # integrity error) rolls back to here instead of
+                    # poisoning the whole multi-week batch transaction.
+                    savepoint = db.session.begin_nested()
+                    try:
+                        if _match_involves_player(m) and run_auto is not None:
+                            if run_auto(m):
+                                res["matches_played"] += 1
+                            update_manager_record(m, state)
+                        elif match_director(m, state):
+                            res["matches_played"] += 1
+                        savepoint.commit()
+                    except Exception:
+                        try:
+                            savepoint.rollback()
+                        except Exception:
+                            pass
+                        logger.exception(
+                            "Background match %s failed", getattr(m, "id", "?")
+                        )
+                state.current_week += 1
+                continue
             player_pending = get_current_match(state)
             for m in matches:
                 if player_pending and m.id == player_pending.id:

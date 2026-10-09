@@ -779,6 +779,10 @@ def _write_player_stats(match, home, away, h_score, a_score, state) -> None:
             if p.position == "DEF" and random.random() < 0.05:
                 errors = 1
                 rating -= 2.0
+            # Re-clamp AFTER key-pass/error adjustments: a hat-trick (10.0)
+            # + 0.2 key-pass bonus otherwise exceeds the 1.0-10.0 CHECK and
+            # aborts the whole batch transaction on background sims.
+            rating = max(1.0, min(10.0, rating))
 
             rows.append({
                 "player_id": p.id,
