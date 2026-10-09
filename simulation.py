@@ -42,6 +42,7 @@ from config import (
     OLD_DATA_KEEP_PLAYED_MATCHES,
     POSITION_REQUIREMENTS,
     PROMOTION_BONUS_PER_TIER,
+    PROMOTION_RELEGATION_SPOTS,
     RANDOM_GOAL_RANGE,
     REGEN_AGE_MIN,
     REGEN_AGE_RANGE,
@@ -1062,59 +1063,66 @@ def process_promotion_relegation(state: GameState) -> None:
 
     messages_to_send = []
 
+    # Snapshot every final table BEFORE moving anyone. The old code sorted
+    # and moved one league pair at a time: SQLAlchemy autoflush made the
+    # just-moved clubs visible to the next pair's query, and their zeroed
+    # points dropped them to the bottom — so PL relegated sides fell through
+    # Championship/League One straight into League Two in a single summer.
+    tables: dict[int, list] = {}
+    for league in leagues:
+        tables[league.id] = Team.table_sort_pipeline(
+            Team.query.filter_by(league_id=league.id).all()
+        )
+
+    # Plan all moves first: each club moves at most one division per season.
+    # moves maps team.id -> (destination league, origin league, direction).
+    moves: dict[int, tuple] = {}
     for i in range(len(leagues) - 1):
         upper_league = leagues[i]
         lower_league = leagues[i + 1]
-
-        upper_teams = Team.table_sort_pipeline(
-            Team.query.filter_by(league_id=upper_league.id).all()
-        )
-        lower_teams = Team.table_sort_pipeline(
-            Team.query.filter_by(league_id=lower_league.id).all()
-        )
-
+        upper_teams = tables.get(upper_league.id, [])
+        lower_teams = tables.get(lower_league.id, [])
         if not upper_teams or not lower_teams:
             continue
+        spots = min(PROMOTION_RELEGATION_SPOTS, len(upper_teams), len(lower_teams))
+        if spots <= 0:
+            continue
+        for team in upper_teams[-spots:]:
+            if team.id not in moves:
+                moves[team.id] = (lower_league, upper_league, "down")
+        for team in lower_teams[:spots]:
+            if team.id not in moves:
+                moves[team.id] = (upper_league, lower_league, "up")
 
-        relegated = upper_teams[-2:]
-        promoted = lower_teams[:2]
+    for team_id, (dest_league, origin_league, direction) in moves.items():
+        team = db.session.get(Team, team_id)
+        if team is None:
+            continue
+        team.league_id = dest_league.id
+        team.points = 0
+        team.wins = 0
+        team.losses = 0
+        team.draws = 0
+        team.goals_for = 0
+        team.goals_against = 0
 
-        for team in relegated:
-            old_league = team.league
-            team.league = lower_league
-            team.points = 0
-            team.wins = 0
-            team.losses = 0
-            team.draws = 0
-            team.goals_for = 0
-            team.goals_against = 0
+        if direction == "down":
             team.morale = max(20, team.morale - 15)
-
             if team.is_player_team:
                 messages_to_send.append(Message(
                     title="هبوط الفريق!",
-                    content=f"هبط فريقك {team.name} من {old_league.name} إلى {lower_league.name}.",
+                    content=f"هبط فريقك {team.name} من {origin_league.name} إلى {dest_league.name}.",
                     type="season", urgent=True, created_day=state.current_day
                 ))
                 state.trophies = max(0, (state.trophies or 0))
-
-        for team in promoted:
-            old_league = team.league
-            team.league = upper_league
-            team.points = 0
-            team.wins = 0
-            team.losses = 0
-            team.draws = 0
-            team.goals_for = 0
-            team.goals_against = 0
+        else:
             team.morale = min(100, team.morale + 20)
             # Higher divisions pay more: tier 1 (PL) earns the biggest bonus.
-            team.budget += PROMOTION_BONUS_PER_TIER * (5 - upper_league.tier)
-
+            team.budget += PROMOTION_BONUS_PER_TIER * (5 - dest_league.tier)
             if team.is_player_team:
                 messages_to_send.append(Message(
                     title="صعود الفريق!",
-                    content=f"صعد فريقك {team.name} من {old_league.name} إلى {upper_league.name}! مكافأة مالية.",
+                    content=f"صعد فريقك {team.name} من {origin_league.name} إلى {dest_league.name}! مكافأة مالية.",
                     type="season", urgent=True, created_day=state.current_day
                 ))
                 state.trophies = (state.trophies or 0) + 1

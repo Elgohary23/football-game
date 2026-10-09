@@ -283,6 +283,42 @@ class TestProgression:
         process_promotion_relegation(_state())
         db.session.commit()
 
+    def test_relegation_drops_single_division(self, ctx):
+        """Relegated clubs must land in the adjacent league, never skip one.
+
+        Regression test: the old pair-by-pair loop let SQLAlchemy autoflush
+        expose just-moved (zero-point) clubs to the next pair's query, so
+        Premier League bottom sides cascaded straight into League Two.
+        """
+        from config import PROMOTION_RELEGATION_SPOTS
+        from simulation import process_promotion_relegation
+
+        leagues = []
+        for name, tier in (("L1x", 1), ("L2x", 2), ("L3x", 3)):
+            l = League(name=name, tier=tier, reputation=50)
+            db.session.add(l)
+            db.session.flush()
+            leagues.append(l)
+        size = 6
+        for league in leagues:
+            for j in range(size):
+                db.session.add(Team(
+                    name=f"{league.name}-T{j}", morale=70, budget=500000,
+                    is_player_team=False, league_id=league.id,
+                    points=100 - j * 10, goals_for=50 - j * 5, goals_against=10,
+                ))
+        db.session.commit()
+        pl_bottom_ids = {
+            t.id for t in Team.query.filter_by(league_id=leagues[0].id)
+            .order_by(Team.points.asc()).limit(PROMOTION_RELEGATION_SPOTS).all()
+        }
+        process_promotion_relegation(_state())
+        db.session.commit()
+        for team_id in pl_bottom_ids:
+            assert db.session.get(Team, team_id).league_id == leagues[1].id
+        for league in leagues:
+            assert Team.query.filter_by(league_id=league.id).count() == size
+
 
 # ------------------------------------------------------- services
 class TestServices:

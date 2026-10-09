@@ -74,6 +74,9 @@ SHORT_SQUAD_PENALTY_CAP = 11
 # --- Seasons ---
 TOP_LEAGUE_ROUNDS = 38
 LOWER_LEAGUE_ROUNDS = 46
+# Clubs promoted/relegated per adjacent league pair each season.
+# Matches the standings legend ("relegation zone: last 3").
+PROMOTION_RELEGATION_SPOTS = 3
 
 # --- Player development ---
 DEVELOPMENT_UPDATE_DAYS = 30
