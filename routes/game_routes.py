@@ -88,8 +88,10 @@ def _play_or_start_match_day(state: GameState):
         if start_live(match, mode="live"):
             db.session.commit()
             return match
-        # live already running/finished
-        return match
+        db.session.rollback()
+        # Already running -> the live page self-heals; a failed start must
+        # NOT redirect to /live or the user bounces in a dead loop.
+        return match if match.live_active else None
     if run_auto_match(match):
         db.session.commit()
     return None
@@ -262,7 +264,14 @@ def calendar():
     for m in player_matches:
         home = m.home_team
         away = m.away_team
-        player_matches_json[m.date] = {
+        # A club normally plays once per date, but on a (data-bug) collision
+        # keep the unplayed fixture so the calendar never hides a live match.
+        key = m.date or f"week-{m.week}"
+        if key in player_matches_json and player_matches_json[key]["played"]:
+            pass
+        elif key in player_matches_json and m.played:
+            continue
+        player_matches_json[key] = {
             "id": m.id,
             "home": home.name if home else "?",
             "away": away.name if away else "?",
@@ -535,6 +544,15 @@ def live_finish(match_id):
         if not _involves_player(match):
             return {"error": "unauthorized"}, 403
 
+        # Double-click safe: an already-finished match returns its result
+        # without re-running the week simulation a second time.
+        if match.played:
+            return {
+                "finished": True,
+                "season_over": bool(state and state.season_over),
+                "others_played": 0,
+            }
+
         others_played = 0
         if not match.played:
             live = match.live_state or {}
@@ -581,13 +599,17 @@ def advance_week():
         return redirect("/")
 
     days_simmed = 0
+    timed_out = False
     while not is_match_day(state) and not state.season_over:
         simulate_day(state)
         days_simmed += 1
         if days_simmed > 14:
+            timed_out = True
             break
 
-    match = _play_or_start_match_day(state)
+    match = None if timed_out else _play_or_start_match_day(state)
+    if timed_out and match is None and not state.season_over:
+        flash("لا توجد مباريات في الأسبوعين القادمين — قد يكون الدوري في فترة توقف.")
     if match and _involves_player(match):
         try:
             db.session.commit()
@@ -634,6 +656,13 @@ def simulate_to_date():
         flash("يرجى اختيار تاريخ في المستقبل!")
         return redirect("/calendar")
 
+    # Cap the fast-forward so a date past the season end can't spin the
+    # calendar into uncharted weeks with weird results.
+    capped = False
+    if days_to_sim > 366:
+        days_to_sim = 366
+        capped = True
+
     try:
         db.session.commit()
     except Exception:
@@ -654,7 +683,8 @@ def simulate_to_date():
         flash("حدث خطأ في المحاكاة!")
         return redirect("/calendar")
 
-    flash(f"تمت المحاكاة! وصلت لتاريخ {state.current_date}، لعبت {matches_played} مباريات")
+    note = " (تم تحديد المحاكاة بسنة واحدة كحد أقصى)" if capped else ""
+    flash(f"تمت المحاكاة! وصلت لتاريخ {state.current_date}، لعبت {matches_played} مباريات{note}")
     return redirect("/dashboard")
 
 
@@ -687,6 +717,9 @@ def season_end():
         return redirect("/dashboard")
 
     process_promotion_relegation(state)
+    from services import start_new_season
+
+    new_fixtures = start_new_season(state)
     state.season_over = False
     state.current_day = 1
     state.current_week = 1
@@ -695,7 +728,10 @@ def season_end():
     try:
         db.session.commit()
         invalidate_league_cache()
-        flash(f"انتهى الموسم {state.season_number - 1}! بدأ الموسم الجديد بنجاح")
+        flash(
+            f"انتهى الموسم {state.season_number - 1}! "
+            f"بدأ الموسم الجديد بنجاح ({new_fixtures} مباراة مجدولة)"
+        )
     except Exception:
         db.session.rollback()
         flash("خطأ في إنهاء الموسم!")

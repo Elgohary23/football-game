@@ -803,6 +803,68 @@ def validate_schedule(fixtures: list[tuple[int, int, int]]) -> list[str]:
     return errors
 
 
+def start_new_season(state: GameState) -> int:
+    """Build a fresh fixture list for the season starting now.
+
+    Called by the ``/season_end`` route AFTER promotion/relegation moved
+    clubs between leagues. Without this the new season had zero fixtures
+    and ``get_current_match()`` returned ``None`` forever.
+
+    - Zeroes EVERY club's standings (promotion only reset moved clubs).
+    - Deletes leftover unplayed fixtures, keeps played history.
+    - Generates a validated double round-robin per league + match dates.
+    - Advances the calendar past the off-season break.
+
+    The caller owns commit. Returns the number of new fixtures.
+    """
+    import datetime as _dt
+
+    for team in Team.query.all():
+        team.points = 0
+        team.wins = 0
+        team.losses = 0
+        team.draws = 0
+        team.goals_for = 0
+        team.goals_against = 0
+
+    Match.query.filter_by(played=False).delete(synchronize_session=False)
+
+    new_matches: list[Match] = []
+    for league in League.query.order_by(League.tier).all():
+        team_ids = [t.id for t in Team.query.filter_by(league_id=league.id).all()]
+        fixtures = generate_round_robin_fixtures(team_ids)
+        problems = validate_schedule(fixtures)
+        if problems:
+            logger.error("Invalid new-season schedule for %s: %s", league.name, problems)
+            continue
+        for week, home_id, away_id in fixtures:
+            m = Match(
+                home_team_id=home_id,
+                away_team_id=away_id,
+                week=week,
+                played=False,
+            )
+            db.session.add(m)
+            new_matches.append(m)
+    db.session.flush()
+
+    try:
+        base = datetime.strptime(state.current_date, "%Y-%m-%d").date()
+    except Exception:
+        base = _dt.date.today()
+    # Off-season break: new campaign kicks off ~10 weeks later.
+    new_start = base + _dt.timedelta(weeks=10)
+    state.start_date = new_start.isoformat()
+    state.current_date = new_start.isoformat()
+
+    if new_matches:
+        adjust_match_dates(new_matches, new_start)
+
+    invalidate_league_cache()
+    logger.info("New season: %d fixtures from %s", len(new_matches), new_start)
+    return len(new_matches)
+
+
 def recalculate_standings_from_played() -> int:
     """Zero every team's standings and re-apply ONLY played matches.
 

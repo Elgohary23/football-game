@@ -82,23 +82,43 @@ def toggle_starter(player_id):
             400,
         )
 
-    current_starters = Player.query.filter_by(
-        team_id=player.team_id, is_starting=True
-    ).count()
-
-    if not player.is_starting and current_starters >= 11:
-        return (
-            jsonify(
-                {
-                    "success": False,
-                    "message": "لديك بالفعل 11 لاعباً في التشكيلة الأساسية!",
-                }
-            ),
-            400,
-        )
+    # Flip-then-verify: count AFTER the change (post-flush) so two rapid
+    # clicks can't both pass a stale pre-check and leave 12 starters.
+    turning_on = not player.is_starting
+    if turning_on:
+        current_starters = Player.query.filter_by(
+            team_id=player.team_id, is_starting=True
+        ).count()
+        if current_starters >= 11:
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "message": "لديك بالفعل 11 لاعباً في التشكيلة الأساسية!",
+                    }
+                ),
+                400,
+            )
 
     player.is_starting = not player.is_starting
     try:
+        db.session.flush()
+        if turning_on:
+            fresh_count = Player.query.filter_by(
+                team_id=player.team_id, is_starting=True
+            ).count()
+            if fresh_count > 11:
+                player.is_starting = False
+                db.session.rollback()
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "message": "لديك بالفعل 11 لاعباً في التشكيلة الأساسية!",
+                        }
+                    ),
+                    400,
+                )
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -202,18 +222,24 @@ def save_takers():
     player_team = safe_player_team()
     squad = {p.id: p.name for p in Player.query.filter_by(team_id=player_team.id).all()}
 
-    pid_p = request.form.get("penalty_taker_id", type=int)
-    pid_f = request.form.get("freekick_taker_id", type=int)
+    # Empty string ("— تلقائي —") clears back to automatic; a numeric id
+    # must belong to the squad, otherwise reject instead of ignoring.
+    raw_p = (request.form.get("penalty_taker_id") or "").strip()
+    raw_f = (request.form.get("freekick_taker_id") or "").strip()
+    try:
+        pid_p = int(raw_p) if raw_p else None
+        pid_f = int(raw_f) if raw_f else None
+    except ValueError:
+        flash("قيمة غير صالحة لمنفذي الكرات الثابتة!")
+        return redirect("/formation")
     if pid_p is not None and pid_p not in squad:
         flash("مسدد ركلات الجزاء المختار ليس من فريقك!")
         return redirect("/formation")
     if pid_f is not None and pid_f not in squad:
         flash("مسدد الركلات الحرة المختار ليس من فريقك!")
         return redirect("/formation")
-    if pid_p in squad:
-        player_team.penalty_taker_id = pid_p
-    if pid_f in squad:
-        player_team.freekick_taker_id = pid_f
+    player_team.penalty_taker_id = pid_p
+    player_team.freekick_taker_id = pid_f
     try:
         db.session.commit()
     except Exception:

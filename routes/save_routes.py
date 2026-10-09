@@ -192,7 +192,10 @@ def select_team(slot_id, league_id):
                 "rating": tier_data["rating"],
                 "attack": tier_data["attack"],
                 "defense": tier_data["defense"],
-                "budget": team.budget,
+                # Show the budget the manager will ACTUALLY get: manager_form
+                # overwrites team.budget via get_budget_for_tier(), so the
+                # stored value on an unpicked template club would mislead.
+                "budget": get_budget_for_tier(league.tier),
             }
         )
 
@@ -284,8 +287,11 @@ def manager_form(slot_id, team_id):
             "manager_form.html", slot_id=slot_id, team=team, state=state
         )
 
-    Team.query.update({Team.is_player_team: False})
-    db.session.flush()
+    # Bulk-clear first; synchronize_session="fetch" + expire_all() so no
+    # stale in-memory Team object still claims is_player_team=True.
+    Team.query.update({Team.is_player_team: False}, synchronize_session="fetch")
+    db.session.expire_all()
+    team = db.session.get(Team, team_id)
     team.is_player_team = True
     db.session.flush()
 
