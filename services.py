@@ -563,6 +563,7 @@ def swap_offer(
     if target.team_id is None:
         return False, "لا يمكن مقايضة وكيل حر!"
 
+    cash = max(0.0, cash or 0.0)
     totals = cash + (offered_player.market_value or 0)
     if totals < target.market_value * 0.8:
         return False, "قيمة العرض (نقداً + اللاعب) أقل من 80% من قيمة الهدف!"

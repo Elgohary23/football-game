@@ -300,7 +300,8 @@ def manager_form(slot_id, team_id):
             state.manager_name = manager_name
 
     from simulation import ensure_board_objectives
-    ensure_board_objectives(team, state)
+    if state is not None:
+        ensure_board_objectives(team, state)
 
     try:
         db.session.commit()

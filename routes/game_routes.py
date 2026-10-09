@@ -56,6 +56,20 @@ def _involves_player(match: Match) -> bool:
     )
 
 
+def _player_xi_complete() -> bool:
+    """The manager needs 11 starters before a live match may begin."""
+    try:
+        player_team = Team.query.filter_by(is_player_team=True).first()
+        if not player_team:
+            return True
+        return (
+            Player.query.filter_by(team_id=player_team.id, is_starting=True).count()
+            >= 11
+        )
+    except Exception:
+        return True
+
+
 def _play_or_start_match_day(state: GameState):
     """Run the day's match via the new live engine.
 
@@ -68,6 +82,9 @@ def _play_or_start_match_day(state: GameState):
     if not match or match.played:
         return None
     if _involves_player(match):
+        if not _player_xi_complete():
+            flash("التشكيلة الأساسية ناقصة! اختر 11 لاعباً أساسياً قبل بدء المباراة.")
+            return None
         if start_live(match, mode="live"):
             db.session.commit()
             return match
@@ -83,6 +100,15 @@ def _pending_live_match(state: GameState):
     match = get_current_match(state)
     if match and _involves_player(match) and not match.played:
         return match
+    return None
+
+
+def _player_team_key(match: Match) -> str | None:
+    """Which live-state side belongs to the manager's club (IDOR guard)."""
+    if match.home_team and match.home_team.is_player_team:
+        return "home_xp"
+    if match.away_team and match.away_team.is_player_team:
+        return "away_xp"
     return None
 
 
@@ -334,6 +360,13 @@ def continue_game():
 
     match = _pending_live_match(state)
     if match:
+        if not _player_xi_complete():
+            flash("التشكيلة الأساسية ناقصة! اختر 11 لاعباً أساسياً قبل بدء المباراة.")
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+            return redirect("/dashboard")
         if start_live(match, mode="live"):
             try:
                 db.session.commit()
@@ -391,6 +424,9 @@ def live_view(match_id):
                     run_auto_match(match)
                     db.session.commit()
                 else:
+                    if not _player_xi_complete():
+                        flash("التشكيلة الأساسية ناقصة! اختر 11 لاعباً أساسياً قبل بدء المباراة.")
+                        return redirect("/dashboard")
                     start_live(match, mode="live")
                     db.session.commit()
             except Exception:
@@ -431,6 +467,8 @@ def live_advance(match_id):
         match = db.session.get(Match, match_id)
         if not match or not match.live_active:
             return {"error": "not live"}, 404
+        if not _involves_player(match):
+            return {"error": "unauthorized"}, 403
         minutes = request.form.get("minutes", type=int, default=1) or 1
         res = advance_live_mins(match, min(15, max(1, minutes)))
         try:
@@ -453,9 +491,13 @@ def live_sub(match_id):
         match = db.session.get(Match, match_id)
         if not match or not match.live_active:
             return {"error": "not live"}, 404
+        if not _involves_player(match):
+            return {"error": "unauthorized"}, 403
         team_key = request.form.get("team_key", "home_xp")
         if team_key not in ("home_xp", "away_xp"):
             return {"ok": False, "message": "فريق غير صالح!"}, 400
+        if team_key != _player_team_key(match):
+            return {"ok": False, "message": "لا يمكنك تبديل لاعبي الفريق الخصم!"}, 403
         player_out = request.form.get("player_out", type=int)
         player_in = request.form.get("player_in", type=int)
         ok, msg = substitute_player(match, team_key, player_out or 0, player_in or 0)
@@ -480,6 +522,8 @@ def live_finish(match_id):
         match = db.session.get(Match, match_id)
         if not match:
             return {"error": "not found"}, 404
+        if not _involves_player(match):
+            return {"error": "unauthorized"}, 403
 
         others_played = 0
         if not match.played:
@@ -522,8 +566,12 @@ def advance_week():
         flash("الموسم انتهى!")
         return redirect("/")
 
+    days_simmed = 0
     while not is_match_day(state) and not state.season_over:
         simulate_day(state)
+        days_simmed += 1
+        if days_simmed > 14:
+            break
 
     match = _play_or_start_match_day(state)
     if match and _involves_player(match):

@@ -217,6 +217,17 @@ def save_preset():
     positions = None
     if isinstance(player_team.formation_data, dict) and player_team.formation_data:
         positions = player_team.formation_data
+    existing = TacticPreset.query.filter_by(
+        team_id=player_team.id, name=name
+    ).first()
+    if existing:
+        existing.preset_type = preset_type if preset_type in PRESET_TYPES else "standard"
+        existing.formation_data = positions
+        existing.pressing_style = player_team.pressing_style or "normal"
+        existing.match_tactic = player_team.match_tactic or "balanced"
+        db.session.commit()
+        flash(f"تم تحديث الخطة «{existing.name}»!")
+        return redirect("/formation")
     preset = TacticPreset(
         team_id=player_team.id,
         preset_type=preset_type if preset_type in PRESET_TYPES else "standard",
@@ -267,6 +278,7 @@ def delete_preset(preset_id):
 @bp.route("/mentoring/add", methods=["POST"])
 def mentoring_add():
     player_team = safe_player_team()
+    state = safe_state()
     from models import Mentoring
 
     mentor_id = request.form.get("mentor_id", type=int)
@@ -286,7 +298,7 @@ def mentoring_add():
         team_id=player_team.id,
         mentor_id=mentor_id,
         mentee_id=mentee_id,
-        started_day=(safe_state().current_day or 0),
+        started_day=(state.current_day if state and state.current_day else 0),
     ))
     db.session.commit()
     flash(f"أصبح {mentor.name} مرشداً لـ {mentee.name}!")
@@ -316,6 +328,7 @@ def swap_offer(target_id):
     offered_id = request.form.get("offered_player_id", type=int)
     offered = db.session.get(Player, offered_id) if offered_id else None
     cash = request.form.get("cash", type=float) or 0.0
+    cash = max(0.0, cash)
     ok, message = run_swap(player_team, target, offered, cash, state.current_day)
     db.session.commit()
     flash(message)
@@ -591,6 +604,9 @@ def upgrade_facility(facility_type):
             flash(f"تم ترقية أكاديمية الشباب إلى المستوى {level + 1}!")
         else:
             flash("الميزانية غير كافية!")
+    else:
+        flash("نوع المرفق غير صالح!")
+        return redirect("/facilities")
 
     db.session.commit()
     return redirect("/facilities")
@@ -679,7 +695,7 @@ def buy_player(player_id):
 
     target = db.session.get(Player, player_id)
     sell_on = request.form.get("sell_on", type=float) or 0.0
-    sell_on = 0.0 if sell_on > 0.3 else sell_on
+    sell_on = max(0.0, min(0.3, sell_on))
     ok, message = purchase_player(player_team, target, state.current_day, sell_on)
 
     try:
