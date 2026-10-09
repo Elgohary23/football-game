@@ -65,7 +65,7 @@ def load_game():
     )
 
 
-@bp.route("/load/<int:slot_id>", methods=["GET", "POST"])
+@bp.route("/load/<int:slot_id>", methods=["POST"])
 def load_slot(slot_id):
     if not slot_exists(slot_id):
         flash("الحفظ غير موجود!")
@@ -93,7 +93,7 @@ def load_slot(slot_id):
     return redirect("/dashboard")
 
 
-@bp.route("/new/<int:slot_id>", methods=["GET", "POST"])
+@bp.route("/new/<int:slot_id>", methods=["POST"])
 def new_game(slot_id):
     if slot_id < 1 or slot_id > MAX_SAVE_SLOTS:
         flash("رقم Slot غير صالح!")
@@ -240,7 +240,7 @@ def exit_to_menu():
     return redirect("/load")
 
 
-@bp.route("/delete/<int:slot_id>", methods=["GET", "POST"])
+@bp.route("/delete/<int:slot_id>", methods=["POST"])
 def delete_game(slot_id):
     active = get_active_slot()
     if active == slot_id:
@@ -284,8 +284,10 @@ def manager_form(slot_id, team_id):
             "manager_form.html", slot_id=slot_id, team=team, state=state
         )
 
-    for t in Team.query.all():
-        t.is_player_team = t.id == team_id
+    Team.query.update({Team.is_player_team: False})
+    db.session.flush()
+    team.is_player_team = True
+    db.session.flush()
 
     # Budget follows the club's league tier, so picking a Premier League
     # club vs a League Two club gives the correct starting funds even if

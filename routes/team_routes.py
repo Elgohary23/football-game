@@ -186,7 +186,12 @@ def save_tactics():
     tactic = request.form.get("match_tactic", "balanced")
     player_team.pressing_style = pressing
     player_team.match_tactic = tactic
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("فشل في حفظ التعليمات التكتيكية!")
+        return redirect("/formation")
     flash("تم حفظ التعليمات التكتيكية!")
     return redirect("/formation")
 
@@ -199,11 +204,22 @@ def save_takers():
 
     pid_p = request.form.get("penalty_taker_id", type=int)
     pid_f = request.form.get("freekick_taker_id", type=int)
+    if pid_p is not None and pid_p not in squad:
+        flash("مسدد ركلات الجزاء المختار ليس من فريقك!")
+        return redirect("/formation")
+    if pid_f is not None and pid_f not in squad:
+        flash("مسدد الركلات الحرة المختار ليس من فريقك!")
+        return redirect("/formation")
     if pid_p in squad:
         player_team.penalty_taker_id = pid_p
     if pid_f in squad:
         player_team.freekick_taker_id = pid_f
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("فشل في تحديث منفذي الكرات الثابتة!")
+        return redirect("/formation")
     flash("تم تحديث منفذي الكرات الثابتة!")
     return redirect("/formation")
 
@@ -217,6 +233,9 @@ def save_preset():
     positions = None
     if isinstance(player_team.formation_data, dict) and player_team.formation_data:
         positions = player_team.formation_data
+    if not positions:
+        flash("احفظ التشكيلة على اللوحة أولاً قبل حفظها كخطة!")
+        return redirect("/formation")
     existing = TacticPreset.query.filter_by(
         team_id=player_team.id, name=name
     ).first()
@@ -225,7 +244,12 @@ def save_preset():
         existing.formation_data = positions
         existing.pressing_style = player_team.pressing_style or "normal"
         existing.match_tactic = player_team.match_tactic or "balanced"
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            flash("فشل في تحديث الخطة!")
+            return redirect("/formation")
         flash(f"تم تحديث الخطة «{existing.name}»!")
         return redirect("/formation")
     preset = TacticPreset(
@@ -237,7 +261,12 @@ def save_preset():
         match_tactic=player_team.match_tactic or "balanced",
     )
     db.session.add(preset)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("فشل في حفظ الخطة!")
+        return redirect("/formation")
     flash(f"تم حفظ الخطة «{preset.name}»!")
     return redirect("/formation")
 
@@ -256,9 +285,17 @@ def load_preset(preset_id):
             flash(f"لا يمكن تطبيق الخطة: {error}")
             return redirect("/formation")
         apply_formation(player_team, preset.formation_data)
+    else:
+        flash("الخطة المحفوظة لا تحتوي على تشكيلة صالحة!")
+        return redirect("/formation")
     player_team.pressing_style = preset.pressing_style or "normal"
     player_team.match_tactic = preset.match_tactic or "balanced"
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("فشل في تطبيق الخطة!")
+        return redirect("/formation")
     flash(f"تم تطبيق الخطة «{preset.name}»!")
     return redirect("/formation")
 
@@ -288,6 +325,15 @@ def mentoring_add():
     if not mentor or not mentee or mentor.team_id != player_team.id or mentee.team_id != player_team.id:
         flash("اللاعبان غير صالحين!")
         return redirect("/squad")
+    if mentor_id == mentee_id:
+        flash("لا يمكن للاعب أن يوجّه نفسه!")
+        return redirect("/squad")
+    if (mentor.age or 0) < 28 or (mentee.age or 0) > 24:
+        flash("التوجيه يتطلب مرشداً مخضرماً (28+) وشاباً (24 أو أقل)!")
+        return redirect("/squad")
+    if (mentor.age or 0) <= (mentee.age or 0):
+        flash("يجب أن يكون المرشد أكبر سناً من اللاعب الشاب!")
+        return redirect("/squad")
 
     exists = Mentoring.query.filter_by(team_id=player_team.id, mentee_id=mentee_id).first()
     if exists:
@@ -300,7 +346,12 @@ def mentoring_add():
         mentee_id=mentee_id,
         started_day=(state.current_day if state and state.current_day else 0),
     ))
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("فشل في بدء علاقة التوجيه!")
+        return redirect("/squad")
     flash(f"أصبح {mentor.name} مرشداً لـ {mentee.name}!")
     return redirect("/squad")
 
@@ -309,10 +360,19 @@ def mentoring_add():
 def mentoring_remove(mentoring_id):
     from models import Mentoring
 
+    player_team = safe_player_team()
     m = db.session.get(Mentoring, mentoring_id)
     if m:
+        if m.team_id != player_team.id:
+            flash("لا يمكنك إنهاء توجيه فريق آخر!")
+            return redirect("/squad")
         db.session.delete(m)
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            flash("فشل في إنهاء علاقة التوجيه!")
+            return redirect("/squad")
         flash("تم إنهاء علاقة التوجيه!")
     return redirect("/squad")
 
@@ -330,7 +390,16 @@ def swap_offer(target_id):
     cash = request.form.get("cash", type=float) or 0.0
     cash = max(0.0, cash)
     ok, message = run_swap(player_team, target, offered, cash, state.current_day)
-    db.session.commit()
+    if not ok:
+        db.session.rollback()
+        flash(message)
+        return redirect("/scouting")
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("حدث خطأ أثناء المبادلة!")
+        return redirect("/scouting")
     flash(message)
     return redirect("/scouting")
 
@@ -361,7 +430,11 @@ def save_role():
         fd[pid] = {"x": 50, "y": 50, "role": role}
     player_team.formation_data = fd
     flag_modified(player_team, "formation_data")
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({"success": False, "message": "فشل في حفظ الدور!"}), 500
     return jsonify({"success": True, "role": role, "player_id": player_id})
 
 
@@ -531,9 +604,17 @@ def hire_staff(staff_id):
 
     s = db.session.get(Staff, staff_id)
     ok, message = hire_staff_member(player_team, s)
+    if not ok:
+        db.session.rollback()
+        flash(message)
+        return redirect("/staff")
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("حدث خطأ أثناء التعيين!")
+        return redirect("/staff")
     flash(message)
-
-    db.session.commit()
     return redirect("/staff")
 
 
@@ -544,9 +625,17 @@ def fire_staff(staff_id):
 
     s = db.session.get(Staff, staff_id)
     ok, message = fire_staff_member(player_team, s)
+    if not ok:
+        db.session.rollback()
+        flash(message)
+        return redirect("/staff")
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("حدث خطأ أثناء الإقالة!")
+        return redirect("/staff")
     flash(message)
-
-    db.session.commit()
     return redirect("/staff")
 
 
@@ -554,9 +643,17 @@ def fire_staff(staff_id):
 def generate_staff():
     state = safe_state()
     ok, message = generate_staff_pool()
+    if not ok:
+        db.session.rollback()
+        flash(message)
+        return redirect("/staff")
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("حدث خطأ أثناء توليد الطاقم!")
+        return redirect("/staff")
     flash(message)
-
-    db.session.commit()
     return redirect("/staff")
 
 
@@ -608,7 +705,12 @@ def upgrade_facility(facility_type):
         flash("نوع المرفق غير صالح!")
         return redirect("/facilities")
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("حدث خطأ أثناء الترقية!")
+        return redirect("/facilities")
     return redirect("/facilities")
 
 
@@ -640,11 +742,15 @@ def scouting():
     other_players = (
         Player.query.filter(Player.team_id != player_team.id)
         .order_by(Player.market_value.desc())
+        .limit(100)
         .all()
     )
-    free_agents = Player.query.filter_by(team_id=None).order_by(
-        Player.market_value.desc()
-    ).all()
+    free_agents = (
+        Player.query.filter_by(team_id=None)
+        .order_by(Player.market_value.desc())
+        .limit(100)
+        .all()
+    )
 
     scouts = Staff.query.filter_by(team_id=player_team.id, role="scout").all()
     squad = Player.query.filter_by(team_id=player_team.id).all()
@@ -672,8 +778,17 @@ def scout_assign(staff_id):
     staff = db.session.get(Staff, staff_id)
     region = request.form.get("region", "Europe")
     ok, message = assign_scout_to_region(player_team, staff, region)
+    if not ok:
+        db.session.rollback()
+        flash(message)
+        return redirect("/scouting")
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("حدث خطأ أثناء تعيين الكشاف!")
+        return redirect("/scouting")
     flash(message)
-    db.session.commit()
     return redirect("/scouting")
 
 
@@ -683,7 +798,12 @@ def scout_unassign(staff_id):
     staff = db.session.get(Staff, staff_id)
     if staff and staff.team_id == player_team.id:
         unassign_scout(staff)
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            flash("حدث خطأ أثناء إلغاء المهمة!")
+            return redirect("/scouting")
         flash("تم إلغاء المهمة!")
     return redirect("/scouting")
 
@@ -697,6 +817,10 @@ def buy_player(player_id):
     sell_on = request.form.get("sell_on", type=float) or 0.0
     sell_on = max(0.0, min(0.3, sell_on))
     ok, message = purchase_player(player_team, target, state.current_day, sell_on)
+    if not ok:
+        db.session.rollback()
+        flash(message)
+        return redirect("/scouting")
 
     try:
         db.session.commit()

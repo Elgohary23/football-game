@@ -19,6 +19,14 @@ def _league_id(player_team, fallback=None):
     return player_team.league_id if player_team else None
 
 
+def _teams_dict(league_id):
+    """Only the clubs actually referenced on the page (league scope)."""
+    if league_id is None:
+        return {}
+    teams = Team.query.filter_by(league_id=league_id).all()
+    return {t.id: t.name for t in teams}
+
+
 @bp.route("/stats")
 def stats_center():
     state = safe_state()
@@ -27,9 +35,12 @@ def stats_center():
     leagues = League.query.order_by(League.tier).all()
     league_id = request.args.get("league_id", type=int) or _league_id(player_team)
     selected_league = _selected_league(league_id)
+    if league_id and selected_league is None:
+        league_id = _league_id(player_team)
+        selected_league = _selected_league(league_id)
     top_scorers = get_top_scorers(league_id) if league_id else []
     top_assists = get_top_assists(league_id) if league_id else []
-    teams_dict = {t.id: t.name for t in Team.query.all()}
+    teams_dict = _teams_dict(league_id)
 
     return render_template(
         "stats.html",
@@ -51,8 +62,11 @@ def top_scorers():
 
     leagues = League.query.order_by(League.tier).all()
     selected_league = _selected_league(league_id)
+    if league_id and selected_league is None:
+        league_id = _league_id(player_team)
+        selected_league = _selected_league(league_id)
     scorers = get_top_scorers(league_id) if league_id else []
-    teams_dict = {t.id: t.name for t in Team.query.all()}
+    teams_dict = _teams_dict(league_id)
 
     return render_template(
         "top_scorers.html",
@@ -73,8 +87,11 @@ def top_assists():
 
     leagues = League.query.order_by(League.tier).all()
     selected_league = _selected_league(league_id)
+    if league_id and selected_league is None:
+        league_id = _league_id(player_team)
+        selected_league = _selected_league(league_id)
     assists = get_top_assists(league_id) if league_id else []
-    teams_dict = {t.id: t.name for t in Team.query.all()}
+    teams_dict = _teams_dict(league_id)
 
     return render_template(
         "top_assists.html",

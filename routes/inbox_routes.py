@@ -19,16 +19,19 @@ def messages():
     except Exception:
         pass
 
-    msgs = Message.query.order_by(Message.created_day.desc()).all()
-    offers = (
-        TransferOffer.query.filter(
-            (TransferOffer.status == "pending")
-            & (
-                (TransferOffer.from_team_id == (player_team.id if player_team else 0))
-                | (TransferOffer.to_team_id == (player_team.id if player_team else 0))
-            )
-        ).all()
-    )
+    msgs = Message.query.order_by(Message.created_day.desc()).limit(200).all()
+    if player_team is None:
+        offers = []
+    else:
+        offers = (
+            TransferOffer.query.filter(
+                (TransferOffer.status == "pending")
+                & (
+                    (TransferOffer.from_team_id == player_team.id)
+                    | (TransferOffer.to_team_id == player_team.id)
+                )
+            ).all()
+        )
 
     first_msg = msgs[0] if msgs else None
 
@@ -46,7 +49,10 @@ def messages():
 def inbox_unread():
     try:
         unread = get_unread_count()
-    except Exception:
+    except Exception as exc:
+        import logging
+
+        logging.getLogger(__name__).exception("inbox_unread failed: %s", exc)
         unread = 0
     return jsonify({"unread": unread})
 
@@ -77,6 +83,10 @@ def message_read(message_id):
 @bp.route("/transfer_offer/<int:offer_id>/accept", methods=["POST"])
 def accept_transfer(offer_id):
     ok, message = process_offer_accept(offer_id)
+    if not ok:
+        db.session.rollback()
+        flash(message)
+        return redirect("/messages")
     try:
         db.session.commit()
     except Exception:
@@ -90,6 +100,10 @@ def accept_transfer(offer_id):
 @bp.route("/transfer_offer/<int:offer_id>/reject", methods=["POST"])
 def reject_transfer(offer_id):
     ok, message = process_offer_reject(offer_id)
+    if not ok:
+        db.session.rollback()
+        flash(message)
+        return redirect("/messages")
     try:
         db.session.commit()
     except Exception:

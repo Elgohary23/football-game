@@ -61,13 +61,13 @@ def _player_xi_complete() -> bool:
     try:
         player_team = Team.query.filter_by(is_player_team=True).first()
         if not player_team:
-            return True
+            return False
         return (
             Player.query.filter_by(team_id=player_team.id, is_starting=True).count()
             >= 11
         )
     except Exception:
-        return True
+        return False
 
 
 def _play_or_start_match_day(state: GameState):
@@ -211,14 +211,19 @@ def standings():
         return redir
     state = safe_state()
     player_team = safe_player_team()
-    league_id = request.args.get("league_id", type=int) or (
+    requested_league = request.args.get("league_id", type=int)
+    league_id = requested_league or (
         player_team.league_id if player_team else None
     )
 
+    league = db.session.get(League, league_id) if league_id else None
+    if requested_league and league is None:
+        flash("الدوري المطلوب غير موجود! يتم عرض دوريك الحالي.")
+        league_id = player_team.league_id if player_team else None
+        league = db.session.get(League, league_id) if league_id else None
     league_table = get_league_table(league_id)
     team_rank = get_team_rank(league_id, player_team)
 
-    league = db.session.get(League, league_id) if league_id else None
     leagues = League.query.order_by(League.tier).all()
 
     return render_template(
@@ -242,7 +247,10 @@ def calendar():
     player_team = safe_player_team()
 
     player_matches = (
-        Match.query.filter(
+        Match.query.options(
+            db.joinedload(Match.home_team), db.joinedload(Match.away_team)
+        )
+        .filter(
             (Match.home_team_id == player_team.id)
             | (Match.away_team_id == player_team.id)
         )
@@ -456,6 +464,8 @@ def live_state(match_id):
         match = db.session.get(Match, match_id)
         if not match:
             return {"error": "not found"}, 404
+        if not _involves_player(match) and not match.played:
+            return {"error": "unauthorized"}, 403
         return live_state_payload(match)
     except Exception:
         return {"error": "could not load live state"}, 500
@@ -535,8 +545,12 @@ def live_finish(match_id):
             try:
                 from simulation import update_manager_record
                 update_manager_record(match, state)
-            except Exception:
-                pass
+            except Exception as exc:
+                import logging
+
+                logging.getLogger(__name__).exception(
+                    "update_manager_record failed for match %s: %s", match.id, exc
+                )
             others_played = finish_match_week(match)
             advance_week_if_complete(match)
             if state.current_week >= get_season_rounds(state.user_league_id):
@@ -622,13 +636,8 @@ def simulate_to_date():
 
     try:
         db.session.commit()
-        raw_conn = db.engine.raw_connection()
-        cursor = raw_conn.cursor()
-        cursor.execute("PRAGMA synchronous = OFF;")
-        cursor.execute("PRAGMA journal_mode = MEMORY;")
-        cursor.close()
     except Exception:
-        pass
+        db.session.rollback()
 
     matches_played = 0
     if days_to_sim > 0:
