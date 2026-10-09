@@ -266,8 +266,10 @@ document.addEventListener('DOMContentLoaded', function() {
             e.preventDefault();
             const playerId = this.dataset.id;
             fetch('/player_profile/' + playerId)
-                .then(r => r.json())
-                .then(data => {
+                .then(r => r.json().then(b => ({ ok: r.ok, body: b })))
+                .then(({ ok, body }) => {
+                    if (!ok || body.error) return;
+                    const data = body;
                     modalName.textContent = data.name + ' (' + data.position + ')';
                     modalStats.innerHTML = `
                         <div class="modal-stat"><span class="modal-stat-label">العمر</span><span class="modal-stat-value">${data.age}</span></div>

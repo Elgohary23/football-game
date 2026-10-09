@@ -66,7 +66,7 @@ def squad():
     )
 
 
-@bp.route("/toggle_starter/<int:player_id>", methods=["GET", "POST"])
+@bp.route("/toggle_starter/<int:player_id>", methods=["POST"])
 def toggle_starter(player_id):
     player = db.session.get(Player, player_id)
     player_team = safe_player_team()

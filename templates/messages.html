@@ -74,13 +74,15 @@ document.addEventListener('DOMContentLoaded', function() {
             this.classList.add('active');
             const id = this.dataset.id;
             fetch('/inbox_api/' + id)
-                .then(r => r.json())
-                .then(data => {
+                .then(r => r.json().then(b => ({ ok: r.ok, body: b })))
+                .then(({ ok, body }) => {
+                    if (!ok || body.error) return;
                     this.classList.remove('unread');
-                    pane.innerHTML = '<div class="msg-title">' + data.title + '</div>' +
-                        '<div class="msg-meta">اليوم ' + data.created_day + (data.urgent ? ' • <span style="color:#e94560;">عاجل</span>' : '') + ' • ' + data.type + '</div>' +
-                        '<div class="msg-body">' + data.content + '</div>';
-                });
+                    pane.innerHTML = '<div class="msg-title">' + body.title + '</div>' +
+                        '<div class="msg-meta">اليوم ' + body.created_day + (body.urgent ? ' • <span style="color:#e94560;">عاجل</span>' : '') + ' • ' + body.type + '</div>' +
+                        '<div class="msg-body">' + body.content + '</div>';
+                })
+                .catch(function() {});
         });
     });
 });

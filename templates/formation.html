@@ -369,7 +369,14 @@ document.addEventListener('DOMContentLoaded', function() {
         return html;
     }
 
-    // Role change → POST to server (delegated so re-renders keep working)
+    // Role change → POST to server (delegated so re-renders keep working).
+    // The select-click stopPropagation is registered once here, not per
+    // change, so re-renders don't stack duplicate listeners.
+    pitchGrid.addEventListener('click', function(e) {
+        if (e.target && e.target.classList && e.target.classList.contains('role-select')) {
+            e.stopPropagation();
+        }
+    });
     pitchGrid.addEventListener('change', function(e) {
         const sel = e.target;
         if (!sel || !sel.classList || !sel.classList.contains('role-select')) return;
@@ -383,7 +390,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }).then(r => r.json()).then(function(d) {
             if (d.success) { sel.style.borderColor = '#2ecc71'; }
         }).catch(function() {});
-        sel.addEventListener('click', function(stop) { stop.stopPropagation(); });
     });
 
     function removeFromPitch(playerId) {

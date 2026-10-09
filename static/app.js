@@ -147,8 +147,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (document.getElementById('aPossBar')) document.getElementById('aPossBar').style.width = (100 - (data.home_possession || 0)) + '%';
         if (document.getElementById('liveHomeXg')) document.getElementById('liveHomeXg').textContent = data.home_xg;
         if (document.getElementById('liveAwayXg')) document.getElementById('liveAwayXg').textContent = data.away_xg;
-        if (document.getElementById('liveHomeShots')) document.getElementById('liveHomeShots').textContent = (data.home_shots || 0) + ' (' + '0)';
-        if (document.getElementById('liveAwayShots')) document.getElementById('liveAwayShots').textContent = (data.away_shots || 0) + ' (' + '0)';
+        if (document.getElementById('liveHomeShots')) document.getElementById('liveHomeShots').textContent = (data.home_shots || 0) + ' (' + (data.home_sot || 0) + ')';
+        if (document.getElementById('liveAwayShots')) document.getElementById('liveAwayShots').textContent = (data.away_shots || 0) + ' (' + (data.away_sot || 0) + ')';
         if (document.getElementById('liveHomeCards')) document.getElementById('liveHomeCards').textContent = (data.home_yellows || 0) + ' ' + (data.home_reds || 0);
         if (document.getElementById('liveAwayCards')) document.getElementById('liveAwayCards').textContent = (data.away_yellows || 0) + ' ' + (data.away_reds || 0);
 

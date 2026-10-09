@@ -472,6 +472,18 @@ class TestRoutes:
         r = client.post(f"/toggle_starter/{pid}")
         assert r.status_code == 400
 
+    def test_toggle_starter_get_rejected(self, client):
+        # Mutations are POST-only: a GET must not toggle and must not
+        # return a JSON success body (405, JSON for XHR callers).
+        with client.application.app_context():
+            team = _player_team()
+            pid = team.players[0].id
+        r = client.get(
+            f"/toggle_starter/{pid}", headers={"X-Requested-With": "XMLHttpRequest"}
+        )
+        assert r.status_code == 405
+        assert r.get_json()["error"] == "method not allowed"
+
     def test_save_formation_valid(self, client):
         with client.application.app_context():
             team = _player_team()
@@ -485,6 +497,16 @@ class TestRoutes:
     def test_save_formation_invalid(self, client):
         r = client.post("/formation/save", json={})
         assert r.status_code == 400
+
+    def test_live_payload_exposes_sot(self, ctx):
+        # Live UI renders shots as "total (on target)"; the payload must
+        # carry the on-target counts the engine already tracks.
+        from live_match import live_state_payload
+
+        match = Match.query.filter_by(played=False).first()
+        payload = live_state_payload(match)
+        assert payload["home_sot"] == 0
+        assert payload["away_sot"] == 0
 
     def test_advance_day(self, client):
         with client.application.app_context():

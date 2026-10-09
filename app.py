@@ -67,6 +67,16 @@ def create_app() -> Flask:
 
     @app.errorhandler(405)
     def method_not_allowed(e):
+        # Same JSON-vs-redirect split as the 404 handler: a wrong-method
+        # fetch() gets JSON it can parse instead of an HTML redirect.
+        wants_json = (
+            (request.path or "").startswith(("/static/", "/live/", "/inbox", "/api/"))
+            or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+            or request.accept_mimetypes.best == "application/json"
+            or "application/json" in (request.headers.get("Accept") or "")
+        )
+        if wants_json:
+            return jsonify({"error": "method not allowed"}), 405
         flash("حدث خطأ في الطلب، تم إعادتك للرئيسية.")
         return redirect("/")
 

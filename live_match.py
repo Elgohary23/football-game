@@ -951,6 +951,8 @@ def live_state_payload(match: Match) -> dict:
         "away_xg": round(away_xp.get("xg", 0.0), 2),
         "home_shots": home_xp.get("shots", 0),
         "away_shots": away_xp.get("shots", 0),
+        "home_sot": home_xp.get("sot", 0),
+        "away_sot": away_xp.get("sot", 0),
         "home_yellows": home_xp.get("yellows", 0),
         "away_yellows": away_xp.get("yellows", 0),
         "home_reds": home_xp.get("reds", 0),
