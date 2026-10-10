@@ -19,6 +19,8 @@ from flask import abort, current_app, session
 from config import (
     DB_FILENAME,
     DEFAULT_BUDGET,
+    BUDGET_JITTER,
+    BUDGET_REPUTATION_STEP,
     LOG_FILE,
     LOG_FORMAT,
     MAX_FACILITY_LEVEL,
@@ -259,6 +261,26 @@ def get_budget_for_tier(tier: int | None) -> int:
     except (TypeError, ValueError):
         tier_key = 0
     return TIER_BUDGETS.get(tier_key, DEFAULT_BUDGET)
+
+
+def calculate_club_budget(tier: int | None, reputation: int | None,
+                          league_reputation: int | None) -> int:
+    """Starting budget for one club: tier base + reputation spread + jitter.
+
+    The old template gave every club in a division the identical flat tier
+    base. This keeps the tier base (divisions stay ordered) but differentiates
+    clubs: each reputation point above/below the league's base reputation
+    shifts the budget by ``BUDGET_REPUTATION_STEP``, with a small random
+    jitter on top. Used by the template build; team selection keeps the
+    stored value so the variation survives into saves.
+    """
+    base = get_budget_for_tier(tier)
+    try:
+        diff = int(reputation or 0) - int(league_reputation or 0)
+    except (TypeError, ValueError):
+        diff = 0
+    jitter = random.uniform(1 - BUDGET_JITTER, 1 + BUDGET_JITTER)
+    return max(0, int((base + diff * BUDGET_REPUTATION_STEP) * jitter))
 
 
 def calculate_team_tier(team_id: int) -> dict:
@@ -1099,11 +1121,12 @@ def _build_template_database() -> None:
     for league_name, team_names in ENGLISH_TEAMS.items():
         league = leagues_dict[league_name]
         for team_name in team_names:
+            reputation = league.reputation + random.randint(-5, 5)
             team = Team(
                 name=team_name,
                 morale=random.randint(60, 80),
-                budget=get_budget_for_tier(league.tier),
-                reputation=league.reputation + random.randint(-5, 5),
+                budget=calculate_club_budget(league.tier, reputation, league.reputation),
+                reputation=reputation,
                 is_player_team=False,
                 league_id=league.id,
                 training_facilities=random.randint(1, 5),

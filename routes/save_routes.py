@@ -192,10 +192,10 @@ def select_team(slot_id, league_id):
                 "rating": tier_data["rating"],
                 "attack": tier_data["attack"],
                 "defense": tier_data["defense"],
-                # Show the budget the manager will ACTUALLY get: manager_form
-                # overwrites team.budget via get_budget_for_tier(), so the
-                # stored value on an unpicked template club would mislead.
-                "budget": get_budget_for_tier(league.tier),
+                # Show the club's actual stored budget: the template builds
+                # tier-based budgets with per-club variation, so the stored
+                # value is what the manager will get.
+                "budget": team.budget,
             }
         )
 
@@ -295,10 +295,12 @@ def manager_form(slot_id, team_id):
     team.is_player_team = True
     db.session.flush()
 
-    # Budget follows the club's league tier, so picking a Premier League
-    # club vs a League Two club gives the correct starting funds even if
-    # the save was created from an older template with stale budgets.
-    team.budget = get_budget_for_tier(team.league.tier if team.league else None)
+    # Budget follows the club: the template builds tier-based budgets with
+    # per-club variation, so keep the stored value. Only saves created from
+    # a stale pre-variation template (flat/zero budgets) fall back to the
+    # flat tier base.
+    if not team.budget or team.budget <= 0:
+        team.budget = get_budget_for_tier(team.league.tier if team.league else None)
 
     state = GameState.query.first()
     if state:

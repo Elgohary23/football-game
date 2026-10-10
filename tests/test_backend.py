@@ -330,6 +330,21 @@ class TestServices:
         assert get_budget_for_tier(999) == DEFAULT_BUDGET
         assert get_budget_for_tier(None) == DEFAULT_BUDGET
 
+    def test_club_budget_varies_with_reputation(self, ctx):
+        from config import BUDGET_JITTER, BUDGET_REPUTATION_STEP, TIER_BUDGETS
+        from services import calculate_club_budget
+
+        base = TIER_BUDGETS[1]
+        low = calculate_club_budget(1, 85, 90)
+        high = calculate_club_budget(1, 95, 90)
+        # Reputation spread must differentiate clubs of the same tier...
+        assert high - low >= 2 * BUDGET_REPUTATION_STEP - base * BUDGET_JITTER * 4
+        # ...while staying near the tier base (divisions stay ordered).
+        for value in (low, high, calculate_club_budget(1, 90, 90)):
+            assert base * 0.5 < value < base * 1.5
+        # Unknown tier falls back to the default budget base.
+        assert calculate_club_budget(999, 50, 50) > 0
+
     def test_validate_formation(self, ctx):
         from services import validate_formation
 

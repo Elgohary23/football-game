@@ -28,6 +28,12 @@ TIER_BUDGETS = {
 }
 TRAINING_COST_PER_LEVEL = 200_000
 YOUTH_COST_PER_LEVEL = 150_000
+# Per-club budget variation around the tier base: each reputation point
+# above/below the league's base reputation shifts the starting budget by
+# this step, plus a small random jitter (fraction). Keeps clubs in the
+# same division distinct while tier bases keep divisions ordered.
+BUDGET_REPUTATION_STEP = 100_000
+BUDGET_JITTER = 0.05
 MAX_FACILITY_LEVEL = 10
 STAFF_FIRE_COMPENSATION_RATIO = 0.3
 STAFF_MARKET_POOL_LIMIT = 8
@@ -92,7 +98,7 @@ REPUTATION_TOLERANCE = 10
 OLD_DATA_KEEP_PLAYED_MATCHES = 150
 
 # --- Schema migration guard ---
-TEMPLATE_SCHEMA_VERSION = 4  # bump to force a template.db rebuild
+TEMPLATE_SCHEMA_VERSION = 5  # bump to force a template.db rebuild
 
 # --- Advanced tactics (FM features) ---
 PRESSING_STYLES = ("low", "normal", "high")
