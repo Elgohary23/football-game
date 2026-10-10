@@ -17,21 +17,49 @@ from functools import lru_cache
 from flask import abort, current_app, session
 
 from config import (
+    AGENT_FEE_RATIO,
+    AGENT_FEE_STAR_RATIO,
+    AGENT_FEE_STAR_THRESHOLD,
+    BUY_BACK_PRICE_CAP_MULT,
+    CONTRACT_DAYS_PER_YEAR,
+    CONTRACT_MAX_YEARS,
+    CONTRACT_MIN_YEARS,
+    COUNTER_OFFER_STEP,
     DB_FILENAME,
     DEFAULT_BUDGET,
     BUDGET_JITTER,
     BUDGET_REPUTATION_STEP,
+    FFP_BASE_ALLOWANCE,
+    FFP_SPEND_RATIO,
+    FIRST_REFUSAL_NOTICE_DAYS,
+    FREE_AGENT_SIGN_FEE_RATIO,
+    INSTALLMENT_INTERVAL_DAYS,
+    INSTALLMENTS_MAX,
+    LOAN_FEE_RATIO,
+    LOAN_MAX_DAYS,
+    LOAN_MIN_DAYS,
     LOG_FILE,
     LOG_FORMAT,
+    MARKET_VALUE_MIN,
     MAX_FACILITY_LEVEL,
     MAX_SAVE_SLOTS,
+    OFFER_MAX_ROUNDS,
+    PERF_BONUS_MAX_RATIO,
+    PLAYER_PREF_REPUTATION_GAP,
+    PRECONTRACT_DAYS,
     PROMOTION_BONUS_PER_TIER,
+    RELEASE_CLAUSE_DEFAULT_MULT,
+    RELEASE_CLAUSE_MIN_MULT,
     RIVALS,
+    RIVAL_BID_CHANCE,
+    RIVAL_REPUTATION_GAP,
     SCOUT_KNOWLEDGE_GAIN,
     SCOUT_KNOWLEDGE_THRESHOLD,
     SCOUT_REGIONS,
     SELL_ON_CLAUSE_DISCOUNT_RATIO,
+    SELL_ON_CLAUSE_MAX,
     SELL_ON_CLAUSE_RANGE,
+    SIGNING_BONUS_MAX_RATIO,
     STAFF_FIRE_COMPENSATION_RATIO,
     STAFF_MARKET_POOL_LIMIT,
     STARTERS_LIMIT,
@@ -40,10 +68,28 @@ from config import (
     TIER_BUDGETS,
     TOP_LEAGUE_ROUNDS,
     TRAINING_COST_PER_LEVEL,
+    TRANSFER_DEADLINE_DAYS,
+    TRANSFER_DEADLINE_EXPIRY_DAYS,
+    TRANSFER_DEADLINE_SURGE,
+    TRANSFER_LIST_DISCOUNT,
+    TRANSFER_REQUEST_MORALE_LOSS,
+    TRANSFER_WINDOW_SUMMER_MONTHS,
+    TRANSFER_WINDOW_WINTER_MONTHS,
+    VALUATION_ASSIST_WEIGHT,
+    VALUATION_GOAL_WEIGHT,
+    VALUATION_MORALE_BONUS_STEP,
+    VALUATION_VETERAN_MALUS,
+    VALUATION_YOUTH_BONUS,
+    WAGE_YEARLY_MAX_RATIO,
+    WAGE_YEARLY_MIN_RATIO,
     YOUTH_COST_PER_LEVEL,
 )
 from models import (
     db,
+    BuyBackClause,
+    FirstRefusalClause,
+    InstallmentDebt,
+    PerformanceBonus,
     Team,
     Player,
     GameState,
@@ -142,6 +188,63 @@ def ensure_indexes() -> None:
             db.session.execute(sql_text(stmt))
         except Exception:
             logger.debug("Skipping index: %s", stmt)
+    try:
+        db.session.commit()
+    except Exception:
+        pass
+    _ensure_transfer_columns()
+
+
+def _ensure_transfer_columns() -> None:
+    """ALTER old save files forward: ``create_all`` adds tables but never
+    new columns, so pre-v6 saves would miss the transfer-system fields.
+    Each ALTER is best-effort — missing tables / existing columns just skip."""
+    from sqlalchemy import text as sql_text
+
+    alters = [
+        # Player contracts / loans / list flags
+        ("player", "wage", "INTEGER DEFAULT 0"),
+        ("player", "contract_days", "INTEGER DEFAULT 730"),
+        ("player", "signing_bonus", "INTEGER DEFAULT 0"),
+        ("player", "release_clause", "INTEGER"),
+        ("player", "transfer_listed", "BOOLEAN DEFAULT 0"),
+        ("player", "transfer_requested", "BOOLEAN DEFAULT 0"),
+        ("player", "loan_from_team_id", "INTEGER"),
+        ("player", "loan_to_team_id", "INTEGER"),
+        ("player", "loan_until_day", "INTEGER"),
+        ("player", "loan_fee", "INTEGER DEFAULT 0"),
+        ("player", "loan_buy_option", "INTEGER"),
+        # Team FFP ledgers
+        ("team", "season_spend", "INTEGER DEFAULT 0"),
+        ("team", "season_income", "INTEGER DEFAULT 0"),
+        # TransferOffer rounds / terms / clauses / loans / precontracts
+        ("transfer_offer", "offer_round", "INTEGER DEFAULT 1"),
+        ("transfer_offer", "counter_amount", "INTEGER"),
+        ("transfer_offer", "wage_offer", "INTEGER DEFAULT 0"),
+        ("transfer_offer", "contract_years", "INTEGER DEFAULT 3"),
+        ("transfer_offer", "signing_bonus", "INTEGER DEFAULT 0"),
+        ("transfer_offer", "agent_fee", "INTEGER DEFAULT 0"),
+        ("transfer_offer", "installments", "INTEGER DEFAULT 1"),
+        ("transfer_offer", "upfront_amount", "INTEGER"),
+        ("transfer_offer", "buy_back_price", "INTEGER"),
+        ("transfer_offer", "first_refusal", "BOOLEAN DEFAULT 0"),
+        ("transfer_offer", "performance_bonus", "INTEGER DEFAULT 0"),
+        ("transfer_offer", "performance_target", "INTEGER DEFAULT 0"),
+        ("transfer_offer", "performance_paid", "BOOLEAN DEFAULT 0"),
+        ("transfer_offer", "is_loan", "BOOLEAN DEFAULT 0"),
+        ("transfer_offer", "loan_days", "INTEGER"),
+        ("transfer_offer", "loan_fee", "INTEGER DEFAULT 0"),
+        ("transfer_offer", "buy_option", "INTEGER"),
+        ("transfer_offer", "is_precontract", "BOOLEAN DEFAULT 0"),
+        ("transfer_offer", "effective_day", "INTEGER"),
+        # GameState window override
+        ("game_state", "transfer_window_override", "VARCHAR(10)"),
+    ]
+    for table, column, ddl in alters:
+        try:
+            db.session.execute(sql_text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+        except Exception:
+            db.session.rollback()
     try:
         db.session.commit()
     except Exception:
@@ -491,11 +594,154 @@ def fire_staff_member(player_team: Team, staff: Staff) -> tuple[bool, str]:
 # --------------------------------------------------------------------------
 # Transfers (authorization enforced, Tip 28)
 # --------------------------------------------------------------------------
+def transfer_window_state(state: GameState | None = None) -> str:
+    """Phase 1 (item 6): 'open' or 'closed'.
+
+    Manual override wins; otherwise derived from the calendar date
+    (summer Jun-Aug, winter Jan). Unparseable/missing date defaults to
+    open so tests and fresh saves never lock the market by accident.
+    """
+    state = state or GameState.query.first()
+    override = (getattr(state, "transfer_window_override", None) or "").strip().lower() if state else ""
+    if override in ("open", "closed"):
+        return override
+    date_str = getattr(state, "current_date", None) if state else None
+    try:
+        month = datetime.strptime(date_str, "%Y-%m-%d").month if date_str else 0
+    except Exception:
+        return "open"
+    if month in TRANSFER_WINDOW_SUMMER_MONTHS or month in TRANSFER_WINDOW_WINTER_MONTHS:
+        return "open"
+    return "closed"
+
+
+def is_deadline_day(state: GameState | None = None) -> bool:
+    """Phase 1 (item 7): last days of a window — auctions, fast decisions."""
+    state = state or GameState.query.first()
+    if transfer_window_state(state) != "open":
+        return False
+    date_str = getattr(state, "current_date", None) if state else None
+    try:
+        from datetime import date as _date
+        d = datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else None
+    except Exception:
+        return False
+    if not d:
+        return False
+    if d.month == 8 and d.day > 31 - TRANSFER_DEADLINE_DAYS:
+        return True
+    if d.month == 1 and d.day > 31 - TRANSFER_DEADLINE_DAYS:
+        return True
+    return False
+
+
+def set_transfer_window(state: GameState, mode: str) -> str:
+    """Force the window 'open' / 'closed', or 'auto' to follow the calendar."""
+    mode = (mode or "").strip().lower()
+    if mode == "auto":
+        state.transfer_window_override = None
+    elif mode in ("open", "closed"):
+        state.transfer_window_override = mode
+    else:
+        return "وضع غير صالح! استخدم open أو closed أو auto"
+    return f"نافذة الانتقالات: {'تلقائي' if mode == 'auto' else ('مفتوحة' if mode == 'open' else 'مغلقة')}"
+
+
+def get_transfer_status(state: GameState | None = None) -> dict:
+    state = state or GameState.query.first()
+    window = transfer_window_state(state)
+    return {
+        "window": window,
+        "window_open": window == "open",
+        "deadline": is_deadline_day(state),
+    }
+
+
+def get_player_valuation(player: Player) -> int:
+    """Phase 4 (item 20): clubs price form, age and morale — not a fixed number."""
+    base = player.market_value or MARKET_VALUE_MIN
+    value = float(base)
+    value += (player.goals or 0) * VALUATION_GOAL_WEIGHT
+    value += (player.assists or 0) * VALUATION_ASSIST_WEIGHT
+    age = player.age or 24
+    if age <= 23:
+        value *= VALUATION_YOUTH_BONUS
+    elif age >= 32:
+        value *= VALUATION_VETERAN_MALUS
+    morale = player.morale or 50
+    if morale > 60:
+        value += ((morale - 60) // 20) * VALUATION_MORALE_BONUS_STEP
+    if player.transfer_listed:
+        value *= TRANSFER_LIST_DISCOUNT
+    return max(MARKET_VALUE_MIN, int(value))
+
+
+def calc_agent_fee(amount: int, player: Player | None = None) -> int:
+    """Phase 4 (item 17): the agent's cut, paid by the buyer on top."""
+    value = (player.market_value if player and player.market_value else 0) or amount or 0
+    ratio = AGENT_FEE_STAR_RATIO if value >= AGENT_FEE_STAR_THRESHOLD else AGENT_FEE_RATIO
+    return max(0, int((amount or 0) * ratio))
+
+
+def ffp_check(team: Team, extra_spend: int = 0) -> tuple[bool, str]:
+    """Phase 5 (item 23): spending capped by income (financial fair play)."""
+    allowed = (team.season_income or 0) + FFP_BASE_ALLOWANCE
+    projected = (team.season_spend or 0) + (extra_spend or 0)
+    if projected * FFP_SPEND_RATIO > allowed:
+        return False, (
+            f"الرقابة المالية (FFP) تمنع الصفقة! إنفاقك الموسمي {projected:,}$ "
+            f"يتجاوز المسموح {int(allowed / (FFP_SPEND_RATIO or 1)):,}$"
+        )
+    return True, ""
+
+
+def _record_spend(team: Team, amount: int) -> None:
+    team.season_spend = (team.season_spend or 0) + max(0, amount or 0)
+
+
+def _record_income(team: Team, amount: int) -> None:
+    team.season_income = (team.season_income or 0) + max(0, amount or 0)
+
+
+def _apply_contract(
+    player: Player,
+    wage: int = 0,
+    years: int = 3,
+    signing_bonus: int = 0,
+    release_clause: int | None = None,
+) -> None:
+    """Phase 2 (items 1-3): wage talks, duration, signing bonus, release clause."""
+    years = max(CONTRACT_MIN_YEARS, min(CONTRACT_MAX_YEARS, int(years or 3)))
+    value = player.market_value or MARKET_VALUE_MIN
+    min_wage = int(value * WAGE_YEARLY_MIN_RATIO)
+    max_wage = int(value * WAGE_YEARLY_MAX_RATIO)
+    wage = max(0, int(wage or min_wage))
+    wage = min(wage, max_wage * 3)  # superstar premium allowed, capped
+    player.wage = wage
+    player.contract_days = years * CONTRACT_DAYS_PER_YEAR
+    player.signing_bonus = max(0, int(signing_bonus or 0))
+    if release_clause:
+        floor = int(value * RELEASE_CLAUSE_MIN_MULT)
+        player.release_clause = max(floor, int(release_clause))
+    elif player.release_clause is None:
+        player.release_clause = int(value * RELEASE_CLAUSE_DEFAULT_MULT)
+
+
 def purchase_player(
     player_team: Team,
     target: Player,
     day: int,
     sell_on_clause: float = 0.0,
+    wage: int = 0,
+    years: int = 3,
+    signing_bonus: int = 0,
+    release_clause: int | None = None,
+    installments: int = 1,
+    buy_back_price: int | None = None,
+    first_refusal: bool = False,
+    performance_bonus: int = 0,
+    performance_target: int = 0,
+    use_release_clause: bool = False,
 ) -> tuple[bool, str]:
     if not target:
         return False, "اللاعب غير موجود!"
@@ -503,39 +749,118 @@ def purchase_player(
     if target.team_id == player_team.id:
         return False, "هذا اللاعب في فريقك بالفعل!"
 
+    # Phase 1 (item 6): no permanent deals outside the window — except
+    # free agents, who can be signed at any time (item 8).
+    if target.team_id is not None and transfer_window_state() == "closed":
+        return False, "نافذة الانتقالات مغلقة! الصفقات الدائمة متاحة فقط في الصيف والشتاء"
+
     # FM: rivalry rejection — loyal players refuse to betray their club.
     rival = RIVALS.get(target.team.name if target.team else "")
     if rival and rival == player_team.name and target.personality == "Loyal":
         return False, f"اللاعب {target.name} يرفض الانتقال إلى الغريم التقليدي {player_team.name}!"
 
-    value = target.market_value
-    if sell_on_clause:
-        value = int(value * (1.0 - SELL_ON_CLAUSE_DISCOUNT_RATIO * sell_on_clause))
+    # Phase 2 (item 3): triggering the release clause forces the sale.
+    if use_release_clause:
+        if not target.release_clause:
+            return False, "لا يوجد شرط جزائي في عقد اللاعب!"
+        value = int(target.release_clause)
+        sell_on_clause = 0.0
+    else:
+        value = target.market_value
+        if sell_on_clause:
+            value = int(value * (1.0 - SELL_ON_CLAUSE_DISCOUNT_RATIO * sell_on_clause))
 
-    if player_team.budget < value:
-        return False, f"الميزانية غير كافية! تحتاج {value:,} دولار ولديك {player_team.budget:,} دولار"
+    installments = max(1, min(INSTALLMENTS_MAX, int(installments or 1)))
+    agent_fee = calc_agent_fee(value, target)
+    signing_bonus = max(0, int(signing_bonus or 0))
+    max_bonus = int((target.market_value or 0) * SIGNING_BONUS_MAX_RATIO)
+    if signing_bonus > max_bonus:
+        return False, f"بونص التوقيع يتجاوز الحد ({max_bonus:,}$)!"
+    upfront = int(value / installments) if installments > 1 else value
+    total_now = upfront + agent_fee + signing_bonus
 
-    player_team.budget -= value
+    if player_team.budget < total_now:
+        return False, f"الميزانية غير كافية! تحتاج {total_now:,} دولار ولديك {player_team.budget:,} دولار"
+
+    ok, ffp_msg = ffp_check(player_team, total_now)
+    if not ok:
+        return False, ffp_msg
+
+    # Phase 5 (item 22): the player may snub you for a much bigger club
+    # that is also bidding — even if your bid is higher.
+    snub = _player_snub_check(target, player_team)
+    if snub:
+        return False, snub
+
+    player_team.budget -= total_now
+    _record_spend(player_team, total_now)
     old_club_id = target.team_id
     seller = db.session.get(Team, old_club_id) if old_club_id else None
     if seller is not None:
-        seller.budget = (seller.budget or 0) + value
+        seller.budget = (seller.budget or 0) + upfront
+        _record_income(seller, upfront)
+        # Phase 5 (item 13): first refusal — the old club hears first next time.
+        if first_refusal:
+            db.session.add(FirstRefusalClause(player_id=target.id, club_id=old_club_id))
+    else:
+        # Free agent: signing fee instead of a transfer fee.
+        from config import FREE_AGENT_SIGN_FEE_RATIO
+        fee = int((target.market_value or 0) * FREE_AGENT_SIGN_FEE_RATIO)
+        if player_team.budget < fee:
+            player_team.budget += total_now  # roll back the deduction
+            return False, f"رسوم توقيع الوكيل الحر {fee:,} تتجاوز ميزانيتك!"
+        player_team.budget -= fee
+        _record_spend(player_team, fee)
+    if installments > 1 and seller is not None:
+        _create_installments(target, player_team, seller, value - upfront, installments - 1, day)
     target.team_id = player_team.id
     target.is_starting = False
+    target.transfer_listed = False
+    target.transfer_requested = False
+    _apply_contract(target, wage=wage, years=years,
+                    signing_bonus=signing_bonus, release_clause=release_clause)
 
     # FM: sell-on clause keeps a cut for the selling club on future sales.
     if sell_on_clause and old_club_id:
         clause = SellOnClause(
             player_id=target.id,
             club_id=old_club_id,
-            percentage=min(0.3, max(0.0, sell_on_clause)),
+            percentage=min(SELL_ON_CLAUSE_MAX, max(0.0, sell_on_clause)),
         )
         db.session.add(clause)
+
+    # Phase 3 (item 12): buy-back — sell now, reclaim later at a fixed price.
+    if buy_back_price and old_club_id:
+        cap = int(value * BUY_BACK_PRICE_CAP_MULT)
+        if buy_back_price > cap:
+            db.session.rollback()
+            return False, f"سعر إعادة الشراء يتجاوز الحد ({cap:,}$)!"
+        db.session.add(BuyBackClause(
+            player_id=target.id, club_id=old_club_id, price=int(buy_back_price)))
+
+    # Phase 3 (item 15): performance bonus — extra fee if targets are hit.
+    if performance_bonus and old_club_id:
+        cap = int(value * PERF_BONUS_MAX_RATIO)
+        if performance_bonus > cap:
+            db.session.rollback()
+            return False, f"مكافأة الأداء تتجاوز الحد ({cap:,}$)!"
+        state = GameState.query.first()
+        db.session.add(PerformanceBonus(
+            player_id=target.id,
+            payer_team_id=player_team.id,
+            payee_team_id=old_club_id,
+            amount=int(performance_bonus),
+            target_goals=int(performance_target or 20),
+            season=(state.season_number or 1) if state else 1,
+        ))
 
     msg = Message(
         title="انتقال جديد",
         content=f"تم شراء {target.name} مقابل {value:,} دولار"
-                + (f" مع بند بيع مستقبلي {int(sell_on_clause * 100)}%" if sell_on_clause else "") + "!",
+                + (f" مع بند بيع مستقبلي {int(sell_on_clause * 100)}%" if sell_on_clause else "")
+                + (f" بالتقسيط على {installments} دفعات" if installments > 1 else "")
+                + (f" بشرط جزائي {target.release_clause:,}$" if target.release_clause else "")
+                + (f" + أتعاب وكيل {agent_fee:,}$" if agent_fee else "") + "!",
         type="transfer",
         created_day=day,
     )
@@ -590,14 +915,29 @@ def swap_offer(
     if totals < target.market_value * 0.8:
         return False, "قيمة العرض (نقداً + اللاعب) أقل من 80% من قيمة الهدف!"
 
+    if transfer_window_state() == "closed":
+        return False, "نافذة الانتقالات مغلقة!"
+
+    fee = calc_agent_fee(int(cash), target)
+    if (player_team.budget or 0) < cash + fee:
+        return False, f"الميزانية لا تغطي النقد + أتعاب الوكيل ({int(cash + fee):,}$)!"
+    ok, ffp_msg = ffp_check(player_team, int(cash + fee))
+    if not ok:
+        return False, ffp_msg
+
     old_club_id = target.team_id
     old_club = db.session.get(Team, old_club_id) if old_club_id else None
-    player_team.budget = max(0, (player_team.budget or 0) - cash)
+    player_team.budget = max(0, (player_team.budget or 0) - cash - fee)
+    _record_spend(player_team, int(cash + fee))
     if old_club:
         old_club.budget = (old_club.budget or 0) + cash
+        _record_income(old_club, int(cash))
 
     target.team_id = player_team.id
     target.is_starting = False
+    target.transfer_listed = False
+    target.transfer_requested = False
+    _apply_contract(target)
     offered_player.team_id = old_club_id
     offered_player.is_starting = False
 
@@ -617,7 +957,7 @@ def process_offer_accept(offer_id: int) -> tuple[bool, str]:
     if not _offer_involves_player_team(offer):
         return False, "لا يمكنك التصرف في هذا العرض!"
 
-    if offer.status != 'pending':
+    if offer.status not in ('pending', 'counter'):
         return False, "هذا العرض لم يعد قيد الانتظار!"
 
     player = db.session.get(Player, offer.player_id)
@@ -625,13 +965,49 @@ def process_offer_accept(offer_id: int) -> tuple[bool, str]:
     to_team = db.session.get(Team, offer.to_team_id)
     if not from_team or not to_team:
         return False, "العرض غير صالح!"
+    state = GameState.query.first()
+    day = state.current_day if state else 0
+    season = state.season_number if state and state.season_number else 1
+
+    # Latest haggled price wins (phase 4, item 16).
+    price = int(offer.counter_amount) if offer.status == 'counter' and offer.counter_amount else int(offer.amount or 0)
+
+    # Phase 5 (item 19/18): loan offers move the player temporarily.
+    if offer.is_loan:
+        if not player:
+            return False, "اللاعب غير موجود!"
+        if from_team.is_player_team or to_team.is_player_team:
+            return _accept_loan(offer, player, to_team, day)
+        return False, "لا يمكنك التصرف في هذا العرض!"
+
+    # Phase 2 (item 5): accepting a pre-contract just records the agreement;
+    # the player moves at activate_precontracts() when the deal matures.
+    if offer.is_precontract:
+        offer.status = 'accepted'
+        return True, f"تم قبول العقد المسبق! ينضم {player.name if player else 'اللاعب'} مجاناً في اليوم {offer.effective_day}"
+
+    # Phase 1 (item 6): permanent moves need an open window.
+    if transfer_window_state(state) == "closed":
+        return False, "نافذة الانتقالات مغلقة! لا صفقات دائمة خارج الصيف والشتاء"
+
+    agent_fee = calc_agent_fee(price, player)
+    signing = max(0, int(offer.signing_bonus or 0))
+    parts = max(1, min(INSTALLMENTS_MAX, int(offer.installments or 1)))
+    upfront = int(offer.upfront_amount) if offer.upfront_amount else (int(price / parts) if parts > 1 else price)
+    total_now = upfront + agent_fee + signing
 
     if from_team.is_player_team:
         # Outgoing sale (player team sells). Honour sell-on clauses.
         if not player:
             return False, "اللاعب غير موجود!"
-        from_team.budget = (from_team.budget or 0) + offer.amount
-        _pay_sell_on_clauses(player, offer.amount, from_team)
+        # First-refusal notice (phase 3, item 13): old club gets first word.
+        _notify_first_refusal(player, price, day)
+        from_team.budget = (from_team.budget or 0) + upfront
+        _record_income(from_team, upfront)
+        _pay_sell_on_clauses(player, price, from_team)
+        if parts > 1:
+            _create_installments(player, to_team, from_team, price - upfront, parts - 1, day)
+        _settle_offer_clauses(offer, to_team, from_team, price, day, season)
         # FM: player swap — an AI player may come the other way.
         if offer.offered_player_id:
             swap_player = db.session.get(Player, offer.offered_player_id)
@@ -640,27 +1016,63 @@ def process_offer_accept(offer_id: int) -> tuple[bool, str]:
                 swap_player.is_starting = False
         player.team_id = to_team.id
         player.is_starting = False
+        player.transfer_listed = False
+        player.transfer_requested = False
+        _apply_contract(player, wage=offer.wage_offer or 0,
+                        years=offer.contract_years or 3,
+                        signing_bonus=signing)
         offer.status = 'accepted'
-        return True, f"تم بيع {player.name} مقابل {offer.amount} دولار"
+        return True, f"تم بيع {player.name} مقابل {price} دولار"
 
     # Incoming purchase (player team buys): credit the AI seller, move the
     # swap player out if any, and honour sell-on clauses like outgoing sales.
-    if to_team.budget >= offer.amount:
-        to_team.budget -= offer.amount
-        from_team.budget = (from_team.budget or 0) + offer.amount
+    if to_team.budget >= total_now:
+        # Phase 5 (item 22): the player may still snub you for a bigger club.
+        snub = _player_snub_check(player, to_team) if player else None
+        if snub:
+            return False, snub
+        ok, ffp_msg = ffp_check(to_team, total_now)
+        if not ok:
+            return False, ffp_msg
+        to_team.budget -= total_now
+        _record_spend(to_team, total_now)
+        from_team.budget = (from_team.budget or 0) + upfront
+        _record_income(from_team, upfront)
         if player:
             if offer.offered_player_id:
                 swap_player = db.session.get(Player, offer.offered_player_id)
                 if swap_player and swap_player.team_id == to_team.id:
                     swap_player.team_id = from_team.id
                     swap_player.is_starting = False
-            _pay_sell_on_clauses(player, offer.amount, from_team)
+            _pay_sell_on_clauses(player, price, from_team)
+            if parts > 1:
+                _create_installments(player, to_team, from_team, price - upfront, parts - 1, day)
+            _settle_offer_clauses(offer, to_team, from_team, price, day, season)
             player.team_id = to_team.id
             player.is_starting = False
+            player.transfer_listed = False
+            player.transfer_requested = False
+            _apply_contract(player, wage=offer.wage_offer or 0,
+                            years=offer.contract_years or 3,
+                            signing_bonus=signing)
         offer.status = 'accepted'
-        return True, f"تم شراء {player.name if player else 'اللاعب'} مقابل {offer.amount} دولار"
+        return True, f"تم شراء {player.name if player else 'اللاعب'} مقابل {price} دولار"
 
     return False, "لا يوجد ميزانية كافية!"
+
+
+def _notify_first_refusal(player: Player, price: int, day: int) -> None:
+    """Phase 3 (item 13): holders of first refusal hear about the sale first."""
+    holders = FirstRefusalClause.query.filter_by(player_id=player.id).all()
+    player_team = Team.query.filter_by(is_player_team=True).first()
+    for clause in holders:
+        holder = db.session.get(Team, clause.club_id)
+        if holder and player_team and holder.id == player_team.id:
+            db.session.add(Message(
+                title="حق الأولوية!",
+                content=f"تنبيه أولوية: {player.name} يُباع مقابل {price:,}$ — لديك {FIRST_REFUSAL_NOTICE_DAYS} أيام لمطابقة العرض!",
+                type="transfer", created_day=day, urgent=True,
+            ))
 
 
 def process_offer_reject(offer_id: int) -> tuple[bool, str]:
@@ -673,6 +1085,608 @@ def process_offer_reject(offer_id: int) -> tuple[bool, str]:
 
     offer.status = 'rejected'
     return True, "تم رفض العرض"
+
+
+# --------------------------------------------------------------------------
+# Full transfer system (phases 1-5): windows, contracts, clauses, loans
+# --------------------------------------------------------------------------
+def _create_installments(
+    player: Player,
+    payer: Team,
+    payee: Team,
+    remainder: int,
+    parts: int,
+    day: int,
+) -> None:
+    """Phase 3 (item 11): split the rest of the fee into future debts."""
+    if remainder <= 0 or parts <= 0:
+        return
+    per = max(1, int(remainder / parts))
+    for i in range(1, parts + 1):
+        amount = per if i < parts else (remainder - per * (parts - 1))
+        db.session.add(InstallmentDebt(
+            player_id=player.id,
+            from_team_id=payer.id,
+            to_team_id=payee.id,
+            amount=max(1, amount),
+            due_day=day + INSTALLMENT_INTERVAL_DAYS * i,
+        ))
+
+
+def _player_snub_check(player: Player, bidder: Team) -> str | None:
+    """Phase 5 (item 22): the player prefers a much bigger club already bidding."""
+    rivals = (
+        TransferOffer.query.filter(
+            TransferOffer.player_id == player.id,
+            TransferOffer.status.in_(["pending", "counter"]),
+            TransferOffer.to_team_id != bidder.id,
+        ).all()
+    )
+    for offer in rivals:
+        other = db.session.get(Team, offer.to_team_id)
+        if not other:
+            continue
+        if (other.reputation or 0) >= (bidder.reputation or 0) + PLAYER_PREF_REPUTATION_GAP:
+            return (
+                f"اللاعب {player.name} يفضل {other.name} الأعرق "
+                f"ورفض عرضك رغم قيمته!"
+            )
+    return None
+
+
+def sign_free_agent(
+    player_team: Team,
+    target: Player,
+    day: int,
+    wage: int = 0,
+    years: int = 3,
+    signing_bonus: int = 0,
+) -> tuple[bool, str]:
+    """Phase 1 (item 8): free agents sign at any time — no fee, just wages."""
+    if not target:
+        return False, "اللاعب غير موجود!"
+    if target.team_id is not None:
+        return False, "هذا اللاعب مرتبط بنادٍ! استخدم الشراء المباشر"
+    if target.team_id == player_team.id:
+        return False, "هذا اللاعب في فريقك بالفعل!"
+    from config import FREE_AGENT_SIGN_FEE_RATIO
+    fee = int((target.market_value or MARKET_VALUE_MIN) * FREE_AGENT_SIGN_FEE_RATIO)
+    signing_bonus = max(0, int(signing_bonus or 0))
+    total = fee + signing_bonus
+    if player_team.budget < total:
+        return False, f"الميزانية غير كافية! تحتاج {total:,} دولار"
+    ok, ffp_msg = ffp_check(player_team, total)
+    if not ok:
+        return False, ffp_msg
+    player_team.budget -= total
+    _record_spend(player_team, total)
+    target.team_id = player_team.id
+    target.is_starting = False
+    _apply_contract(target, wage=wage, years=years, signing_bonus=signing_bonus)
+    db.session.add(Message(
+        title="وكيل حر جديد",
+        content=f"انضم {target.name} مجاناً! رسوم توقيع {fee:,}$ + راتب {target.wage:,}$",
+        type="transfer", created_day=day,
+    ))
+    return True, f"تم التعاقد مع {target.name} كوكيل حر!"
+
+
+def expire_contracts(state: GameState) -> int:
+    """Phase 2 (item 4): contracts tick down daily; expired players go free."""
+    count = 0
+    for p in Player.query.filter(Player.team_id.isnot(None)).all():
+        if (p.contract_days or 0) <= 0:
+            continue
+        p.contract_days = (p.contract_days or 0) - 1
+        if p.contract_days <= 0:
+            old = db.session.get(Team, p.team_id)
+            p.team_id = None
+            p.wage = 0
+            p.is_starting = False
+            p.transfer_listed = False
+            p.transfer_requested = False
+            count += 1
+            if old and old.is_player_team:
+                db.session.add(Message(
+                    title="انتهاء عقد!",
+                    content=f"انتهى عقد {p.name} وأصبح وكيلاً حراً!",
+                    type="transfer", created_day=state.current_day, urgent=True,
+                ))
+    return count
+
+
+def make_precontract(
+    player_team: Team,
+    target: Player,
+    day: int,
+    wage: int = 0,
+    years: int = 3,
+) -> tuple[bool, str]:
+    """Phase 2 (item 5): Bosman — agree now with a player in his last 6 months."""
+    if not target or target.team_id is None:
+        return False, "العقد المسبق للاعبين المرتبطين بأندية فقط!"
+    if target.team_id == player_team.id:
+        return False, "هذا اللاعب في فريقك بالفعل!"
+    if (target.contract_days or 0) > PRECONTRACT_DAYS:
+        left = (target.contract_days or 0)
+        return False, f"العقد المسبق متاح فقط في آخر 6 شهور! المتبقي {left} يوم"
+    existing = TransferOffer.query.filter_by(
+        player_id=target.id, to_team_id=player_team.id,
+        is_precontract=True, status="pending",
+    ).first()
+    if existing:
+        return False, "لديك عقد مسبق معلق مع هذا اللاعب بالفعل!"
+    offer = TransferOffer(
+        player_id=target.id,
+        from_team_id=target.team_id,
+        to_team_id=player_team.id,
+        amount=0,
+        status="pending",
+        created_day=day,
+        deadline_day=day + (target.contract_days or 0),
+        wage_offer=max(0, int(wage or 0)),
+        contract_years=max(CONTRACT_MIN_YEARS, min(CONTRACT_MAX_YEARS, int(years or 3))),
+        is_precontract=True,
+        effective_day=day + (target.contract_days or 0),
+    )
+    db.session.add(offer)
+    return True, f"تم توقيع عقد مسبق مع {target.name}! ينضم مجاناً عند انتهاء عقده"
+
+
+def activate_precontracts(state: GameState) -> int:
+    """Players whose pre-contract matured join their new club for free."""
+    current = state.current_day or 0
+    pending = TransferOffer.query.filter_by(is_precontract=True, status="pending").all()
+    count = 0
+    for offer in pending:
+        if (offer.effective_day or 0) > current:
+            continue
+        player = db.session.get(Player, offer.player_id)
+        new_team = db.session.get(Team, offer.to_team_id)
+        if not player or not new_team:
+            offer.status = "rejected"
+            continue
+        player.team_id = new_team.id
+        player.is_starting = False
+        _apply_contract(player, wage=offer.wage_offer or 0,
+                        years=offer.contract_years or 3)
+        offer.status = "accepted"
+        count += 1
+        if new_team.is_player_team:
+            db.session.add(Message(
+                title="انضمام بعقد مسبق!",
+                content=f"انضم {player.name} مجاناً بموجب العقد المسبق!",
+                type="transfer", created_day=current, urgent=True,
+            ))
+    return count
+
+
+def list_transfer(player_team: Team, player: Player) -> tuple[bool, str]:
+    """Phase 1 (item 9): put your player up for sale — offers arrive automatically."""
+    if not player or player.team_id != player_team.id:
+        return False, "اللاعب ليس في فريقك!"
+    if player.transfer_listed:
+        return False, "اللاعب معروض للبيع بالفعل!"
+    player.transfer_listed = True
+    return True, f"تم عرض {player.name} للبيع! الأندية المهتمة ستقدم عروضاً"
+
+
+def unlist_transfer(player_team: Team, player: Player) -> tuple[bool, str]:
+    if not player or player.team_id != player_team.id:
+        return False, "اللاعب ليس في فريقك!"
+    player.transfer_listed = False
+    return True, f"تم سحب {player.name} من قائمة الانتقال"
+
+
+def request_transfer(player_team: Team, player: Player, day: int) -> tuple[bool, str]:
+    """Phase 1 (item 10): an unhappy player formally asks to leave."""
+    if not player or player.team_id != player_team.id:
+        return False, "اللاعب ليس في فريقك!"
+    if player.transfer_requested:
+        return False, "طلب الانتقال مقدم بالفعل!"
+    player.transfer_requested = True
+    player.morale = max(0, (player.morale or 50) - TRANSFER_REQUEST_MORALE_LOSS)
+    db.session.add(Message(
+        title="طلب انتقال!",
+        content=f"قدم {player.name} طلب انتقال رسمياً! معنوياته انخفضت والأندية تراقبه",
+        type="transfer", created_day=day, urgent=True,
+    ))
+    return True, f"قدم {player.name} طلب انتقال رسمياً!"
+
+
+def withdraw_transfer_request(player_team: Team, player: Player) -> tuple[bool, str]:
+    if not player or player.team_id != player_team.id:
+        return False, "اللاعب ليس في فريقك!"
+    player.transfer_requested = False
+    return True, f"سحب {player.name} طلب الانتقال!"
+
+
+def create_bid(
+    bidder: Team,
+    target: Player,
+    amount: int,
+    day: int,
+    wage: int = 0,
+    years: int = 3,
+    signing_bonus: int = 0,
+    installments: int = 1,
+    sell_on: float = 0.0,
+    buy_back_price: int | None = None,
+    first_refusal: bool = False,
+    performance_bonus: int = 0,
+    performance_target: int = 0,
+    is_loan: bool = False,
+    loan_days: int = 0,
+    loan_fee: int = 0,
+    buy_option: int | None = None,
+) -> tuple[bool, str]:
+    """Build a full FIFA-style bid (fee + contract + clauses + loan terms)."""
+    if not target or not bidder:
+        return False, "بيانات العرض غير صالحة!"
+    if target.team_id == bidder.id:
+        return False, "اللاعب في فريقك بالفعل!"
+    if target.team_id is None and not is_loan:
+        return False, "الوكلاء الأحرار يُتعاقد معهم مباشرة بدون عروض!"
+    if not is_loan and target.team_id is not None and transfer_window_state() == "closed":
+        return False, "نافذة الانتقالات مغلقة!"
+    if is_loan:
+        loan_days = max(LOAN_MIN_DAYS, min(LOAN_MAX_DAYS, int(loan_days or LOAN_MIN_DAYS)))
+    state = GameState.query.first()
+    deadline = TRANSFER_DEADLINE_EXPIRY_DAYS if is_deadline_day(state) else 3
+    try:
+        from config import TRANSFER_OFFER_DEADLINE_DAYS
+        deadline = TRANSFER_DEADLINE_EXPIRY_DAYS if is_deadline_day(state) else TRANSFER_OFFER_DEADLINE_DAYS
+    except Exception:
+        pass
+    offer = TransferOffer(
+        player_id=target.id,
+        from_team_id=target.team_id,
+        to_team_id=bidder.id,
+        amount=max(0, int(amount or 0)),
+        status="pending",
+        created_day=day,
+        deadline_day=day + deadline,
+        offer_round=1,
+        wage_offer=max(0, int(wage or 0)),
+        contract_years=max(CONTRACT_MIN_YEARS, min(CONTRACT_MAX_YEARS, int(years or 3))),
+        signing_bonus=max(0, int(signing_bonus or 0)),
+        agent_fee=calc_agent_fee(amount, target),
+        installments=max(1, min(INSTALLMENTS_MAX, int(installments or 1))),
+        sell_on_clause=max(0.0, min(SELL_ON_CLAUSE_MAX, float(sell_on or 0.0))),
+        buy_back_price=int(buy_back_price) if buy_back_price else None,
+        first_refusal=bool(first_refusal),
+        performance_bonus=max(0, int(performance_bonus or 0)),
+        performance_target=max(0, int(performance_target or 0)),
+        is_loan=bool(is_loan),
+        loan_days=int(loan_days or 0) if is_loan else None,
+        loan_fee=max(0, int(loan_fee or 0)),
+        buy_option=int(buy_option) if buy_option else None,
+    )
+    if installments and int(installments) > 1:
+        offer.upfront_amount = int(int(amount or 0) / int(installments))
+    db.session.add(offer)
+    kind = "إعارة" if is_loan else "شراء"
+    return True, f"تم إرسال عرض {kind} بقيمة {(amount or 0):,}$ من أجل {target.name}!"
+
+
+def counter_offer(offer_id: int, new_amount: int, day: int) -> tuple[bool, str]:
+    """Phase 4 (item 16): reject-and-counter — haggle for up to N rounds."""
+    offer = db.session.get(TransferOffer, offer_id)
+    if not offer:
+        return False, "العرض غير موجود!"
+    if not _offer_involves_player_team(offer):
+        return False, "لا يمكنك التفاوض على هذا العرض!"
+    if offer.status not in ("pending", "counter"):
+        return False, "هذا العرض لم يعد قابلاً للتفاوض!"
+    if (offer.offer_round or 1) >= OFFER_MAX_ROUNDS:
+        offer.status = "rejected"
+        return False, "انهارت المفاوضات بعد عدة جولات! تم رفض العرض"
+    new_amount = max(0, int(new_amount or 0))
+    if new_amount <= 0:
+        return False, "مبلغ التفاوض غير صالح!"
+    offer.counter_amount = new_amount
+    offer.status = "counter"
+    offer.offer_round = (offer.offer_round or 1) + 1
+    offer.deadline_day = day + 3
+    player = db.session.get(Player, offer.player_id)
+    name = player.name if player else "اللاعب"
+    return True, f"تم الرد بمقابل {new_amount:,}$ من أجل {name} (جولة {offer.offer_round})"
+
+
+def _settle_offer_clauses(offer: TransferOffer, buyer: Team, seller: Team | None,
+                          price: int, day: int, season: int) -> None:
+    """Persist sell-on / buy-back / first-refusal / performance terms."""
+    if offer.sell_on_clause and seller is not None:
+        db.session.add(SellOnClause(
+            player_id=offer.player_id, club_id=seller.id,
+            percentage=min(SELL_ON_CLAUSE_MAX, max(0.0, offer.sell_on_clause))))
+    if offer.buy_back_price and seller is not None:
+        cap = int(price * BUY_BACK_PRICE_CAP_MULT)
+        db.session.add(BuyBackClause(
+            player_id=offer.player_id, club_id=seller.id,
+            price=min(int(offer.buy_back_price), cap)))
+    if offer.first_refusal and seller is not None:
+        db.session.add(FirstRefusalClause(player_id=offer.player_id, club_id=seller.id))
+    if offer.performance_bonus and seller is not None:
+        cap = int(price * PERF_BONUS_MAX_RATIO)
+        db.session.add(PerformanceBonus(
+            player_id=offer.player_id,
+            payer_team_id=buyer.id, payee_team_id=seller.id,
+            amount=min(int(offer.performance_bonus), cap),
+            target_goals=int(offer.performance_target or 20),
+            season=season,
+        ))
+
+
+def _accept_loan(offer: TransferOffer, player: Player, borrower: Team,
+                 day: int) -> tuple[bool, str]:
+    """Phase 5 (items 18-19): loan, optionally with a pre-set buy price."""
+    fee = max(0, int(offer.loan_fee or 0))
+    if borrower.budget < fee:
+        return False, "ميزانية المستعير لا تغطي رسوم الإعارة!"
+    ok, ffp_msg = ffp_check(borrower, fee)
+    if not ok:
+        return False, ffp_msg
+    owner = db.session.get(Team, offer.from_team_id)
+    borrower.budget -= fee
+    _record_spend(borrower, fee)
+    if owner is not None:
+        owner.budget = (owner.budget or 0) + fee
+        _record_income(owner, fee)
+    player.loan_from_team_id = offer.from_team_id
+    player.loan_to_team_id = borrower.id
+    player.loan_until_day = day + (offer.loan_days or LOAN_MIN_DAYS)
+    player.loan_fee = fee
+    player.loan_buy_option = offer.buy_option
+    player.team_id = borrower.id
+    player.is_starting = False
+    offer.status = "accepted"
+    extra = f" مع بند شراء {offer.buy_option:,}$" if offer.buy_option else ""
+    return True, f"تمت الإعارة! انضم {player.name} حتى اليوم {player.loan_until_day}{extra}"
+
+
+def return_expired_loans(state: GameState) -> int:
+    """Loan spells end — players go home unless the buy clause was used."""
+    current = state.current_day or 0
+    count = 0
+    for p in Player.query.filter(Player.loan_until_day.isnot(None)).all():
+        if (p.loan_until_day or 0) > current:
+            continue
+        home_id = p.loan_from_team_id or p.team_id
+        home = db.session.get(Team, home_id) if home_id else None
+        p.team_id = home_id
+        p.loan_from_team_id = None
+        p.loan_to_team_id = None
+        p.loan_until_day = None
+        p.loan_buy_option = None
+        p.is_starting = False
+        count += 1
+        if home and home.is_player_team:
+            db.session.add(Message(
+                title="عودة من الإعارة",
+                content=f"عاد {p.name} إلى فريقك بعد انتهاء إعارته",
+                type="transfer", created_day=current,
+            ))
+    return count
+
+
+def exercise_loan_buy(player_team: Team, player: Player, day: int) -> tuple[bool, str]:
+    """Phase 5 (item 19): turn a loan-to-buy into a permanent signing."""
+    if not player or player.team_id != player_team.id:
+        return False, "اللاعب المعار ليس في فريقك!"
+    if not player.loan_buy_option:
+        return False, "لا يوجد بند شراء في هذه الإعارة!"
+    if transfer_window_state() == "closed":
+        return False, "نافذة الانتقالات مغلقة!"
+    price = int(player.loan_buy_option)
+    if player_team.budget < price:
+        return False, f"الميزانية غير كافية! بند الشراء {price:,}$"
+    ok, ffp_msg = ffp_check(player_team, price)
+    if not ok:
+        return False, ffp_msg
+    owner = db.session.get(Team, player.loan_from_team_id) if player.loan_from_team_id else None
+    player_team.budget -= price
+    _record_spend(player_team, price)
+    if owner is not None:
+        owner.budget = (owner.budget or 0) + price
+        _record_income(owner, price)
+    player.loan_from_team_id = None
+    player.loan_to_team_id = None
+    player.loan_until_day = None
+    player.loan_buy_option = None
+    player.loan_fee = 0
+    _apply_contract(player, wage=player.wage or 0, years=3)
+    db.session.add(Message(
+        title="تفعيل بند الشراء!",
+        content=f"فعلت بند شراء {player.name} مقابل {price:,}$ وأصبح لاعباً دائماً!",
+        type="transfer", created_day=day, urgent=True,
+    ))
+    return True, f"تم شراء {player.name} نهائياً مقابل {price:,}$!"
+
+
+def exercise_buy_back(player_team: Team, player: Player, day: int) -> tuple[bool, str]:
+    """Phase 3 (item 12): reclaim a sold player at the agreed buy-back price."""
+    clause = BuyBackClause.query.filter_by(
+        player_id=player.id, club_id=player_team.id).first() if player else None
+    if not clause:
+        return False, "لا تملك بند إعادة شراء لهذا اللاعب!"
+    if player.team_id == player_team.id:
+        return False, "اللاعب في فريقك بالفعل!"
+    if transfer_window_state() == "closed":
+        return False, "نافذة الانتقالات مغلقة!"
+    price = int(clause.price)
+    if player_team.budget < price:
+        return False, f"الميزانية غير كافية! إعادة الشراء {price:,}$"
+    ok, ffp_msg = ffp_check(player_team, price)
+    if not ok:
+        return False, ffp_msg
+    seller = db.session.get(Team, player.team_id) if player.team_id else None
+    player_team.budget -= price
+    _record_spend(player_team, price)
+    if seller is not None:
+        seller.budget = (seller.budget or 0) + price
+        _record_income(seller, price)
+    player.team_id = player_team.id
+    player.is_starting = False
+    db.session.delete(clause)
+    db.session.add(Message(
+        title="إعادة شراء!",
+        content=f"استعدت {player.name} ببند إعادة الشراء مقابل {price:,}$!",
+        type="transfer", created_day=day, urgent=True,
+    ))
+    return True, f"تمت إعادة شراء {player.name} مقابل {price:,}$!"
+
+
+def trigger_release_clause(player_team: Team, target: Player, day: int,
+                           wage: int = 0, years: int = 3) -> tuple[bool, str]:
+    """Phase 2 (item 3): pay the clause — the selling club cannot refuse."""
+    if not target or not target.release_clause:
+        return False, "لا يوجد شرط جزائي في عقد اللاعب!"
+    return purchase_player(player_team, target, day, wage=wage, years=years,
+                           use_release_clause=True)
+
+
+def pay_installments_due(state: GameState) -> int:
+    """Phase 3 (item 11): settle deferred fee slices when they mature."""
+    current = state.current_day or 0
+    due = InstallmentDebt.query.filter_by(paid=False).filter(
+        InstallmentDebt.due_day <= current).all()
+    for debt in due:
+        payer = db.session.get(Team, debt.from_team_id)
+        payee = db.session.get(Team, debt.to_team_id)
+        if payer is not None:
+            payer.budget = max(0, (payer.budget or 0) - debt.amount)
+        if payee is not None:
+            payee.budget = (payee.budget or 0) + debt.amount
+        debt.paid = True
+        if payer and payer.is_player_team:
+            db.session.add(Message(
+                title="قسط انتقال مستحق",
+                content=f"تم دفع قسط {debt.amount:,}$ من صفقة {(debt.player.name if debt.player else '')}",
+                type="transfer", created_day=current,
+            ))
+    return len(due)
+
+
+def check_performance_bonuses(state: GameState) -> int:
+    """Phase 3 (item 15): star seasons trigger the bonus fee to the old club."""
+    season = state.season_number or 1
+    pending = PerformanceBonus.query.filter_by(season=season, paid=False).all()
+    count = 0
+    for bonus in pending:
+        player = db.session.get(Player, bonus.player_id)
+        if not player or (player.goals or 0) < (bonus.target_goals or 20):
+            continue
+        payer = db.session.get(Team, bonus.payer_team_id)
+        payee = db.session.get(Team, bonus.payee_team_id)
+        if payer is not None:
+            payer.budget = max(0, (payer.budget or 0) - bonus.amount)
+        if payee is not None:
+            payee.budget = (payee.budget or 0) + bonus.amount
+        bonus.paid = True
+        count += 1
+        if payer and payer.is_player_team:
+            db.session.add(Message(
+                title="مكافأة أداء مستحقة!",
+                content=f"سجل {player.name} {player.goals} هدفاً! دُفعت مكافأة {bonus.amount:,}$ لناديه السابق",
+                type="transfer", created_day=state.current_day, urgent=True,
+            ))
+    return count
+
+
+def auto_transfer_list_offers(state: GameState) -> int:
+    """Phase 1 (item 9): listed players attract automatic bids every week."""
+    import random as _random
+
+    day = state.current_day or 0
+    listed = Player.query.filter_by(transfer_listed=True).filter(
+        Player.team_id.isnot(None)).all()
+    if not listed:
+        return 0
+    ai_teams = Team.query.filter_by(is_player_team=False).all()
+    if not ai_teams:
+        return 0
+    made = 0
+    mult = TRANSFER_DEADLINE_SURGE if is_deadline_day(state) else 1.0
+    for player in listed:
+        chance = 0.35 * mult
+        if player.transfer_requested:
+            from config import TRANSFER_REQUEST_AI_INTEREST_MULT
+            chance *= TRANSFER_REQUEST_AI_INTEREST_MULT
+        if _random.random() > min(0.9, chance):
+            continue
+        bidder = _random.choice(ai_teams)
+        if bidder.id == player.team_id:
+            continue
+        valuation = get_player_valuation(player)
+        amount = int(valuation * _random.uniform(0.9, 1.1))
+        if amount > (bidder.budget or 0):
+            continue
+        db.session.add(TransferOffer(
+            player_id=player.id,
+            from_team_id=player.team_id,
+            to_team_id=bidder.id,
+            amount=amount,
+            status="pending",
+            created_day=day,
+            deadline_day=day + 3,
+            wage_offer=int((player.wage or 0) * 1.1),
+            contract_years=3,
+        ))
+        made += 1
+        owner = db.session.get(Team, player.team_id)
+        if owner and owner.is_player_team:
+            db.session.add(Message(
+                title="عرض لنجمك المعروض!",
+                content=f"قدم {bidder.name} عرضاً {amount:,}$ لشراء {player.name} المعروض للبيع",
+                type="transfer", created_day=day, urgent=True,
+            ))
+    return made
+
+
+def maybe_rival_bid(state: GameState) -> int:
+    """Phase 5 (item 21): a richer club hijacks a deal you are chasing."""
+    import random as _random
+
+    player_team = Team.query.filter_by(is_player_team=True).first()
+    if not player_team:
+        return 0
+    mine = TransferOffer.query.filter_by(
+        to_team_id=player_team.id, status="pending").all()
+    made = 0
+    for offer in mine:
+        if _random.random() > RIVAL_BID_CHANCE:
+            continue
+        player = db.session.get(Player, offer.player_id)
+        if not player:
+            continue
+        richer = [t for t in Team.query.filter_by(is_player_team=False).all()
+                  if (t.reputation or 0) >= (player_team.reputation or 0) + RIVAL_REPUTATION_GAP
+                  and (t.budget or 0) > (offer.amount or 0)]
+        if not richer:
+            continue
+        hijacker = max(richer, key=lambda t: t.reputation or 0)
+        amount = int((offer.amount or 0) * _random.uniform(1.05, 1.25))
+        if amount > (hijacker.budget or 0):
+            continue
+        db.session.add(TransferOffer(
+            player_id=player.id,
+            from_team_id=offer.from_team_id,
+            to_team_id=hijacker.id,
+            amount=amount,
+            status="pending",
+            created_day=state.current_day,
+            deadline_day=(state.current_day or 0) + 3,
+            wage_offer=int((offer.wage_offer or 0) * 1.15),
+            contract_years=offer.contract_years or 3,
+        ))
+        made += 1
+        db.session.add(Message(
+            title="منافسة على الصفقة!",
+            content=f"دخل {hijacker.name} السباق على {player.name} بعرض {amount:,}$ أعلى من عرضك!",
+            type="transfer", created_day=state.current_day, urgent=True,
+        ))
+    return made
 
 
 # --------------------------------------------------------------------------

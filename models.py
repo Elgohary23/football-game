@@ -31,9 +31,12 @@ class Team(db.Model):
     training_facilities = db.Column(db.Integer, default=3)
     youth_facilities = db.Column(db.Integer, default=3)
 
+    # --- Financial fair play: season aggregates (reset each season) ---
+    season_spend = db.Column(db.Integer, default=0)
+    season_income = db.Column(db.Integer, default=0)
+
     training_focus = db.Column(db.String(20), default="balanced")
     training_intensity = db.Column(db.Integer, default=5)
-
     formation_data = db.Column(db.JSON, nullable=True)
 
     # --- Advanced tactics (FM features) ---
@@ -171,6 +174,23 @@ class Player(db.Model):
 
     team_id = db.Column(db.Integer, db.ForeignKey('team.id'))
 
+    # --- Contracts (phase 2): wage talks, duration, release clause ---
+    wage = db.Column(db.Integer, default=0)  # yearly wage
+    contract_days = db.Column(db.Integer, default=730)  # remaining days
+    signing_bonus = db.Column(db.Integer, default=0)
+    release_clause = db.Column(db.Integer, nullable=True)
+
+    # --- Transfer list / requests (phase 1) ---
+    transfer_listed = db.Column(db.Boolean, default=False)
+    transfer_requested = db.Column(db.Boolean, default=False)
+
+    # --- Loans (phase 5): temporary spell with optional buy clause ---
+    loan_from_team_id = db.Column(db.Integer, db.ForeignKey('team.id'), nullable=True)
+    loan_to_team_id = db.Column(db.Integer, db.ForeignKey('team.id'), nullable=True)
+    loan_until_day = db.Column(db.Integer, nullable=True)
+    loan_fee = db.Column(db.Integer, default=0)
+    loan_buy_option = db.Column(db.Integer, nullable=True)
+
     __table_args__ = (
         db.Index('idx_position_attack_age', 'position', 'attack', 'age'),
         db.Index('idx_team_id', 'team_id'),
@@ -218,6 +238,8 @@ class GameState(db.Model):
     season_number = db.Column(db.Integer, default=1)
     manager_history = db.Column(db.Text, nullable=True)
     board_confidence = db.Column(db.Integer, default=60)
+    # Manual window override: None = derive from current_date, else open/closed.
+    transfer_window_override = db.Column(db.String(10), nullable=True)
 
 
 class Match(db.Model):
@@ -313,6 +335,35 @@ class TransferOffer(db.Model):
     sell_on_clause = db.Column(db.Float, default=0.0)  # 0.0 .. 1.0 keeps a cut for from_team
     offered_player_id = db.Column(db.Integer, db.ForeignKey('player.id'), nullable=True)
 
+    # --- Multi-round negotiation (phase 4) ---
+    offer_round = db.Column(db.Integer, default=1)
+    counter_amount = db.Column(db.Integer, nullable=True)
+
+    # --- Contract terms attached to the bid (phase 2) ---
+    wage_offer = db.Column(db.Integer, default=0)
+    contract_years = db.Column(db.Integer, default=3)
+    signing_bonus = db.Column(db.Integer, default=0)
+    agent_fee = db.Column(db.Integer, default=0)
+
+    # --- FIFA-style clauses (phase 3) ---
+    installments = db.Column(db.Integer, default=1)
+    upfront_amount = db.Column(db.Integer, nullable=True)
+    buy_back_price = db.Column(db.Integer, nullable=True)
+    first_refusal = db.Column(db.Boolean, default=False)
+    performance_bonus = db.Column(db.Integer, default=0)
+    performance_target = db.Column(db.Integer, default=0)  # goals to trigger bonus
+    performance_paid = db.Column(db.Boolean, default=False)
+
+    # --- Loans (phase 5) ---
+    is_loan = db.Column(db.Boolean, default=False)
+    loan_days = db.Column(db.Integer, nullable=True)
+    loan_fee = db.Column(db.Integer, default=0)
+    buy_option = db.Column(db.Integer, nullable=True)
+
+    # --- Bosman pre-contract (phase 2): agreed now, moves at expiry ---
+    is_precontract = db.Column(db.Boolean, default=False)
+    effective_day = db.Column(db.Integer, nullable=True)
+
     player = db.relationship('Player', foreign_keys=[player_id])
     offered_player = db.relationship('Player', foreign_keys=[offered_player_id])
     from_team = db.relationship('Team', foreign_keys=[from_team_id])
@@ -392,3 +443,51 @@ class SellOnClause(db.Model):
     percentage = db.Column(db.Float, default=0.0)
 
     club = db.relationship('Team')
+
+
+class InstallmentDebt(db.Model):
+    """Deferred slice of a transfer fee: paid in chunks (phase 3)."""
+    id = db.Column(db.Integer, primary_key=True)
+    player_id = db.Column(db.Integer, db.ForeignKey('player.id'))
+    from_team_id = db.Column(db.Integer, db.ForeignKey('team.id'))  # payer
+    to_team_id = db.Column(db.Integer, db.ForeignKey('team.id'))  # payee
+    amount = db.Column(db.Integer)
+    due_day = db.Column(db.Integer)
+    paid = db.Column(db.Boolean, default=False)
+
+    player = db.relationship('Player', foreign_keys=[player_id])
+    from_team = db.relationship('Team', foreign_keys=[from_team_id])
+    to_team = db.relationship('Team', foreign_keys=[to_team_id])
+
+
+class BuyBackClause(db.Model):
+    """Seller may re-sign the player for a fixed price (phase 3)."""
+    id = db.Column(db.Integer, primary_key=True)
+    player_id = db.Column(db.Integer, db.ForeignKey('player.id'))
+    club_id = db.Column(db.Integer, db.ForeignKey('team.id'))  # holder (seller)
+    price = db.Column(db.Integer)
+
+    club = db.relationship('Team')
+
+
+class FirstRefusalClause(db.Model):
+    """Old club is notified first when the player is sold again (phase 3)."""
+    id = db.Column(db.Integer, primary_key=True)
+    player_id = db.Column(db.Integer, db.ForeignKey('player.id'))
+    club_id = db.Column(db.Integer, db.ForeignKey('team.id'))  # holder (seller)
+
+    club = db.relationship('Team')
+
+
+class PerformanceBonus(db.Model):
+    """Extra fee owed to the seller if the player hits a goal target (phase 3)."""
+    id = db.Column(db.Integer, primary_key=True)
+    player_id = db.Column(db.Integer, db.ForeignKey('player.id'))
+    payer_team_id = db.Column(db.Integer, db.ForeignKey('team.id'))  # buyer
+    payee_team_id = db.Column(db.Integer, db.ForeignKey('team.id'))  # seller
+    amount = db.Column(db.Integer)
+    target_goals = db.Column(db.Integer, default=20)
+    season = db.Column(db.Integer, default=1)
+    paid = db.Column(db.Boolean, default=False)
+
+    player = db.relationship('Player', foreign_keys=[player_id])

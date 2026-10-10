@@ -25,7 +25,7 @@ def messages():
     else:
         offers = (
             TransferOffer.query.filter(
-                (TransferOffer.status == "pending")
+                (TransferOffer.status.in_(["pending", "counter"]))
                 & (
                     (TransferOffer.from_team_id == player_team.id)
                     | (TransferOffer.to_team_id == player_team.id)
@@ -109,6 +109,30 @@ def reject_transfer(offer_id):
     except Exception:
         db.session.rollback()
         flash("حدث خطأ في معالجة العرض!")
+        return redirect("/messages")
+    flash(message)
+    return redirect("/messages")
+
+
+@bp.route("/transfer_offer/<int:offer_id>/counter", methods=["POST"])
+def counter_transfer(offer_id):
+    from flask import request
+    from models import GameState
+    from services import counter_offer
+
+    state = GameState.query.first()
+    day = state.current_day if state else 0
+    new_amount = request.form.get("counter_amount", type=int) or 0
+    ok, message = counter_offer(offer_id, new_amount, day)
+    if not ok:
+        db.session.rollback()
+        flash(message)
+        return redirect("/messages")
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("حدث خطأ في التفاوض!")
         return redirect("/messages")
     flash(message)
     return redirect("/messages")

@@ -98,7 +98,7 @@ REPUTATION_TOLERANCE = 10
 OLD_DATA_KEEP_PLAYED_MATCHES = 150
 
 # --- Schema migration guard ---
-TEMPLATE_SCHEMA_VERSION = 5  # bump to force a template.db rebuild
+TEMPLATE_SCHEMA_VERSION = 6  # bump to force a template.db rebuild
 
 # --- Advanced tactics (FM features) ---
 PRESSING_STYLES = ("low", "normal", "high")
@@ -248,3 +248,64 @@ XG_MAX = 0.90
 # --- Logging ---
 LOG_FILE = "game_errors.log"
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+# --- Transfer windows (phase 1: structure) ---
+# Summer: June..August, Winter: January. Deadline = last 3 days of window.
+TRANSFER_WINDOW_SUMMER_MONTHS = (6, 7, 8)
+TRANSFER_WINDOW_WINTER_MONTHS = (1,)
+TRANSFER_DEADLINE_DAYS = 3  # last N days of a window are "deadline day"
+TRANSFER_DEADLINE_SURGE = 2.0  # AI offer frequency multiplier on deadline
+TRANSFER_DEADLINE_EXPIRY_DAYS = 1  # offers made on deadline expire fast
+
+# --- Contracts (phase 2: the heart of every deal) ---
+CONTRACT_MIN_YEARS = 1
+CONTRACT_MAX_YEARS = 5
+CONTRACT_DAYS_PER_YEAR = 365
+# Yearly wage band as a fraction of market value (negotiation room).
+WAGE_YEARLY_MIN_RATIO = 0.05
+WAGE_YEARLY_MAX_RATIO = 0.20
+SIGNING_BONUS_MAX_RATIO = 0.15  # of transfer fee / market value
+RELEASE_CLAUSE_MIN_MULT = 1.2  # clause must be >= 1.2x market value
+RELEASE_CLAUSE_DEFAULT_MULT = 2.0
+PRECONTRACT_MONTHS = 6  # Bosman: last 6 months of a contract
+PRECONTRACT_DAYS = 180
+
+# --- Deal clauses (phase 3: FIFA-style terms) ---
+INSTALLMENTS_MAX = 4  # "50% now, 50% next season"
+INSTALLMENT_INTERVAL_DAYS = 180
+BUY_BACK_MAX_RATIO = 0.10  # buy-back price capped at 10% above sale price... (absolute cap below)
+BUY_BACK_PRICE_CAP_MULT = 3.0  # buy-back price <= 3x sale price
+FIRST_REFUSAL_NOTICE_DAYS = 3
+PERF_BONUS_GOAL_TARGET = 20
+PERF_BONUS_MAX_RATIO = 0.25  # of transfer fee
+SELL_ON_CLAUSE_MAX = 0.30
+
+# --- Live negotiation (phase 4) ---
+AGENT_FEE_RATIO = 0.05  # agent commission on top of the fee
+AGENT_FEE_STAR_RATIO = 0.10  # star players (value >= threshold) cost more
+AGENT_FEE_STAR_THRESHOLD = 5_000_000
+OFFER_MAX_ROUNDS = 3  # multi-round haggling before talks collapse
+COUNTER_OFFER_STEP = 0.10  # AI counters ~10% toward its valuation
+# Dynamic valuation weights (form vs age vs base).
+VALUATION_GOAL_WEIGHT = 5_000
+VALUATION_ASSIST_WEIGHT = 3_000
+VALUATION_YOUTH_BONUS = 1.2  # age <= 23
+VALUATION_VETERAN_MALUS = 0.7  # age >= 32
+VALUATION_MORALE_BONUS_STEP = 2_000  # per 20 morale above 60
+
+# --- Loans & rival competition (phase 5) ---
+LOAN_FEE_RATIO = 0.05  # of market value for the loan spell
+LOAN_MAX_DAYS = 365
+LOAN_MIN_DAYS = 90
+RIVAL_BID_CHANCE = 0.15  # a bigger club hijacks a deal you bid on
+RIVAL_REPUTATION_GAP = 10  # rival must be this much more reputable
+PLAYER_PREF_REPUTATION_GAP = 15  # player snubs you for a much bigger club
+
+# --- Financial fair play ---
+FFP_BASE_ALLOWANCE = 5_000_000  # spending room above net income
+FFP_SPEND_RATIO = 1.0  # allowed spend = income + base allowance
+
+# --- Transfer list / requests ---
+TRANSFER_LIST_DISCOUNT = 0.9  # listed players go ~10% cheaper
+TRANSFER_REQUEST_MORALE_LOSS = 15
+TRANSFER_REQUEST_AI_INTEREST_MULT = 1.5

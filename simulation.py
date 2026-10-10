@@ -580,6 +580,33 @@ def simulate_ai_transfers(state: GameState) -> None:
     if state.current_day % DAYS_PER_WEEK != 0:
         return
 
+    # Phase 1 (item 6): AI clubs also respect the window — no permanent
+    # deals when it is closed. Free-agent generation above is unaffected.
+    try:
+        from services import (
+            get_player_valuation,
+            is_deadline_day,
+            transfer_window_state,
+        )
+        window_closed = transfer_window_state(state) == "closed"
+        deadline = is_deadline_day(state)
+    except Exception:
+        window_closed, deadline = False, False
+    if window_closed:
+        return
+
+    # Phase 1 (item 7): deadline day — clubs panic-buy, twice the activity.
+    rounds = 2 if deadline else 1
+    for _ in range(rounds):
+        _ai_transfer_round(state, deadline)
+
+
+def _ai_transfer_round(state: GameState, deadline: bool = False) -> None:
+    try:
+        from services import get_player_valuation
+    except Exception:
+        get_player_valuation = None
+
     ai_teams = Team.query.filter_by(is_player_team=False).all()
     for team in ai_teams:
         squad = Player.query.filter_by(team_id=team.id).all()
@@ -609,11 +636,15 @@ def simulate_ai_transfers(state: GameState) -> None:
 
         upgraded = [c for c in candidates if candidate_gain(c) > 0]
         pool = upgraded or candidates
-        target = max(pool, key=lambda c: candidate_gain(c) + (c.potential - c.rating_for()) * 0.3)
+        # Phase 1 (items 9-10): listed / requesting players are hotter targets.
+        listed = [c for c in pool if c.transfer_listed or c.transfer_requested]
+        target = max(listed or pool, key=lambda c: candidate_gain(c) + (c.potential - c.rating_for()) * 0.3)
 
         if team.reputation >= (target.team.reputation if target.team else 0) - REPUTATION_TOLERANCE:
             low, high = TRANSFER_OFFER_PRICE_RANGE
-            amount = int(target.market_value * random.uniform(low, high))
+            # Phase 4 (item 20): price on dynamic valuation, not a fixed number.
+            base = get_player_valuation(target) if get_player_valuation else target.market_value
+            amount = int(base * random.uniform(low, high))
 
             # FM: board intervention — unrejectable mega bids force a sale.
             if target.team and target.team.is_player_team:
@@ -644,6 +675,12 @@ def simulate_ai_transfers(state: GameState) -> None:
                     ))
                     continue
 
+            try:
+                from services import is_deadline_day as _is_dd
+                from config import TRANSFER_DEADLINE_EXPIRY_DAYS as _dd_exp
+                expiry = _dd_exp if (_is_dd(state) or deadline) else TRANSFER_OFFER_DEADLINE_DAYS
+            except Exception:
+                expiry = TRANSFER_OFFER_DEADLINE_DAYS
             offer = TransferOffer(
                 player_id=target.id,
                 from_team_id=target.team_id,
@@ -651,7 +688,9 @@ def simulate_ai_transfers(state: GameState) -> None:
                 amount=amount,
                 status='pending',
                 created_day=state.current_day,
-                deadline_day=state.current_day + TRANSFER_OFFER_DEADLINE_DAYS,
+                deadline_day=state.current_day + expiry,
+                wage_offer=int((target.wage or 0) * 1.1),
+                contract_years=3,
             )
             db.session.add(offer)
 
@@ -871,6 +910,29 @@ def simulate_day(state: GameState) -> None:
     if state.current_day % DAYS_PER_WEEK == 0:
         check_training_complaints(state)
 
+    # --- Full transfer system: daily contract/loan/debt ticks ---
+    try:
+        from services import (
+            activate_precontracts,
+            auto_transfer_list_offers,
+            expire_contracts,
+            maybe_rival_bid,
+            pay_installments_due,
+            return_expired_loans,
+        )
+        expire_contracts(state)
+        return_expired_loans(state)
+        pay_installments_due(state)
+        activate_precontracts(state)
+        # NOTE: offer expiry stays in simulate_calendar (bulk fast-forward)
+        # only. Expiring here would void pending offers during normal daily
+        # play step-throughs.
+        if state.current_day % DAYS_PER_WEEK == 0:
+            auto_transfer_list_offers(state)
+            maybe_rival_bid(state)
+    except Exception:
+        logger.exception("transfer system daily tick failed")
+
     simulate_ai_transfers(state)
 
 
@@ -1004,6 +1066,17 @@ def cleanup_old_data() -> None:
 
 def process_season_end(state: GameState) -> None:
     from procedural import generate_player_name, generate_player_stats
+
+    # Phase 3 (item 15): settle performance bonuses BEFORE stats reset.
+    # FFP ledgers reset for the new season.
+    try:
+        from services import check_performance_bonuses
+        check_performance_bonuses(state)
+    except Exception:
+        logger.exception("performance bonuses settlement failed")
+    for team in Team.query.all():
+        team.season_spend = 0
+        team.season_income = 0
 
     players = Player.query.all()
     retired_count = 0

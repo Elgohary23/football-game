@@ -8,6 +8,37 @@
         • ثقة الإدارة: <strong>{{ state.board_confidence if state and state.board_confidence is not none else 60 }}%</strong>
     </p>
 
+    {% if transfer_status %}
+    <div class="card" style="margin-bottom:1rem;border:1px solid {% if transfer_status.window_open %}#27ae60{% else %}#e94560{% endif %};">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+            <div style="font-size:0.9rem;">
+                {% if transfer_status.window_open %}
+                🟢 <strong>نافذة الانتقالات مفتوحة</strong>
+                {% else %}
+                🔴 <strong>نافذة الانتقالات مغلقة</strong> <span style="color:#888;font-size:0.75rem;">(الصفقات الدائمة متوقفة — الوكلاء الأحرار والإعارات متاحون)</span>
+                {% endif %}
+                {% if transfer_status.deadline %}
+                <span style="background:#e94560;color:#fff;padding:0.1rem 0.5rem;border-radius:10px;font-size:0.75rem;">⏰ يوم الموعد النهائي — قرارات سريعة!</span>
+                {% endif %}
+            </div>
+            <div style="display:flex;gap:0.4rem;">
+                <form action="/transfer/window/open" method="POST" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <button class="btn btn-sm btn-success">فتح</button>
+                </form>
+                <form action="/transfer/window/closed" method="POST" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <button class="btn btn-sm btn-danger">إغلاق</button>
+                </form>
+                <form action="/transfer/window/auto" method="POST" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <button class="btn btn-sm btn-primary">تلقائي</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     {% if scouts %}
     <div class="card" style="margin-bottom:1rem;">
         <div class="card-header"><h3>الكشافة ومهامهم</h3></div>
@@ -97,6 +128,16 @@
                             <label for="sellon-{{ p.id }}" style="font-size:0.7rem;color:#888;">-20% مقابل بند بيع مستقبلي</label>
                             <button class="btn btn-sm btn-success" type="submit" {% if player_team.budget < p.market_value %}disabled title="الميزانية غير كافية"{% endif %}>شراء</button>
                         </form>
+                        <details style="margin-top:0.3rem;">
+                            <summary style="font-size:0.75rem;color:#3498db;cursor:pointer;">تعاقد حر بشروط (راتب/مدة/بونص)</summary>
+                            <form action="/free_agent/{{ p.id }}/sign" method="POST" style="display:flex;flex-direction:column;gap:0.25rem;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <input type="number" name="wage" min="0" step="1000" value="0" class="filter-input" placeholder="راتب سنوي"/>
+                                <input type="number" name="years" min="1" max="5" value="3" class="filter-input" placeholder="سنوات العقد"/>
+                                <input type="number" name="signing_bonus" min="0" step="1000" value="0" class="filter-input" placeholder="بونص توقيع"/>
+                                <button type="submit" class="btn btn-sm btn-primary">توقيع حر</button>
+                            </form>
+                        </details>
                     </td>
                 </tr>
                 {% endfor %}
@@ -125,7 +166,10 @@
             <tbody id="scoutTableBody">
                 {% for p in players %}
                 <tr class="scout-row" data-pos="{{ p.position }}" data-age="{{ p.age }}" data-val="{{ p.market_value }}" data-att="{{ p.attack }}" data-def="{{ p.defense }}">
-                    <td style="text-align:right;font-weight:bold;">{{ p.name }}</td>
+                    <td style="text-align:right;font-weight:bold;">{{ p.name }}
+                        {% if p.transfer_listed %}<span style="background:#f39c12;color:#fff;font-size:0.65rem;padding:0.05rem 0.4rem;border-radius:8px;">للبيع</span>{% endif %}
+                        {% if p.transfer_requested %}<span style="background:#e94560;color:#fff;font-size:0.65rem;padding:0.05rem 0.4rem;border-radius:8px;">طلب رحيل</span>{% endif %}
+                    </td>
                     <td><span class="pos-tag {{ p.position }}">{{ p.position }}</span></td>
                     <td>{{ p.age }}</td>
                     <td>
@@ -144,6 +188,44 @@
                                 شراء
                             </button>
                         </form>
+                        <details class="terms-details" style="margin-top:0.4rem;">
+                            <summary style="font-size:0.75rem;color:#9b59b6;cursor:pointer;">شروط فيفا (راتب/تقسيط/بنود)</summary>
+                            <form action="/buy_player/{{ p.id }}" method="POST" style="margin-top:0.3rem;display:flex;flex-direction:column;gap:0.25rem;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <input type="number" name="wage" min="0" step="1000" value="0" class="filter-input" placeholder="راتب سنوي"/>
+                                <input type="number" name="years" min="1" max="5" value="3" class="filter-input" placeholder="سنوات (1-5)"/>
+                                <input type="number" name="signing_bonus" min="0" step="1000" value="0" class="filter-input" placeholder="بونص توقيع"/>
+                                <select name="installments" class="filter-input">
+                                    <option value="1">دفعة واحدة</option>
+                                    <option value="2">قسطين (50%/50%)</option>
+                                    <option value="3">3 أقساط</option>
+                                    <option value="4">4 أقساط</option>
+                                </select>
+                                <input type="number" name="buy_back" min="0" step="1000" class="filter-input" placeholder="سعر إعادة الشراء (اختياري)"/>
+                                <label style="font-size:0.7rem;color:#888;"><input type="checkbox" name="first_refusal" value="1"/> حق الأولوية في البيع التالي</label>
+                                <input type="number" name="perf_bonus" min="0" step="1000" value="0" class="filter-input" placeholder="مكافأة أداء (مبلغ)"/>
+                                <input type="number" name="perf_target" min="0" value="0" class="filter-input" placeholder="هدف المكافأة (أهداف)"/>
+                                <button type="submit" class="btn btn-sm btn-success">شراء بالشروط</button>
+                            </form>
+                        </details>
+                        {% if p.release_clause %}
+                        <form action="/release_clause/{{ p.id }}" method="POST" style="margin-top:0.3rem;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <button type="submit" class="btn btn-sm btn-danger" title="دفع الشرط الجزائي والحصول على اللاعب فوراً">⚡ كسر العقد (${{ "{:,}".format(p.release_clause) }})</button>
+                        </form>
+                        {% endif %}
+                        {% if p.contract_days and p.contract_days <= 180 %}
+                        <form action="/precontract/{{ p.id }}" method="POST" style="margin-top:0.3rem;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <button type="submit" class="btn btn-sm btn-primary" title="عقد مسبق مجاني (بوزمان)">📝 عقد مسبق مجاني</button>
+                        </form>
+                        {% endif %}
+                        {% if buyback_ids and p.id in buyback_ids %}
+                        <form action="/buyback/{{ p.id }}/exercise" method="POST" style="margin-top:0.3rem;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <button type="submit" class="btn btn-sm btn-primary">↩ استعادة ببند إعادة الشراء</button>
+                        </form>
+                        {% endif %}
                         <details class="swap-details" style="margin-top:0.4rem;">
                             <summary style="font-size:0.75rem;color:#3498db;cursor:pointer;">مبادلة لاعب</summary>
                             <form action="/swap_offer/{{ p.id }}" method="POST" style="margin-top:0.3rem;display:flex;flex-direction:column;gap:0.25rem;">
@@ -156,6 +238,16 @@
                                 </select>
                                 <input type="number" name="cash" min="0" step="1000" value="0" class="filter-input" placeholder="أضف نقداً"/>
                                 <button type="submit" class="btn btn-sm btn-primary">إرسال عرض المبادلة</button>
+                            </form>
+                        </details>
+                        <details class="loan-details" style="margin-top:0.4rem;">
+                            <summary style="font-size:0.75rem;color:#27ae60;cursor:pointer;">إعارة (مع بند شراء اختياري)</summary>
+                            <form action="/loan_offer/{{ p.id }}" method="POST" style="margin-top:0.3rem;display:flex;flex-direction:column;gap:0.25rem;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <input type="number" name="loan_days" min="90" max="365" value="180" class="filter-input" placeholder="مدة الإعارة (يوم)"/>
+                                <input type="number" name="loan_fee" min="0" step="1000" value="0" class="filter-input" placeholder="رسوم الإعارة"/>
+                                <input type="number" name="buy_option" min="0" step="1000" class="filter-input" placeholder="بند الشراء (اختياري)"/>
+                                <button type="submit" class="btn btn-sm btn-success">طلب إعارة</button>
                             </form>
                         </details>
                     </td>

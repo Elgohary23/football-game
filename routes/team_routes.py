@@ -761,6 +761,7 @@ def medical():
 @bp.route("/scouting")
 def scouting():
     from config import PRESSING_STYLES, SCOUT_REGIONS
+    from services import get_transfer_status
 
     state = safe_state()
     player_team = safe_player_team()
@@ -785,6 +786,14 @@ def scouting():
     for p in list(other_players) + list(free_agents):
         ratings[p.id] = get_display_rating(p, player_team)
 
+    transfer_status = get_transfer_status(state)
+    buyback_ids = set()
+    try:
+        from models import BuyBackClause
+        buyback_ids = {c.player_id for c in BuyBackClause.query.filter_by(club_id=player_team.id).all()}
+    except Exception:
+        pass
+
     return render_template(
         "scouting.html",
         state=state,
@@ -795,6 +804,8 @@ def scouting():
         scouts=scouts,
         squad=squad,
         regions=SCOUT_REGIONS,
+        transfer_status=transfer_status,
+        buyback_ids=buyback_ids,
     )
 
 
@@ -842,7 +853,23 @@ def buy_player(player_id):
     target = db.session.get(Player, player_id)
     sell_on = request.form.get("sell_on", type=float) or 0.0
     sell_on = max(0.0, min(0.3, sell_on))
-    ok, message = purchase_player(player_team, target, state.current_day, sell_on)
+    # Full FIFA-style terms (all optional, backward compatible).
+    wage = request.form.get("wage", type=int) or 0
+    years = request.form.get("years", type=int) or 3
+    signing_bonus = request.form.get("signing_bonus", type=int) or 0
+    release_clause = request.form.get("release_clause", type=int) or None
+    installments = request.form.get("installments", type=int) or 1
+    buy_back = request.form.get("buy_back", type=int) or None
+    first_refusal = bool(request.form.get("first_refusal"))
+    perf_bonus = request.form.get("perf_bonus", type=int) or 0
+    perf_target = request.form.get("perf_target", type=int) or 0
+    ok, message = purchase_player(
+        player_team, target, state.current_day, sell_on,
+        wage=wage, years=years, signing_bonus=signing_bonus,
+        release_clause=release_clause, installments=installments,
+        buy_back_price=buy_back, first_refusal=first_refusal,
+        performance_bonus=perf_bonus, performance_target=perf_target,
+    )
     if not ok:
         db.session.rollback()
         flash(message)
@@ -855,5 +882,240 @@ def buy_player(player_id):
         flash("حدث خطأ أثناء الشراء!")
         return redirect("/scouting")
 
+    flash(message)
+    return redirect("/scouting")
+
+
+# --- Full transfer system: windows, lists, loans, contracts --------------
+@bp.route("/transfer/window/<mode>", methods=["POST"])
+def transfer_window(mode):
+    from services import set_transfer_window
+
+    state = safe_state()
+    message = set_transfer_window(state, mode)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("حدث خطأ أثناء تحديث النافذة!")
+        return redirect("/scouting")
+    flash(message)
+    return redirect("/scouting")
+
+
+@bp.route("/player/<int:player_id>/list", methods=["POST"])
+def transfer_list(player_id):
+    from services import list_transfer
+
+    player_team = safe_player_team()
+    player = db.session.get(Player, player_id)
+    ok, message = list_transfer(player_team, player)
+    if not ok:
+        db.session.rollback()
+    else:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            message = "حدث خطأ!"
+    flash(message)
+    return redirect("/squad")
+
+
+@bp.route("/player/<int:player_id>/unlist", methods=["POST"])
+def transfer_unlist(player_id):
+    from services import unlist_transfer
+
+    player_team = safe_player_team()
+    player = db.session.get(Player, player_id)
+    ok, message = unlist_transfer(player_team, player)
+    if not ok:
+        db.session.rollback()
+    else:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            message = "حدث خطأ!"
+    flash(message)
+    return redirect("/squad")
+
+
+@bp.route("/player/<int:player_id>/request_transfer", methods=["POST"])
+def transfer_request(player_id):
+    from services import request_transfer
+
+    state = safe_state()
+    player_team = safe_player_team()
+    player = db.session.get(Player, player_id)
+    ok, message = request_transfer(player_team, player, state.current_day)
+    if not ok:
+        db.session.rollback()
+    else:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            message = "حدث خطأ!"
+    flash(message)
+    return redirect("/squad")
+
+
+@bp.route("/player/<int:player_id>/withdraw_request", methods=["POST"])
+def transfer_withdraw(player_id):
+    from services import withdraw_transfer_request
+
+    player_team = safe_player_team()
+    player = db.session.get(Player, player_id)
+    ok, message = withdraw_transfer_request(player_team, player)
+    if not ok:
+        db.session.rollback()
+    else:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            message = "حدث خطأ!"
+    flash(message)
+    return redirect("/squad")
+
+
+@bp.route("/free_agent/<int:player_id>/sign", methods=["POST"])
+def free_agent_sign(player_id):
+    from services import sign_free_agent
+
+    state = safe_state()
+    player_team = safe_player_team()
+    target = db.session.get(Player, player_id)
+    wage = request.form.get("wage", type=int) or 0
+    years = request.form.get("years", type=int) or 3
+    bonus = request.form.get("signing_bonus", type=int) or 0
+    ok, message = sign_free_agent(player_team, target, state.current_day,
+                                  wage=wage, years=years, signing_bonus=bonus)
+    if not ok:
+        db.session.rollback()
+        flash(message)
+        return redirect("/scouting")
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("حدث خطأ أثناء التعاقد!")
+        return redirect("/scouting")
+    flash(message)
+    return redirect("/scouting")
+
+
+@bp.route("/loan_offer/<int:player_id>", methods=["POST"])
+def loan_offer(player_id):
+    from services import create_bid
+
+    state = safe_state()
+    player_team = safe_player_team()
+    target = db.session.get(Player, player_id)
+    days = request.form.get("loan_days", type=int) or 180
+    fee = request.form.get("loan_fee", type=int) or 0
+    buy_option = request.form.get("buy_option", type=int) or None
+    ok, message = create_bid(player_team, target, 0, state.current_day,
+                             is_loan=True, loan_days=days,
+                             loan_fee=fee, buy_option=buy_option)
+    if not ok:
+        db.session.rollback()
+        flash(message)
+        return redirect("/scouting")
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("حدث خطأ أثناء إرسال عرض الإعارة!")
+        return redirect("/scouting")
+    flash(message)
+    return redirect("/messages")
+
+
+@bp.route("/precontract/<int:player_id>", methods=["POST"])
+def precontract(player_id):
+    from services import make_precontract
+
+    state = safe_state()
+    player_team = safe_player_team()
+    target = db.session.get(Player, player_id)
+    wage = request.form.get("wage", type=int) or 0
+    years = request.form.get("years", type=int) or 3
+    ok, message = make_precontract(player_team, target, state.current_day,
+                                   wage=wage, years=years)
+    if not ok:
+        db.session.rollback()
+    else:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            message = "حدث خطأ!"
+    flash(message)
+    return redirect("/scouting")
+
+
+@bp.route("/release_clause/<int:player_id>", methods=["POST"])
+def release_clause_buy(player_id):
+    from services import trigger_release_clause
+
+    state = safe_state()
+    player_team = safe_player_team()
+    target = db.session.get(Player, player_id)
+    wage = request.form.get("wage", type=int) or 0
+    years = request.form.get("years", type=int) or 3
+    ok, message = trigger_release_clause(player_team, target, state.current_day,
+                                         wage=wage, years=years)
+    if not ok:
+        db.session.rollback()
+        flash(message)
+        return redirect("/scouting")
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("حدث خطأ أثناء تفعيل الشرط الجزائي!")
+        return redirect("/scouting")
+    flash(message)
+    return redirect("/scouting")
+
+
+@bp.route("/loan/<int:player_id>/buy", methods=["POST"])
+def loan_buy(player_id):
+    from services import exercise_loan_buy
+
+    state = safe_state()
+    player_team = safe_player_team()
+    player = db.session.get(Player, player_id)
+    ok, message = exercise_loan_buy(player_team, player, state.current_day)
+    if not ok:
+        db.session.rollback()
+    else:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            message = "حدث خطأ!"
+    flash(message)
+    return redirect("/squad")
+
+
+@bp.route("/buyback/<int:player_id>/exercise", methods=["POST"])
+def buyback_exercise(player_id):
+    from services import exercise_buy_back
+
+    state = safe_state()
+    player_team = safe_player_team()
+    player = db.session.get(Player, player_id)
+    ok, message = exercise_buy_back(player_team, player, state.current_day)
+    if not ok:
+        db.session.rollback()
+    else:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            message = "حدث خطأ!"
     flash(message)
     return redirect("/scouting")
