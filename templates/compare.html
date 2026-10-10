@@ -2,7 +2,7 @@
 {% block title %}مقارنة اللاعبين{% endblock %}
 {% block content %}
 <section class="dashboard">
-    <h1 style="color:#e94560;margin-bottom:1rem;">مقارنة اللاعبين</h1>
+    <h1 class="page-title">مقارنة اللاعبين</h1>
 
     <div class="card" style="margin-bottom:1rem;">
         <form method="GET" action="/compare" class="tactics-grid">
@@ -41,6 +41,7 @@
         ('sharpness', 'جاهزية المباراة'), ('goals', 'الأهداف'), ('assists', 'الصناعة')
     ] %}
     <div class="card">
+        <div class="table-container">
         <table class="compare-table">
             <thead>
                 <tr>
@@ -87,11 +88,13 @@
                 </tr>
             </tbody>
         </table>
+        </div>
     </div>
     {% endif %}
 </section>
 
 <style>
+.compare-table { min-width: 560px; }
 .compare-table th, .compare-table td { padding: 0.55rem 0.7rem; border-bottom: 1px solid rgba(255,255,255,0.06); }
 .compare-table th:first-child { text-align: right; }
 .same-row-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; direction: ltr; }

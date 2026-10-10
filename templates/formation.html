@@ -2,12 +2,14 @@
 {% block title %}التكتيكات الحرة{% endblock %}
 {% block content %}
 <section class="dashboard">
-    <div class="card-header">
-        <h3><i class="fas fa-shield-alt"></i> نظام التكتيكات الحرة</h3>
-        <div>
-            <span id="formationCount" class="lead" style="color:#888;font-size:0.9rem;margin-left:1rem;">0/11 لاعب</span>
-            <button class="btn btn-primary btn-sm" id="saveFormationBtn"><i class="fas fa-save"></i> حفظ التشكيلة</button>
-            <button class="btn btn-secondary btn-sm" id="resetFormationBtn"><i class="fas fa-undo"></i> إعادة ضبط</button>
+    <div class="card" style="margin-bottom:1rem;">
+        <div class="card-header" style="margin-bottom:0;padding-bottom:0;border-bottom:none;">
+            <h3><i class="fas fa-shield-alt"></i> نظام التكتيكات الحرة</h3>
+            <div>
+                <span id="formationCount" class="lead" style="color:#888;font-size:0.9rem;margin-left:1rem;">0/11 لاعب</span>
+                <button class="btn btn-primary btn-sm" id="saveFormationBtn"><i class="fas fa-save"></i> حفظ التشكيلة</button>
+                <button class="btn btn-secondary btn-sm" id="resetFormationBtn"><i class="fas fa-undo"></i> إعادة ضبط</button>
+            </div>
         </div>
     </div>
 
@@ -61,6 +63,7 @@
     <div class="card" style="margin-bottom:1rem;">
         <div class="card-header"><h3><i class="fas fa-clipboard-list"></i> الخطط التكتيكية المحفوظة</h3></div>
         {% if presets %}
+        <div class="table-container">
         <table>
             <thead>
                 <tr><th>الاسم</th><th>النوع</th><th>الضغط</th><th>الأسلوب</th><th>إجراء</th></tr>
@@ -86,6 +89,7 @@
                 {% endfor %}
             </tbody>
         </table>
+        </div>
         {% else %}
         <p style="color:#777;font-size:0.85rem;">لا توجد خطط محفوظة بعد.</p>
         {% endif %}
@@ -126,9 +130,8 @@
 <input type="hidden" id="csrfToken" value="{{ csrf_token() }}">
 
 <style>
-.tactics-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; align-items: end; }
-.tactics-grid label { display:block; color:#888; font-size:0.8rem; margin-bottom:0.3rem; }
-.role-select { width: 100%; font-size: 0.65rem; margin-top: 2px; background: #0f3460; color: #fff; border: 1px solid #444; border-radius: 3px; padding: 0 2px; }
+/* .tactics-grid / .filter-input / .role-select live in the global design
+   system (style.css) so squad + compare forms share the same look. */
 .free-pitch {
     position: relative;
     display: flex;

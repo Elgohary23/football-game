@@ -2,7 +2,7 @@
 {% block title %}إدارة التشكيلة{% endblock %}
 {% block content %}
 <section class="dashboard">
-    <div class="manager-record" style="grid-template-columns:repeat(4,1fr);">
+    <div class="manager-record">
         <div class="record-item">
             <div class="record-label">تصنيف الفريق</div>
             <div class="record-value" style="color:#e94560;">{{ tier }}</div>
@@ -111,6 +111,7 @@
         <div class="card" style="margin-top:1rem;">
             <div class="card-header"><h3><i class="fas fa-hands-helping"></i> التوجيه (الإرشاد)</h3></div>
             {% if mentoring %}
+            <div class="table-container">
             <table>
                 <thead>
                     <tr><th>المرشد</th><th>الشاب</th><th>إجراء</th></tr>
@@ -131,6 +132,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
             {% endif %}
             {% if prospects %}
             <form action="/mentoring/add" method="POST" class="tactics-grid" style="margin-top:0.8rem;">
@@ -223,10 +225,10 @@
         <div class="card-header"><h3>دكة الاحتياط</h3></div>
         <div id="benchList" style="display:flex;flex-wrap:wrap;gap:0.5rem;">
             {% for p in bench %}
-            <div class="bench-chip" data-id="{{ p.id }}" style="background:#1a1a2e;border:1px solid #2a2a4a;border-radius:4px;padding:0.4rem 0.8rem;font-size:0.8rem;display:flex;align-items:center;gap:0.5rem;">
-                <span class="pos-tag {{ p.position }}" style="font-size:0.6rem;">{{ p.position }}</span>
-                <span style="font-weight:bold;">{{ p.name }}</span>
-                {% if p.injury_days > 0 %}<span style="color:#e74c3c;font-size:0.7rem;">مصاب {{ p.injury_days }}ي</span>{% endif %}
+            <div class="bench-chip" data-id="{{ p.id }}">
+                <span class="pos-tag {{ p.position }}">{{ p.position }}</span>
+                <span class="bench-name">{{ p.name }}</span>
+                {% if p.injury_days > 0 %}<span class="bench-injury">مصاب {{ p.injury_days }}ي</span>{% endif %}
             </div>
             {% endfor %}
         </div>
@@ -382,12 +384,11 @@ document.addEventListener('DOMContentLoaded', function() {
     function benchChipFor(id, pos, name, injury) {
         const d = document.createElement('div');
         d.className = 'bench-chip'; d.dataset.id = id;
-        d.style.cssText = 'background:#1a1a2e;border:1px solid #2a2a4a;border-radius:4px;padding:0.4rem 0.8rem;font-size:0.8rem;display:flex;align-items:center;gap:0.5rem;';
-        const tag = document.createElement('span'); tag.className = 'pos-tag ' + pos; tag.style.fontSize = '0.6rem'; tag.textContent = pos;
-        const nameEl = document.createElement('span'); nameEl.style.fontWeight = 'bold'; nameEl.textContent = name;
+        const tag = document.createElement('span'); tag.className = 'pos-tag ' + pos; tag.textContent = pos;
+        const nameEl = document.createElement('span'); nameEl.className = 'bench-name'; nameEl.textContent = name;
         d.appendChild(tag); d.appendChild(nameEl);
         if (injury) {
-            const i = document.createElement('span'); i.style.color = '#e74c3c'; i.style.fontSize = '0.7rem'; i.textContent = 'مصاب ' + injury + 'ي';
+            const i = document.createElement('span'); i.className = 'bench-injury'; i.textContent = 'مصاب ' + injury + 'ي';
             d.appendChild(i);
         }
         return d;
