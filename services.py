@@ -20,6 +20,7 @@ from config import (
     AGENT_FEE_RATIO,
     AGENT_FEE_STAR_RATIO,
     AGENT_FEE_STAR_THRESHOLD,
+    ATTACK_ATTRS,
     BUY_BACK_PRICE_CAP_MULT,
     CONTRACT_DAYS_PER_YEAR,
     CONTRACT_MAX_YEARS,
@@ -30,6 +31,7 @@ from config import (
     BUDGET_JITTER,
     BUDGET_REPUTATION_STEP,
     CLUB_REPUTATIONS,
+    DEFENSE_ATTRS,
     EUROPEAN_TEAMS,
     FFP_BASE_ALLOWANCE,
     FFP_SPEND_RATIO,
@@ -46,6 +48,13 @@ from config import (
     LOAN_MIN_DAYS,
     LOG_FILE,
     LOG_FORMAT,
+    PHILOSOPHY_BAND_SHIFT_CHANCE,
+    PHILOSOPHY_BANDS,
+    PHILOSOPHY_PRESSING,
+    PHILOSOPHY_PROFILES,
+    PHILOSOPHY_SHIFT_CHANCE,
+    PHILOSOPHY_TACTIC,
+    POSITION_OVERALL_WEIGHTS,
     MARKET_VALUE_MIN,
     MARKET_VALUE_MAX,
     MAX_FACILITY_LEVEL,
@@ -93,6 +102,7 @@ from config import (
     WAGE_YEARLY_MIN_RATIO,
     YOUTH_COST_PER_LEVEL,
 )
+from config import philosophy_band_for
 from models import (
     db,
     BuyBackClause,
@@ -100,6 +110,7 @@ from models import (
     InstallmentDebt,
     PerformanceBonus,
     Team,
+    TeamPhilosophy,
     Player,
     GameState,
     Match,
@@ -255,7 +266,59 @@ def _ensure_schema_columns() -> None:
         ("league", "rating_ceiling", "INTEGER"),
         ("league", "season_start_week", "INTEGER DEFAULT 1"),
         ("league", "is_continental", "BOOLEAN DEFAULT 0"),
+        # Position-specific overalls + detailed attributes
+        ("player", "overall", "INTEGER DEFAULT 50"),
+        ("player", "detailed_position", "VARCHAR(10)"),
+        ("player", "off_the_ball", "INTEGER DEFAULT 50"),
+        ("player", "first_touch", "INTEGER DEFAULT 50"),
+        ("player", "finishing", "INTEGER DEFAULT 50"),
+        ("player", "shot_power", "INTEGER DEFAULT 50"),
+        ("player", "long_shots", "INTEGER DEFAULT 50"),
+        ("player", "volleys", "INTEGER DEFAULT 50"),
+        ("player", "penalties", "INTEGER DEFAULT 50"),
+        ("player", "free_kick_accuracy", "INTEGER DEFAULT 50"),
+        ("player", "curve", "INTEGER DEFAULT 50"),
+        ("player", "passing", "INTEGER DEFAULT 50"),
+        ("player", "vision", "INTEGER DEFAULT 50"),
+        ("player", "crossing", "INTEGER DEFAULT 50"),
+        ("player", "ball_control", "INTEGER DEFAULT 50"),
+        ("player", "dribbling", "INTEGER DEFAULT 50"),
+        ("player", "heading", "INTEGER DEFAULT 50"),
+        ("player", "acceleration", "INTEGER DEFAULT 50"),
+        ("player", "sprint_speed", "INTEGER DEFAULT 50"),
+        ("player", "agility", "INTEGER DEFAULT 50"),
+        ("player", "balance", "INTEGER DEFAULT 50"),
+        ("player", "jumping", "INTEGER DEFAULT 50"),
+        ("player", "strength", "INTEGER DEFAULT 50"),
+        ("player", "standing_tackle", "INTEGER DEFAULT 50"),
+        ("player", "sliding_tackle", "INTEGER DEFAULT 50"),
+        ("player", "marking", "INTEGER DEFAULT 50"),
+        ("player", "positioning", "INTEGER DEFAULT 50"),
+        ("player", "interceptions", "INTEGER DEFAULT 50"),
+        ("player", "defensive_awareness", "INTEGER DEFAULT 50"),
+        ("player", "aggression", "INTEGER DEFAULT 50"),
+        ("player", "bravery", "INTEGER DEFAULT 50"),
+        ("player", "composure", "INTEGER DEFAULT 50"),
+        ("player", "concentration", "INTEGER DEFAULT 50"),
+        ("player", "decision_making", "INTEGER DEFAULT 50"),
+        ("player", "teamwork", "INTEGER DEFAULT 50"),
+        ("player", "work_rate", "INTEGER DEFAULT 50"),
+        ("player", "flair", "INTEGER DEFAULT 50"),
+        ("player", "reactions", "INTEGER DEFAULT 50"),
+        ("player", "technique", "INTEGER DEFAULT 50"),
+        ("player", "gk_diving", "INTEGER DEFAULT 50"),
+        ("player", "gk_handling", "INTEGER DEFAULT 50"),
+        ("player", "gk_kicking", "INTEGER DEFAULT 50"),
+        ("player", "gk_positioning", "INTEGER DEFAULT 50"),
+        ("player", "gk_reflexes", "INTEGER DEFAULT 50"),
+        ("player", "gk_one_on_ones", "INTEGER DEFAULT 50"),
+        ("player", "gk_communication", "INTEGER DEFAULT 50"),
     ]
+    # New table for old saves: create_all adds missing tables without wiping data.
+    try:
+        db.create_all()
+    except Exception:
+        pass
     for table, column, ddl in alters:
         try:
             db.session.execute(sql_text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
@@ -502,6 +565,456 @@ def calculate_team_tier(team_id: int) -> dict:
         "attack": round(attack, 1),
         "defense": round(defense, 1),
     }
+
+
+def calculate_team_tier(team_id: int) -> dict:
+    """Display ratings + tier for a team (select_team / squad pages).
+
+    Attack/defence come from ``Team.get_strength()`` (best-XI). The tier is the
+    team's league tier (PL=1 .. League Two=4).
+    """
+    team = db.session.get(Team, team_id)
+    if not team:
+        return {"tier": 4, "rating": 0.0, "attack": 0.0, "defense": 0.0}
+
+    attack, defense = team.get_strength()
+    rating = round((attack + defense) / 2.0, 1)
+    tier = team.league.tier if team.league else 1
+    return {
+        "tier": tier,
+        "rating": rating,
+        "attack": round(attack, 1),
+        "defense": round(defense, 1),
+    }
+
+
+# --------------------------------------------------------------------------
+# Position-specific overalls + tier-bounded philosophies
+# --------------------------------------------------------------------------
+_COARSE_TO_DETAILED = {"GK": "GK", "DEF": "CB", "MID": "CM", "FWD": "ST"}
+_BAND_ORDER = ["survivor", "pragmatic", "ambitious", "elite"]
+
+
+def infer_detailed_position(player) -> str:
+    """Best-effort detailed position for legacy rows."""
+    det = (getattr(player, "detailed_position", None) or "").strip() if getattr(player, "detailed_position", None) else ""
+    if det in POSITION_OVERALL_WEIGHTS:
+        return det
+    pos = (getattr(player, "position", None) or "").strip() if getattr(player, "position", None) else ""
+    if pos in POSITION_OVERALL_WEIGHTS:
+        return pos
+    if pos in _COARSE_TO_DETAILED:
+        return _COARSE_TO_DETAILED[pos]
+    return "CM"
+
+
+def recompute_aggregates(player: Player) -> None:
+    """Compute attack/defense/overall from detailed attributes using the
+    position-specific weight tables in POSITION_OVERALL_WEIGHTS."""
+    det = infer_detailed_position(player)
+    weights = POSITION_OVERALL_WEIGHTS.get(det or "CM")
+    if not weights:
+        return
+    total = 0.0
+    for attr, w in weights.items():
+        try:
+            val = getattr(player, attr, 50) or 50
+        except Exception:
+            val = 50
+        total += float(val) * float(w)
+    player.overall = max(1, min(99, int(round(total))))
+
+    # attack/defense split — derived from the same weights but bucketed
+    # into ATTACK_ATTRS / DEFENSE_ATTRS.
+    att_w = sum(w for a, w in weights.items() if a in ATTACK_ATTRS)
+    def_w = sum(w for a, w in weights.items() if a in DEFENSE_ATTRS)
+    att_raw = sum((getattr(player, a, 50) or 50) * w for a, w in weights.items() if a in ATTACK_ATTRS)
+    def_raw = sum((getattr(player, a, 50) or 50) * w for a, w in weights.items() if a in DEFENSE_ATTRS)
+    player.attack = max(1, min(99, int(round(att_raw / att_w)))) if att_w > 0 else player.overall
+    player.defense = max(1, min(99, int(round(def_raw / def_w)))) if def_w > 0 else player.overall
+
+
+def recompute_all_aggregates() -> int:
+    """Recompute overalls for every player. Returns count. Caller owns commit."""
+    count = 0
+    try:
+        players = Player.query.all()
+    except Exception:
+        return 0
+    for p in players:
+        try:
+            if not getattr(p, "detailed_position", None):
+                # Backfill legacy rows so the UI badges stay meaningful.
+                pos = (p.position or "").strip()
+                if pos in POSITION_OVERALL_WEIGHTS:
+                    p.detailed_position = pos
+                elif pos in _COARSE_TO_DETAILED:
+                    p.detailed_position = _COARSE_TO_DETAILED[pos]
+                else:
+                    p.detailed_position = "CM"
+            recompute_aggregates(p)
+            count += 1
+        except Exception:
+            continue
+    return count
+
+
+def _jitter_profile(primary: str) -> dict:
+    base = PHILOSOPHY_PROFILES.get(primary, PHILOSOPHY_PROFILES["balanced"])
+    out = {}
+    for k, v in base.items():
+        try:
+            j = random.uniform(-0.15, 0.15)
+            out[k] = max(0.0, min(1.0, float(v) + j))
+        except Exception:
+            out[k] = float(v)
+    return out
+
+
+def _band_defaults(band: str) -> tuple[str, int, int]:
+    if band == "elite":
+        return (random.choice(["title", "top4"]), random.randint(30, 50), random.randint(88, 99))
+    if band == "ambitious":
+        return (random.choice(["top4", "europa"]), random.randint(50, 70), random.randint(70, 86))
+    if band == "pragmatic":
+        return (random.choice(["mid_table", "europa"]), random.randint(60, 80), random.randint(50, 70))
+    return (random.choice(["survival", "mid_table"]), random.randint(70, 90), random.randint(30, 50))
+
+
+def get_team_philosophy(team: Team):
+    """Lazy idempotent accessor: assigns a band-correct philosophy on first use."""
+    if team is None:
+        return None
+    try:
+        phil = TeamPhilosophy.query.filter_by(team_id=team.id).first()
+    except Exception:
+        phil = getattr(team, "philosophy", None)
+    if phil is not None:
+        return phil
+    try:
+        return assign_team_philosophy(team)
+    except Exception:
+        return getattr(team, "philosophy", None)
+
+
+def assign_team_philosophy(team: Team):
+    """Randomise a club's identity WITHIN its reputation band.
+
+    Uniformly random within the band — no canonical philosophy per club name.
+    """
+    band = philosophy_band_for(getattr(team, "reputation", 50) or 50)
+    allowed = list(PHILOSOPHY_BANDS[band]["allowed"])
+    primary = random.choice(allowed) if allowed else "balanced"
+    prof = _jitter_profile(primary)
+    season_goal, patience, ambition = _band_defaults(band)
+    try:
+        state = GameState.query.first()
+        season = state.season_number or 1 if state else 1
+    except Exception:
+        season = 1
+    phil = None
+    try:
+        phil = TeamPhilosophy.query.filter_by(team_id=team.id).first()
+    except Exception:
+        phil = None
+    if phil is None:
+        try:
+            phil = getattr(team, "philosophy", None)
+            if phil is not None and getattr(phil, "team_id", team.id) != team.id:
+                phil = None
+        except Exception:
+            phil = None
+    if phil is None:
+        phil = TeamPhilosophy(team_id=team.id)
+        db.session.add(phil)
+    phil.primary = primary
+    phil.band = band
+    phil.attacking_intent = prof.get("attacking_intent", 0.5)
+    phil.pressing_intensity = prof.get("pressing_intensity", 0.5)
+    phil.possession_focus = prof.get("possession_focus", 0.5)
+    phil.width = prof.get("width", 0.5)
+    phil.tempo = prof.get("tempo", 0.5)
+    phil.defensive_line = prof.get("defensive_line", 0.5)
+    phil.build_up_style = prof.get("build_up_style", 0.5)
+    phil.transition_style = prof.get("transition_style", 0.5)
+    phil.season_goal = season_goal
+    phil.patience = patience
+    phil.board_ambition = ambition
+    phil.last_shift_season = season
+    return phil
+
+
+def effective_pressing(team: Team) -> str:
+    """Pressing style implied by the club's philosophy (fallback: stored value)."""
+    try:
+        phil = get_team_philosophy(team) if team else None
+        key = (phil.primary if phil and getattr(phil, "primary", None) else "").strip()
+        if key in PHILOSOPHY_PRESSING:
+            return PHILOSOPHY_PRESSING[key]
+    except Exception:
+        pass
+    return (getattr(team, "pressing_style", None) or "normal")
+
+
+def effective_match_tactic(team: Team) -> str:
+    """Match tactic implied by the club's philosophy (fallback: stored value)."""
+    try:
+        phil = get_team_philosophy(team) if team else None
+        key = (phil.primary if phil and getattr(phil, "primary", None) else "").strip()
+        if key in PHILOSOPHY_TACTIC:
+            return PHILOSOPHY_TACTIC[key]
+    except Exception:
+        pass
+    return (getattr(team, "match_tactic", None) or "balanced")
+
+
+def team_decision_profile(team: Team) -> dict:
+    """Decision profile for the (future) AI transfer engine.
+
+    NOTE: the profile's ``priority_positions`` and ``attribute_weights``
+    must be used by the future AI when evaluating transfer targets —
+    a mid-table club signing undervalued youngsters who fit its
+    philosophy is how organic surprises (e.g. an unexpected 2nd place)
+    emerge from rational decisions rather than budgets alone.
+    """
+    phil = None
+    try:
+        phil = get_team_philosophy(team)
+    except Exception:
+        phil = None
+    primary = getattr(phil, "primary", "balanced") if phil else "balanced"
+    weights = dict(POSITION_OVERALL_WEIGHTS.get("CM", {}))
+    priority = ["CM", "ST", "CB"]
+    if primary in ("galacticos", "fluid_attacking"):
+        priority = ["ST", "RW", "LW", "CAM"]
+    elif primary in ("tiki_taka", "possession_domination"):
+        priority = ["CM", "CAM", "CB"]
+    elif primary == "gegenpress":
+        priority = ["CDM", "CM", "ST"]
+    elif primary == "wing_play":
+        priority = ["LW", "RW", "LB", "RB"]
+    elif primary in ("counter_attack", "direct_football", "route_one"):
+        priority = ["ST", "CB", "CDM"]
+    elif primary == "park_the_bus":
+        priority = ["CB", "CDM", "GK"]
+    elif primary in ("youth_development", "moneyball"):
+        priority = ["CAM", "CM", "ST", "LW", "RW"]
+    elif primary == "high_line_defense":
+        priority = ["CB", "LB", "RB", "CDM"]
+    elif primary == "total_football":
+        priority = ["CM", "LWB", "RWB", "CF"]
+    return {
+        "primary": primary,
+        "band": getattr(phil, "band", None) if phil else None,
+        "priority_positions": priority,
+        "attribute_weights": weights,
+        "season_goal": getattr(phil, "season_goal", None) if phil else None,
+    }
+
+
+def _philosophy_primary_str(club_philosophy) -> str:
+    if isinstance(club_philosophy, str):
+        return club_philosophy
+    if isinstance(club_philosophy, dict):
+        return str(club_philosophy.get("primary", "balanced"))
+    return str(getattr(club_philosophy, "primary", club_philosophy or "balanced"))
+
+
+def evaluate_youngster_surprise_potential(player: Player, club_philosophy) -> float:
+    """Return a 0-1 score of how much this youngster could overperform
+    his market value given the club's philosophy. Used by the future AI
+    to sign undervalued youth. For now, tests only."""
+    try:
+        overall = getattr(player, "overall", None) or 0
+        if not overall:
+            overall = max(getattr(player, "attack", 50) or 50, getattr(player, "defense", 50) or 50)
+    except Exception:
+        overall = 50
+    try:
+        potential = int(getattr(player, "potential", overall) or overall)
+    except Exception:
+        potential = int(overall or 50)
+    try:
+        age = int(getattr(player, "age", 25) or 25)
+    except Exception:
+        age = 25
+    potential_gap = potential - int(overall or 50)
+    youth_bonus = 1.0 if age <= 21 else (0.6 if age <= 24 else 0.2)
+    key = _philosophy_primary_str(club_philosophy)
+    philosophy_bonus = 0.4 if key in ("youth_development", "moneyball") else 0.0
+    score = (potential_gap / 20.0) * youth_bonus + philosophy_bonus
+    return max(0.0, min(1.0, float(score)))
+
+
+def _league_finish_rank(team: Team) -> tuple[int | None, int | None]:
+    """(rank 1-based, league size) from current points; None if no league."""
+    try:
+        if not team or not team.league_id:
+            return (None, None)
+        mates = Team.query.filter_by(league_id=team.league_id).all()
+        if not mates:
+            return (None, None)
+        ordered = Team.table_sort_pipeline(mates)
+        for i, t in enumerate(ordered, start=1):
+            if t.id == team.id:
+                return (i, len(ordered))
+        return (None, len(ordered))
+    except Exception:
+        return (None, None)
+
+
+def _band_shift_direction(team: Team) -> int:
+    """+1 band up, -1 band down, 0 no justification this season."""
+    rank, size = _league_finish_rank(team)
+    if rank is None or not size:
+        return 0
+    # Top 3 -> up (covers lower-division promotion), bottom 3 -> down.
+    if rank <= 3:
+        # Already elite-top? Still allow up only if not at ceiling.
+        try:
+            cur = philosophy_band_for(team.reputation or 50)
+            if cur == "elite":
+                return 0
+        except Exception:
+            pass
+        # A bottom-table elite club must NOT shift up: if the team is
+        # simultaneously in the bottom 3 (tiny leagues), down wins.
+        if size > 6 and rank > size - 3:
+            return -1
+        return 1
+    if size >= 3 and rank > size - 3:
+        try:
+            cur = philosophy_band_for(team.reputation or 50)
+            if cur == "survivor":
+                return 0
+        except Exception:
+            pass
+        return -1
+    return 0
+
+
+def _apply_philosophy_row(team: Team, primary: str, band: str, season: int):
+    prof = _jitter_profile(primary)
+    season_goal, patience, ambition = _band_defaults(band)
+    phil = None
+    try:
+        phil = TeamPhilosophy.query.filter_by(team_id=team.id).first()
+    except Exception:
+        phil = None
+    if phil is None:
+        phil = TeamPhilosophy(team_id=team.id)
+        db.session.add(phil)
+    phil.primary = primary
+    phil.band = band
+    phil.attacking_intent = prof.get("attacking_intent", 0.5)
+    phil.pressing_intensity = prof.get("pressing_intensity", 0.5)
+    phil.possession_focus = prof.get("possession_focus", 0.5)
+    phil.width = prof.get("width", 0.5)
+    phil.tempo = prof.get("tempo", 0.5)
+    phil.defensive_line = prof.get("defensive_line", 0.5)
+    phil.build_up_style = prof.get("build_up_style", 0.5)
+    phil.transition_style = prof.get("transition_style", 0.5)
+    phil.season_goal = season_goal
+    phil.patience = patience
+    phil.board_ambition = ambition
+    phil.last_shift_season = season
+    return phil
+
+
+def _do_within_band_shift(team: Team, season: int):
+    band = philosophy_band_for(getattr(team, "reputation", 50) or 50)
+    allowed = list(PHILOSOPHY_BANDS[band]["allowed"])
+    cur = None
+    try:
+        row = TeamPhilosophy.query.filter_by(team_id=team.id).first()
+        cur = row.primary if row else None
+    except Exception:
+        cur = None
+    pool = [p for p in allowed if p != cur] or allowed
+    new_primary = random.choice(pool) if pool else (cur or "balanced")
+    phil = _apply_philosophy_row(team, new_primary, band, season)
+    msg = Message(
+        title="تحول تكتيكي!",
+        content=f"غيّر {team.name} هويته إلى {new_primary} ضمن نفس الفئة.",
+        type="board", created_day=getattr(GameState.query.first(), "current_day", 0) or 0,
+    )
+    db.session.add(msg)
+    return phil, msg
+
+
+def _do_band_shift(team: Team, direction: int, season: int):
+    cur_band = philosophy_band_for(getattr(team, "reputation", 50) or 50)
+    try:
+        idx = _BAND_ORDER.index(cur_band)
+    except ValueError:
+        idx = 0
+    new_idx = max(0, min(len(_BAND_ORDER) - 1, idx + direction))
+    if new_idx == idx:
+        return _do_within_band_shift(team, season)
+    new_band = _BAND_ORDER[new_idx]
+    allowed = list(PHILOSOPHY_BANDS[new_band]["allowed"])
+    cur = None
+    try:
+        row = TeamPhilosophy.query.filter_by(team_id=team.id).first()
+        cur = row.primary if row else None
+    except Exception:
+        cur = None
+    pool = [p for p in allowed if p != cur] or allowed
+    new_primary = random.choice(pool) if pool else (cur or "balanced")
+    try:
+        team.reputation = max(30, min(99, int((team.reputation or 50) + (5 if direction > 0 else -5))))
+    except Exception:
+        pass
+    phil = _apply_philosophy_row(team, new_primary, new_band, season)
+    arrow = "صعود" if direction > 0 else "هبوط"
+    msg = Message(
+        title="تحول هوية النادي!",
+        content=f"{arrow} هوية {team.name}: أصبح {new_primary} (فئة {new_band}).",
+        type="board", created_day=getattr(GameState.query.first(), "current_day", 0) or 0,
+        urgent=True,
+    )
+    db.session.add(msg)
+    return phil, msg
+
+
+def roll_season_philosophy_shifts(state: GameState) -> list[Message]:
+    """Called once per season end. With a very low probability, a club
+    shifts its philosophy (within its band) or shifts bands entirely.
+    Returns the messages generated (for the inbox)."""
+    msgs: list[Message] = []
+    try:
+        teams = Team.query.all()
+    except Exception:
+        return msgs
+    try:
+        season = state.season_number or 1 if state else 1
+    except Exception:
+        season = 1
+    for team in teams:
+        try:
+            # Lazily ensure every club has a band-correct identity first.
+            has = TeamPhilosophy.query.filter_by(team_id=team.id).first()
+            if has is None:
+                assign_team_philosophy(team)
+        except Exception:
+            pass
+        roll = random.random()
+        if roll >= PHILOSOPHY_SHIFT_CHANCE:
+            continue
+        try:
+            if roll < PHILOSOPHY_BAND_SHIFT_CHANCE:
+                direction = _band_shift_direction(team)
+                if direction == 0:
+                    _, m = _do_within_band_shift(team, season)
+                else:
+                    _, m = _do_band_shift(team, direction, season)
+                msgs.append(m)
+            else:
+                _, m = _do_within_band_shift(team, season)
+                msgs.append(m)
+        except Exception:
+            continue
+    return msgs
 
 
 # --------------------------------------------------------------------------
@@ -1861,9 +2374,10 @@ def _discover_region_talent(region: str, scout_level: int, state: GameState) -> 
 
     found = generate_region_talent(region, scout_level)
     stats = found["stats"]
-    return Player(
+    p = Player(
         name=found["name"],
         position=found["position"],
+        detailed_position=_pick_detailed_position(found["position"]),
         attack=stats["attack"],
         defense=stats["defense"],
         potential=stats["potential"],
@@ -1877,6 +2391,11 @@ def _discover_region_talent(region: str, scout_level: int, state: GameState) -> 
         is_starting=False,
         traits=found["traits"],
     )
+    try:
+        recompute_aggregates(p)
+    except Exception:
+        pass
+    return p
 
 
 # --------------------------------------------------------------------------
@@ -2303,6 +2822,35 @@ def _league_name_for(country, tier):
     return f"{country} League {tier}"
 
 
+def _pick_detailed_position(coarse: str) -> str:
+    mapping = {
+        "GK": ["GK"],
+        "DEF": ["CB", "CB", "CB", "LB", "RB", "LWB", "RWB"],
+        "MID": ["CDM", "CM", "CM", "CAM", "LM", "RM"],
+        "FWD": ["LW", "RW", "CF", "ST", "ST"],
+    }
+    pool = mapping.get(coarse, ["CM"])
+    return random.choice(pool)
+
+
+def _roll_detailed_attrs(floor: int, ceiling: int) -> dict:
+    keys: set = set()
+    try:
+        for w in POSITION_OVERALL_WEIGHTS.values():
+            keys.update(w.keys())
+        keys.update(ATTACK_ATTRS)
+        keys.update(DEFENSE_ATTRS)
+    except Exception:
+        keys = {"passing", "vision"}
+    out = {}
+    for k in keys:
+        try:
+            out[k] = random.randint(int(floor), int(ceiling))
+        except Exception:
+            out[k] = 50
+    return out
+
+
 def _seed_star_players() -> None:
     """Override one generated squad member per entry in SEED_STAR_PLAYERS."""
     seeded_ids: set = set()
@@ -2330,6 +2878,7 @@ def _seed_star_players() -> None:
         seeded_ids.add(victim.id)
         victim.name = star["name"]
         victim.position = star["position"]
+        victim.detailed_position = _pick_detailed_position(star.get("position", "MID"))
         victim.attack = star["attack"]
         victim.defense = star["defense"]
         victim.potential = star["potential"]
@@ -2435,9 +2984,12 @@ def _build_template_database() -> None:
                 value = calculate_market_value(
                     stats["attack"], stats["defense"], stats["potential"],
                     stats["age"], reputation)
+                detailed = _pick_detailed_position(pos)
+                dattrs = _roll_detailed_attrs(floor, ceiling)
                 player = Player(
                     name=generate_player_name(region),
                     position=pos,
+                    detailed_position=detailed,
                     attack=stats["attack"],
                     defense=stats["defense"],
                     potential=stats["potential"],
@@ -2455,13 +3007,30 @@ def _build_template_database() -> None:
                     traits=generate_player_traits(),
                     sharpness=random.randint(60, 100),
                     morale=random.randint(50, 80),
+                    **{k: v for k, v in dattrs.items() if hasattr(Player, k)},
                 )
+                # Derive position-weighted overall + attack/defense splits.
+                try:
+                    recompute_aggregates(player)
+                except Exception:
+                    player.overall = max(player.attack or 50, player.defense or 50)
                 db.session.add(player)
         db.session.commit()
 
     _seed_star_players()
     db.session.commit()
     _ensure_global_rating_floor()
+    db.session.commit()
+    try:
+        recompute_all_aggregates()
+        db.session.commit()
+    except Exception:
+        pass
+    for _t in Team.query.all():
+        try:
+            assign_team_philosophy(_t)
+        except Exception:
+            continue
     db.session.commit()
 
     for league in leagues:

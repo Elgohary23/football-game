@@ -485,7 +485,9 @@ def compare():
             "a": {
                 "id": a.id, "name": a.name, "position": a.position,
                 "age": a.age, "rating": get_display_rating(a, player_team),
-                "attack": a.attack, "defense": a.defense, "potential": a.potential,
+                "attack": a.attack, "defense": a.defense,
+                "overall": (a.overall or max(a.attack or 0, a.defense or 0)),
+                "potential": a.potential,
                 "speed": a.speed or 50, "stamina": a.stamina or 50,
                 "technique": a.technique or 50, "sharpness": a.sharpness or 50,
                 "goals": a.goals or 0, "assists": a.assists or 0,
@@ -494,7 +496,9 @@ def compare():
             "b": {
                 "id": b.id, "name": b.name, "position": b.position,
                 "age": b.age, "rating": get_display_rating(b, player_team),
-                "attack": b.attack, "defense": b.defense, "potential": b.potential,
+                "attack": b.attack, "defense": b.defense,
+                "overall": (b.overall or max(b.attack or 0, b.defense or 0)),
+                "potential": b.potential,
                 "speed": b.speed or 50, "stamina": b.stamina or 50,
                 "technique": b.technique or 50, "sharpness": b.sharpness or 50,
                 "goals": b.goals or 0, "assists": b.assists or 0,
@@ -541,12 +545,27 @@ def player_profile(player_id):
         else 0
     )
 
+    try:
+        top_attrs = [
+            {"attr": k, "value": int(getattr(player, k, 50) or 50)}
+            for k, _ in (player.top_overall_contributors(5) if hasattr(player, "top_overall_contributors") else [])
+        ]
+    except Exception:
+        top_attrs = []
+    try:
+        overall_val = int(player.overall or max(player.attack or 0, player.defense or 0) or 50)
+    except Exception:
+        overall_val = 50
+
     return {
         "id": player.id,
         "name": player.name,
         "position": player.position,
+        "detailed_position": getattr(player, "detailed_position", None) or player.position,
         "attack": player.attack,
         "defense": player.defense,
+        "overall": overall_val,
+        "top_attributes": top_attrs,
         "potential": player.potential,
         "age": player.age,
         "height": player.height,

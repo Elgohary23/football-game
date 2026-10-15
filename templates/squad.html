@@ -98,6 +98,7 @@
                             <th data-sort="pos">المركز</th>
                             <th data-sort="name">الاسم</th>
                             <th data-sort="age">العمر</th>
+                            <th data-sort="overall">الإجمالي</th>
                             <th data-sort="att">هج</th>
                             <th data-sort="def">دف</th>
                             <th data-sort="pot">كامن</th>
@@ -115,9 +116,10 @@
                     <tbody>
                         {% for player in players %}
                         <tr class="player-row {{ 'row-starter' if player.is_starting }} {{ 'row-injured' if player.injury_days > 0 }}" data-id="{{ player.id }}" data-pos="{{ player.position }}" data-injury="{{ player.injury_days }}" data-starter="{{ '1' if player.is_starting else '0' }}">
-                            <td><span class="pos-tag {{ player.position }}">{{ player.position }}</span></td>
+                            <td><span class="pos-tag {{ player.position }}">{{ player.detailed_position or player.position }}</span></td>
                             <td style="text-align:right;"><a href="#" class="player-name-link" data-id="{{ player.id }}" style="color:#e0e0e0;text-decoration:none;font-weight:bold;">{{ player.name }}</a></td>
                             <td>{{ player.age }}</td>
+                            <td><strong style="color:#f39c12;">{{ player.overall or player.attack }}</strong></td>
                             <td>{{ player.attack }}</td>
                             <td>{{ player.defense }}</td>
                             <td><span class="pot-badge">{{ player.potential }}</span></td>
@@ -361,14 +363,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 .then(({ ok, body }) => {
                     if (!ok || body.error) return;
                     const data = body;
-                    modalName.textContent = data.name + ' (' + data.position + ')';
+                    modalName.textContent = data.name + ' (' + (data.detailed_position || data.position) + ')';
+                    let topHtml = '';
+                    if (data.top_attributes && data.top_attributes.length) {
+                        topHtml = '<div class="modal-stat"><span class="modal-stat-label">أبرز الصفات</span><span class="modal-stat-value">' + data.top_attributes.map(t => t.attr + ' ' + t.value).join('، ') + '</span></div>';
+                    }
                     modalStats.innerHTML = `
+                        <div class="modal-stat"><span class="modal-stat-label">الإجمالي</span><span class="modal-stat-value" style="color:#f39c12;font-size:1.1rem;">${data.overall}</span></div>
                         <div class="modal-stat"><span class="modal-stat-label">العمر</span><span class="modal-stat-value">${data.age}</span></div>
                         <div class="modal-stat"><span class="modal-stat-label">الطول</span><span class="modal-stat-value">${data.height} سم</span></div>
                         <div class="modal-stat"><span class="modal-stat-label">الوزن</span><span class="modal-stat-value">${data.weight} كج</span></div>
                         <div class="modal-stat"><span class="modal-stat-label">مكان الولادة</span><span class="modal-stat-value">${data.region}</span></div>
                         <div class="modal-stat"><span class="modal-stat-label">الهجوم</span><span class="modal-stat-value">${data.attack}</span></div>
                         <div class="modal-stat"><span class="modal-stat-label">الدفاع</span><span class="modal-stat-value">${data.defense}</span></div>
+                        ${topHtml}
                         <div class="modal-stat"><span class="modal-stat-label">الكامنة</span><span class="modal-stat-value">${data.potential}</span></div>
                         <div class="modal-stat"><span class="modal-stat-label">البدنية (لياقة)</span><span class="modal-stat-value">${data.stamina}</span></div>
                         <div class="modal-stat"><span class="modal-stat-label">المهارة</span><span class="modal-stat-value">${data.technique}</span></div>

@@ -442,6 +442,16 @@ tbody tr:hover { background: rgba(233, 69, 96, 0.04); }
 .pos-tag.DEF { background: #3498db; color: #fff; }
 .pos-tag.MID { background: #2ecc71; color: #fff; }
 .pos-tag.FWD { background: #e94560; color: #fff; }
+.pos-tag.CB { background: #2980b9; color: #fff; }
+.pos-tag.LB, .pos-tag.RB { background: #3498db; color: #fff; }
+.pos-tag.LWB, .pos-tag.RWB { background: #1abc9c; color: #fff; }
+.pos-tag.CDM { background: #27ae60; color: #fff; }
+.pos-tag.CM { background: #2ecc71; color: #fff; }
+.pos-tag.CAM { background: #f39c12; color: #000; }
+.pos-tag.LM, .pos-tag.RM { background: #e67e22; color: #fff; }
+.pos-tag.LW, .pos-tag.RW { background: #e94560; color: #fff; }
+.pos-tag.CF { background: #c0392b; color: #fff; }
+.pos-tag.ST { background: #e94560; color: #fff; font-weight: bold; }
 
 .personality-tag {
     background: #1e1e3a;

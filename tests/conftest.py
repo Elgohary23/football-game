@@ -40,30 +40,55 @@ def seed_world():
     db.session.flush()
 
     positions = ["GK", "GK"] + ["DEF"] * 4 + ["MID"] * 5 + ["FWD"] * 4  # 15
+    detailed_map = {
+        "GK": ["GK", "GK"],
+        "DEF": ["CB", "LB", "RB", "CB"],
+        "MID": ["CDM", "CM", "CAM", "LM", "RM"],
+        "FWD": ["LW", "RW", "CF", "ST"],
+    }
+    counters = {"GK": 0, "DEF": 0, "MID": 0, "FWD": 0}
     for team in (player_team, opponent):
         for i, pos in enumerate(positions):
             attack = 70 if pos in ("FWD", "MID") else 55
             defense = 70 if pos in ("DEF", "GK") else 55
-            db.session.add(
-                Player(
-                    name=f"{team.name} P{i}",
-                    position=pos,
-                    attack=attack,
-                    defense=defense,
-                    potential=85,
-                    age=24,
-                    height=180,
-                    weight=75,
-                    personality="Normal",
-                    region="Europe",
-                    market_value=100000,
-                    team_id=team.id,
-                    is_starting=(i < 11),
-                    stamina=80,
-                    technique=60,
-                    speed=60,
-                )
+            pool = detailed_map[pos]
+            det = pool[counters[pos] % len(pool)]
+            counters[pos] += 1
+            # Detailed attrs anchored on the primary ability so the
+            # position-weighted overall lands near attack/defense.
+            primary = attack if pos in ("FWD", "MID") else defense
+            kwargs = dict(
+                name=f"{team.name} P{i}",
+                position=pos,
+                detailed_position=det,
+                attack=attack,
+                defense=defense,
+                overall=primary,
+                potential=85,
+                age=24,
+                height=180,
+                weight=75,
+                personality="Normal",
+                region="Europe",
+                market_value=100000,
+                team_id=team.id,
+                is_starting=(i < 11),
+                stamina=80,
+                technique=60,
+                speed=60,
             )
+            p = Player(**kwargs)
+            # Fill every weight-table attribute with the primary value
+            # (plus tiny deterministic jitter) so recompute is stable.
+            try:
+                from config import POSITION_OVERALL_WEIGHTS
+                weights = POSITION_OVERALL_WEIGHTS.get(det, {})
+                for k, idx in zip(sorted(weights.keys()), range(99)):
+                    jitter = ((i * 7 + idx * 3) % 5) - 2
+                    setattr(p, k, max(1, min(99, primary + jitter)))
+            except Exception:
+                pass
+            db.session.add(p)
 
     state = GameState(
         manager_name="Test Manager",
@@ -86,6 +111,15 @@ def seed_world():
     )
     db.session.add(match)
     db.session.commit()
+    # Band-correct philosophies + position-weighted overalls.
+    try:
+        from services import assign_team_philosophy, recompute_all_aggregates
+        recompute_all_aggregates()
+        for _t in (player_team, opponent):
+            assign_team_philosophy(_t)
+        db.session.commit()
+    except Exception:
+        pass
     return {
         "league": league,
         "player_team": player_team,

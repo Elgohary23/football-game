@@ -1,0 +1,560 @@
+# Full Prompt: Position-Specific Overall Ratings + Tier-Bounded Random Philosophies
+
+## 📋 Context
+
+You are working on an Arabic RTL Football Manager game (Flask + SQLite + SQLAlchemy). The codebase is well-structured:
+- `config.py` — all tuning constants (single source of truth)
+- `models.py` — SQLAlchemy models
+- `services.py` — business logic (template build, transfers, saves, formation validation)
+- `simulation.py` — match engine, progression, AI transfers
+- `live_match.py` — minute-by-minute live engine
+- `procedural.py` — procedural player generation
+- `routes/` — thin HTTP glue only
+- `tests/test_backend.py` + `tests/test_frontend.py` — the gate (must stay green)
+
+**This prompt is a follow-up to two previous tasks that are assumed to be complete:**
+1. **European leagues expansion** — full domestic pyramids for England, Germany, Spain, France, Italy, Netherlands, Portugal, Belgium, Turkey, Scotland, Austria, Switzerland, Greece, Ukraine, Russia, Denmark, Sweden, Norway, Poland, Croatia, Serbia, Czech Republic, Romania.
+2. **Detailed attributes + positions + philosophies** — every player has the full attribute set (technical, physical, mental, GK), detailed positions (`GK, CB, LB, RB, LWB, RWB, CDM, CM, CAM, LM, RM, LW, RW, CF, ST`), and every club has a `TeamPhilosophy` row with a randomly assigned primary identity.
+
+The goal now is to fix two things:
+
+1. **Position-specific overall rating** — the derived `attack` / `defense` aggregates (and any "overall" shown in the UI) must weight attributes **differently per position**. A striker's overall must NOT be dragged down by `interceptions`; a CB's overall must NOT be inflated by `finishing`.
+2. **Philosophy distribution discipline** — philosophies must be randomised **within the same tier**, not across tiers. A tier-1 top club must never roll `youth_development` (build-and-sell). A tier-4 club must never roll `galacticos` (buy superstars). The only exception is a **rare "identity shift" event** (≤ 3% per season) where a club transforms: a small club becomes a project, or a big club makes a run of bad decisions and drops.
+
+Additionally, the identity system must support **organic surprises** — a mid-table club signing undervalued youngsters who overperform, reaching 2nd place without spending big. This must come from rational decisions (attributes, philosophy fit), not just money.
+
+---
+
+## 🎯 Task 1: Position-Specific Overall Rating
+
+### 1.1 The Problem
+
+Currently `recompute_aggregates(player)` (from the previous task) derives `attack` and `defense` from a fixed formula per position group (`GK / DEF / MID / FWD`). This is too coarse:
+- A `CB` and a `CDM` are both `DEF` in the group, but a CB should be judged almost entirely on `standing_tackle`, `sliding_tackle`, `marking`, `positioning`, `strength`, `jumping`, `defensive_awareness`, while a CDM should be judged on `interceptions`, `standing_tackle`, `passing`, `vision`, `work_rate`, `positioning`.
+- A `ST` and a `CAM` are both `FWD / MID`, but a ST should be judged on `finishing`, `shot_power`, `off_the_ball`, `composure`, `acceleration`, `sprint_speed`, while a CAM should be judged on `passing`, `vision`, `ball_control`, `dribbling`, `technique`, `flair`.
+
+The result is that a striker with 95 finishing but 20 interceptions gets a mediocre overall, and a CB with 90 tackling but 15 finishing is unfairly "punished" by finishing.
+
+### 1.2 The Fix: Per-Position Weight Tables
+
+Add to `config.py` a single source of truth: for every **detailed position**, a dict mapping each relevant attribute to a weight. The weights sum to 1.0 per position. Attributes not listed have weight 0 for that position.
+
+```python
+# For each detailed position, the weights used to compute the "overall"
+# (and the derived attack/defense splits). Weights per position MUST sum
+# to 1.0. Attributes not listed are ignored for that position.
+POSITION_OVERALL_WEIGHTS = {
+    # ------------------------------------------------------------------ GK
+    "GK": {
+        "gk_diving": 0.16, "gk_handling": 0.16, "gk_reflexes": 0.18,
+        "gk_positioning": 0.14, "gk_one_on_ones": 0.10,
+        "gk_kicking": 0.06, "gk_communication": 0.06,
+        "concentration": 0.06, "composure": 0.04, "reactions": 0.04,
+    },
+    # ---------------------------------------------------------------- CB
+    "CB": {
+        "standing_tackle": 0.16, "sliding_tackle": 0.10, "marking": 0.14,
+        "positioning": 0.12, "defensive_awareness": 0.12,
+        "strength": 0.08, "jumping": 0.07, "interceptions": 0.07,
+        "heading": 0.05, "composure": 0.04, "passing": 0.05,
+    },
+    # ---------------------------------------------------------------- LB
+    "LB": {
+        "standing_tackle": 0.12, "marking": 0.10, "positioning": 0.10,
+        "interceptions": 0.08, "defensive_awareness": 0.08,
+        "acceleration": 0.08, "sprint_speed": 0.08, "stamina": 0.08,
+        "crossing": 0.08, "passing": 0.06, "dribbling": 0.04,
+        "work_rate": 0.05, "composure": 0.03,
+    },
+    # ---------------------------------------------------------------- RB
+    # (mirror of LB — kept explicit so future tuning can diverge)
+    "RB": {
+        "standing_tackle": 0.12, "marking": 0.10, "positioning": 0.10,
+        "interceptions": 0.08, "defensive_awareness": 0.08,
+        "acceleration": 0.08, "sprint_speed": 0.08, "stamina": 0.08,
+        "crossing": 0.08, "passing": 0.06, "dribbling": 0.04,
+        "work_rate": 0.05, "composure": 0.03,
+    },
+    # ---------------------------------------------------------------- LWB
+    "LWB": {
+        "stamina": 0.14, "acceleration": 0.10, "sprint_speed": 0.10,
+        "crossing": 0.14, "dribbling": 0.09, "passing": 0.08,
+        "standing_tackle": 0.09, "marking": 0.06,
+        "interceptions": 0.06, "work_rate": 0.08,
+        "positioning": 0.06,
+    },
+    # ---------------------------------------------------------------- RWB
+    "RWB": {
+        "stamina": 0.14, "acceleration": 0.10, "sprint_speed": 0.10,
+        "crossing": 0.14, "dribbling": 0.09, "passing": 0.08,
+        "standing_tackle": 0.09, "marking": 0.06,
+        "interceptions": 0.06, "work_rate": 0.08,
+        "positioning": 0.06,
+    },
+    # ---------------------------------------------------------------- CDM
+    "CDM": {
+        "interceptions": 0.16, "standing_tackle": 0.13,
+        "positioning": 0.13, "defensive_awareness": 0.12,
+        "passing": 0.10, "work_rate": 0.09,
+        "strength": 0.06, "ball_control": 0.06,
+        "vision": 0.05, "composure": 0.05, "teamwork": 0.05,
+    },
+    # ---------------------------------------------------------------- CM
+    "CM": {
+        "passing": 0.16, "vision": 0.13, "ball_control": 0.11,
+        "technique": 0.10, "decision_making": 0.08,
+        "interceptions": 0.08, "standing_tackle": 0.06,
+        "work_rate": 0.08, "stamina": 0.07,
+        "composure": 0.05, "teamwork": 0.05, "long_shots": 0.03,
+    },
+    # ---------------------------------------------------------------- CAM
+    "CAM": {
+        "passing": 0.15, "vision": 0.16, "ball_control": 0.12,
+        "dribbling": 0.12, "technique": 0.10, "flair": 0.08,
+        "finishing": 0.08, "composure": 0.06,
+        "decision_making": 0.05, "agility": 0.04, "long_shots": 0.04,
+    },
+    # ---------------------------------------------------------------- LM
+    "LM": {
+        "crossing": 0.14, "dribbling": 0.12, "passing": 0.11,
+        "acceleration": 0.10, "sprint_speed": 0.10, "stamina": 0.10,
+        "ball_control": 0.09, "work_rate": 0.07,
+        "vision": 0.06, "technique": 0.06, "agility": 0.05,
+    },
+    # ---------------------------------------------------------------- RM
+    "RM": {
+        "crossing": 0.14, "dribbling": 0.12, "passing": 0.11,
+        "acceleration": 0.10, "sprint_speed": 0.10, "stamina": 0.10,
+        "ball_control": 0.09, "work_rate": 0.07,
+        "vision": 0.06, "technique": 0.06, "agility": 0.05,
+    },
+    # ---------------------------------------------------------------- LW
+    "LW": {
+        "dribbling": 0.16, "acceleration": 0.13, "sprint_speed": 0.12,
+        "ball_control": 0.11, "finishing": 0.10, "crossing": 0.08,
+        "agility": 0.08, "technique": 0.07,
+        "vision": 0.05, "flair": 0.05, "composure": 0.05,
+    },
+    # ---------------------------------------------------------------- RW
+    "RW": {
+        "dribbling": 0.16, "acceleration": 0.13, "sprint_speed": 0.12,
+        "ball_control": 0.11, "finishing": 0.10, "crossing": 0.08,
+        "agility": 0.08, "technique": 0.07,
+        "vision": 0.05, "flair": 0.05, "composure": 0.05,
+    },
+    # ---------------------------------------------------------------- CF
+    "CF": {
+        "finishing": 0.16, "off_the_ball": 0.12, "ball_control": 0.10,
+        "dribbling": 0.09, "composure": 0.09, "acceleration": 0.08,
+        "sprint_speed": 0.07, "passing": 0.07, "vision": 0.06,
+        "technique": 0.05, "shot_power": 0.06, "first_touch": 0.05,
+    },
+    # ---------------------------------------------------------------- ST
+    "ST": {
+        "finishing": 0.20, "off_the_ball": 0.14, "shot_power": 0.11,
+        "composure": 0.10, "acceleration": 0.09, "sprint_speed": 0.08,
+        "ball_control": 0.07, "first_touch": 0.06,
+        "heading": 0.05, "strength": 0.05, "positioning": 0.05,
+    },
+}
+```
+
+Also add an **`OFF_THE_BALL`** and **`FIRST_TOUCH`** attribute to `Player` if they don't already exist from the previous task — they're essential for CF/ST and were missing from the standard set.
+
+### 1.3 Aggregate Derivation
+
+Replace `recompute_aggregates(player)` (from the previous task) with a **position-aware** version:
+
+```python
+def recompute_aggregates(player: Player) -> None:
+    """Compute attack/defense/overall from detailed attributes using the
+    position-specific weight tables in POSITION_OVERALL_WEIGHTS."""
+    weights = POSITION_OVERALL_WEIGHTS.get(player.detailed_position or "CM")
+    if not weights:
+        return
+    total = 0.0
+    for attr, w in weights.items():
+        total += (getattr(player, attr, 50) or 50) * w
+    player.overall = max(1, min(99, int(round(total))))
+
+    # attack/defense split — derived from the same weights but bucketed
+    # into ATTACK_ATTRS / DEFENSE_ATTRS (see config below).
+    att_w = sum(w for a, w in weights.items() if a in ATTACK_ATTRS)
+    def_w = sum(w for a, w in weights.items() if a in DEFENSE_ATTRS)
+    att_raw = sum(getattr(player, a, 50) * w for a, w in weights.items() if a in ATTACK_ATTRS)
+    def_raw = sum(getattr(player, a, 50) * w for a, w in weights.items() if a in DEFENSE_ATTRS)
+    player.attack = max(1, min(99, int(round(att_raw / att_w)))) if att_w > 0 else player.overall
+    player.defense = max(1, min(99, int(round(def_raw / def_w)))) if def_w > 0 else player.overall
+```
+
+Add to `config.py`:
+
+```python
+ATTACK_ATTRS = frozenset({
+    "finishing", "shot_power", "long_shots", "volleys", "penalties",
+    "free_kick_accuracy", "curve", "passing", "vision", "crossing",
+    "ball_control", "dribbling", "agility", "balance", "composure",
+    "off_the_ball", "first_touch", "acceleration", "sprint_speed",
+    "flair", "technique",
+})
+
+DEFENSE_ATTRS = frozenset({
+    "standing_tackle", "sliding_tackle", "marking", "positioning",
+    "interceptions", "defensive_awareness", "strength", "jumping",
+    "heading", "aggression", "work_rate", "teamwork", "concentration",
+    "reactions", "stamina", "bravery", "gk_diving", "gk_handling",
+    "gk_kicking", "gk_positioning", "gk_reflexes", "gk_one_on_ones",
+    "gk_communication",
+})
+```
+
+**Important:** a player's `overall` is the position-weighted number shown in the UI (squad table, scouting, transfer targets). `attack` and `defense` remain for the match engine, but they now respect the position (a ST's `defense` is naturally low because `DEFENSE_ATTRS` weight in his table is small).
+
+### 1.4 UI
+
+- Squad table: show `overall` (the new column) as the headline rating. Keep `attack` / `defense` as secondary columns.
+- Player profile modal: show the breakdown — overall, attack, defense, plus the top 5 attributes that contribute most to the overall (based on the position's weight table).
+- Player comparison page: compare overalls (both players' overalls are computed from their own position tables).
+
+### 1.5 Tests
+
+```python
+class TestPositionSpecificOverall:
+    def test_striker_overall_ignores_interceptions(self, ctx):
+        st = Player.query.filter_by(detailed_position="ST").first()
+        st.overall = 0
+        st.interceptions = 99
+        recompute_aggregates(st)
+        low = st.overall
+        st.interceptions = 1
+        recompute_aggregates(st)
+        high = st.overall
+        assert low == high  # interceptions is not in ST's weight table
+
+    def test_cb_overall_ignores_finishing(self, ctx):
+        cb = Player.query.filter_by(detailed_position="CB").first()
+        cb.finishing = 99
+        recompute_aggregates(cb)
+        a = cb.overall
+        cb.finishing = 1
+        recompute_aggregates(cb)
+        b = cb.overall
+        assert a == b
+
+    def test_weights_sum_to_one(self, ctx):
+        from config import POSITION_OVERALL_WEIGHTS
+        for pos, weights in POSITION_OVERALL_WEIGHTS.items():
+            assert abs(sum(weights.values()) - 1.0) < 0.001, pos
+
+    def test_overall_range(self, ctx):
+        for p in Player.query.limit(100):
+            assert 1 <= (p.overall or 0) <= 99
+
+    def test_striker_overall_higher_than_cb_with_same_attrs(self, ctx):
+        # Build two identical players; swap only the position.
+        # The ST should get a higher overall because his key attrs are high.
+        ...
+```
+
+---
+
+## 🎯 Task 2: Tier-Bounded Philosophy Distribution
+
+### 2.1 The Rule
+
+Philosophies must be **randomised within a tier band**, never across tiers. Formally:
+
+- **Tier 1 top clubs** (reputation ≥ 85) — the elite. Allowed philosophies: `galacticos`, `possession_domination`, `total_football`, `fluid_attacking`, `tiki_taka`, `gegenpress`. **Forbidden:** `youth_development`, `moneyball`, `park_the_bus`, `route_one`, `counter_attack`.
+- **Tier 1 mid clubs** (reputation 70–84) — the ambitious mid-table. Allowed: `tiki_taka`, `gegenpress`, `wing_play`, `high_line_defense`, `moneyball`, `possession_domination`, `balanced`, `fluid_attacking`. Forbidden: `park_the_bus`, `route_one`.
+- **Tier 1 lower / Tier 2 clubs** (reputation 55–69) — the pragmatists. Allowed: `counter_attack`, `direct_football`, `wing_play`, `high_line_defense`, `balanced`, `moneyball`, `youth_development`, `route_one`. Forbidden: `galacticos`, `total_football`.
+- **Tier 3 / Tier 4 / bottom of Tier 2** (reputation < 55) — the survivors. Allowed: `park_the_bus`, `route_one`, `direct_football`, `counter_attack`, `balanced`, `youth_development`. Forbidden: `galacticos`, `total_football`, `possession_domination`, `tiki_taka`, `fluid_attacking`.
+
+Add to `config.py`:
+
+```python
+# Allowed philosophies per reputation band. The philosophy assignment
+# picks ONLY from the allowed list for the club's band — this is what
+# keeps Barcelona from becoming a "build-and-sell youth project" and
+# keeps a League Two club from becoming "galacticos".
+PHILOSOPHY_BANDS = {
+    "elite":   {  # rep >= 85
+        "min_rep": 85,
+        "allowed": ["galacticos", "possession_domination", "total_football",
+                    "fluid_attacking", "tiki_taka", "gegenpress"],
+    },
+    "ambitious": {  # 70 <= rep < 85
+        "min_rep": 70,
+        "allowed": ["tiki_taka", "gegenpress", "wing_play",
+                    "high_line_defense", "moneyball",
+                    "possession_domination", "balanced", "fluid_attacking"],
+    },
+    "pragmatic": {  # 55 <= rep < 70
+        "min_rep": 55,
+        "allowed": ["counter_attack", "direct_football", "wing_play",
+                    "high_line_defense", "balanced", "moneyball",
+                    "youth_development", "route_one"],
+    },
+    "survivor": {  # rep < 55
+        "min_rep": 0,
+        "allowed": ["park_the_bus", "route_one", "direct_football",
+                    "counter_attack", "balanced", "youth_development"],
+    },
+}
+
+def philosophy_band_for(reputation: int) -> str:
+    for band_name, spec in PHILOSOPHY_BANDS.items():
+        if reputation >= spec["min_rep"]:
+            return band_name
+    return "survivor"
+```
+
+### 2.2 Assignment Algorithm
+
+Rewrite `services.assign_team_philosophy(team)`:
+
+1. Compute the club's band from its reputation.
+2. Pick a random philosophy from `PHILOSOPHY_BANDS[band]["allowed"]` — **weighted** so that the most iconic philosophies for that band are more likely (e.g. `galacticos` slightly more likely at Real Madrid / Man City than at Brentford).
+3. Copy the profile from `PHILOSOPHY_PROFILES` and jitter each numeric field by ±0.15.
+4. Set `season_goal` from the band:
+   - elite: `title` or `top4`
+   - ambitious: `top4` or `europa`
+   - pragmatic: `mid_table` or `europa`
+   - survivor: `survival` or `mid_table`
+5. Set `patience` and `board_ambition` from the band (elite clubs are less patient, ambitious clubs are more).
+6. Persist.
+
+**Crucially:** within a band, the distribution must be **uniformly random** — no club should get a "canonical" philosophy because of its name. Two playthroughs with Real Madrid may roll `gegenpress` and `possession_domination` respectively.
+
+### 2.3 Identity Shift Events (Rare)
+
+The user explicitly wants **rare** identity shifts — a small club suddenly becoming a project, or a big club declining after a run of bad decisions. Add a **season-end** event:
+
+- Add to `config.py`:
+
+```python
+# Probability per club per season that its philosophy shifts within its
+# band. Kept low on purpose — the user asked for "rare in real life,
+# rare in the game".
+PHILOSOPHY_SHIFT_CHANCE = 0.03  # 3%
+
+# Probability per club per season that it MOVES band (up or down).
+# This is the "small club becomes a project" / "big club declines"
+# event. Also kept very low.
+PHILOSOPHY_BAND_SHIFT_CHANCE = 0.01  # 1%
+```
+
+- Add a new function in `services.py`:
+
+```python
+def roll_season_philosophy_shifts(state: GameState) -> list[Message]:
+    """Called once per season end. With a very low probability, a club
+    shifts its philosophy (within its band) or shifts bands entirely.
+    Returns the messages generated (for the inbox)."""
+```
+
+- **Within-band shift (3%)**: pick a new philosophy from the *same* band's allowed list, jitter the weights, keep the club's reputation unchanged.
+- **Band shift (1%)**: only allowed if the club's performance justifies it. Determine direction from the club's league finish:
+  - Top 3 finish + tier-1 club → band up (pragmatic → ambitious → elite).
+  - Bottom 3 finish + tier-1 club → band down.
+  - Lower-division club that got promoted → band up.
+  - Lower-division club that got relegated → band down.
+  - **Never** shift more than one band per season.
+- When a club shifts band, also nudge its `reputation` by ±5 so the shift is coherent.
+
+This is the ONLY path by which a club can end up with a philosophy outside its initial band, and it's gated to ≤ 1% per season.
+
+### 2.4 Organic Surprises (No Extra Config Needed)
+
+The user also wants a mid-table club that signs undervalued youngsters and reaches 2nd place — **without** the philosophy system forcing it. This already works with the previous task's `team_decision_profile()` if the AI consumes it correctly. For now:
+
+- Add a note in `team_decision_profile()` docstring: the profile's `priority_positions` and `attribute_weights` must be used by the future AI when evaluating transfer targets.
+- Add a **placeholder** function in `services.py`:
+
+```python
+def evaluate_youngster_surprise_potential(player: Player, club_philosophy) -> float:
+    """Return a 0-1 score of how much this youngster could overperform
+    his market value given the club's philosophy. Used by the future AI
+    to sign undervalued youth. For now, tests only."""
+```
+
+- Implement a simple heuristic: `potential_gap = potential - overall`; `youth_bonus = 1.0 if age <= 21 else 0.6 if age <= 24 else 0.2`; `philosophy_bonus = 0.4 if club_philosophy in ("youth_development", "moneyball") else 0.0`. Return `min(1.0, (potential_gap / 20) * youth_bonus + philosophy_bonus)`.
+
+This is not wired into the AI yet (that's a future task), but the function exists and is tested so the future AI can consume it.
+
+### 2.5 Tests
+
+```python
+class TestPhilosophyBands:
+    def test_elite_club_never_gets_youth_development(self, ctx):
+        from services import assign_team_philosophy
+        real = Team.query.filter_by(name="Real Madrid").first()
+        for _ in range(50):
+            real.philosophy = None
+            assign_team_philosophy(real)
+            assert real.philosophy.primary != "youth_development"
+            assert real.philosophy.primary != "park_the_bus"
+
+    def test_lower_league_club_never_gets_galacticos(self, ctx):
+        from services import assign_team_philosophy
+        small = Team.query.filter(Team.reputation < 55).first()
+        for _ in range(50):
+            small.philosophy = None
+            assign_team_philosophy(small)
+            assert small.philosophy.primary not in ("galacticos", "total_football")
+
+    def test_within_band_randomised(self, ctx):
+        from services import assign_team_philosophy
+        elite = Team.query.filter(Team.reputation >= 85).all()
+        seen = set()
+        for t in elite:
+            t.philosophy = None
+            assign_team_philosophy(t)
+            seen.add(t.philosophy.primary)
+        # elite clubs should NOT all roll the same philosophy
+        assert len(seen) >= 2
+
+    def test_band_shift_is_rare(self, ctx, monkeypatch):
+        import random as _r
+        # Force the RNG to never trigger a shift.
+        monkeypatch.setattr(_r, "random", lambda: 0.99)
+        from services import roll_season_philosophy_shifts
+        before = {t.id: t.philosophy.primary for t in Team.query.all()}
+        roll_season_philosophy_shifts(GameState.query.first())
+        after = {t.id: t.philosophy.primary for t in Team.query.all()}
+        assert before == after
+
+    def test_band_shift_changes_philosophy_when_triggered(self, ctx, monkeypatch):
+        import random as _r
+        monkeypatch.setattr(_r, "random", lambda: 0.001)  # always trigger
+        from services import roll_season_philosophy_shifts
+        msgs = roll_season_philosophy_shifts(GameState.query.first())
+        assert len(msgs) >= 1
+
+    def test_elite_club_band_shift_only_with_top_finish(self, ctx, monkeypatch):
+        import random as _r
+        monkeypatch.setattr(_r, "random", lambda: 0.001)
+        from services import roll_season_philosophy_shifts
+        # A bottom-table elite club must NOT shift up.
+        ...
+
+
+class TestOrganicSurprises:
+    def test_youngster_surprise_score_higher_for_high_potential(self, ctx):
+        from services import evaluate_youngster_surprise_potential
+        wunderkind = Player.query.filter(
+            Player.age <= 21).order_by(Player.potential.desc()).first()
+        journeyman = Player.query.filter(
+            Player.age >= 28).order_by(Player.potential.asc()).first()
+        assert (evaluate_youngster_surprise_potential(wunderkind, "moneyball")
+                > evaluate_youngster_surprise_potential(journeyman, "moneyball"))
+
+    def test_philosophy_bonus(self, ctx):
+        from services import evaluate_youngster_surprise_potential
+        p = Player.query.filter(Player.age <= 21).first()
+        a = evaluate_youngster_surprise_potential(p, "youth_development")
+        b = evaluate_youngster_surprise_potential(p, "galacticos")
+        assert a > b
+```
+
+---
+
+## 🎯 Task 3: Integration with the Match Engine
+
+### 3.1 Match Engine Reads `overall` and Philosophy Knobs
+
+In `live_match.py`:
+- `_effective_rating(attr, sharpness)` should operate on the player's **`overall`** (position-weighted), not on `attack` / `defense`.
+- `_team_ratings(team, on_pitch, chemistry)` computes attack/defense per side using `overall` plus the philosophy multipliers.
+- The philosophy's `attacking_intent`, `pressing_intensity`, `possession_focus`, `width`, `tempo`, `defensive_line`, `build_up_style`, `transition_style` should influence:
+  - Possession split (`possession_split`)
+  - Event frequency (`EVENT_BASE_CHANCE` scaled by tempo)
+  - Shot quality (`_calculate_shot_xg` scaled by `attacking_intent`)
+  - Defensive resilience (`defensive_line` interacts with pace)
+- The user's explicit `/formation/tactics` overrides still win for the player's team.
+
+### 3.2 AI Club Tactical Consistency
+
+Add a `TeamPhilosophy`-aware override in `start_live()`:
+- When `team.is_player_team` is False, force `team.pressing_style` and `team.match_tactic` from `effective_pressing(team)` / `effective_match_tactic(team)` before kickoff. This guarantees that AI clubs play according to their identity, not whatever stale value sits in the columns.
+
+### 3.3 Tests
+
+```python
+class TestMatchEnginePhilosophy:
+    def test_ai_team_plays_its_philosophy(self, ctx):
+        from live_match import start_live
+        ai_team = Team.query.filter_by(is_player_team=False).first()
+        match = Match.query.filter_by(played=False).first()
+        start_live(match)
+        assert match.live_state["home_xp" if match.home_team_id == ai_team.id else "away_xp"]
+        # assert the AI's pressing/tactic were set from the philosophy
+
+    def test_overall_used_in_ratings(self, ctx):
+        from live_match import _team_ratings
+        team = Team.query.first()
+        on_pitch = team.players[:11]
+        att, dfn = _team_ratings(team, on_pitch, chemistry=60)
+        assert att > 0 and dfn > 0
+```
+
+---
+
+## 🎯 Task 4: Migration & Compatibility
+
+### 4.1 New Columns
+
+- Add `Player.overall` (Integer, default 50) and `Player.off_the_ball`, `Player.first_touch` if missing.
+- Add `TeamPhilosophy` fields if the previous task didn't already add them (band, last_shift_season, etc.).
+- Bump `TEMPLATE_SCHEMA_VERSION`.
+- Extend `_ensure_schema_columns()`.
+
+### 4.2 Backfill
+
+- After migration, run `recompute_all_aggregates()` once. This populates `overall` for every existing player.
+- For old saves without a `TeamPhilosophy`, `assign_team_philosophy()` is called lazily on first access (idempotent).
+
+### 4.3 Preserve Existing Tests
+
+- `test_backend.py` reads `attack` / `defense` — those still exist and are populated.
+- `test_frontend.py` reads `player.name`, `player.age`, etc. — unchanged.
+- `squad.html` / `formation.html` position badges must still render — extend the CSS for the new detailed positions but keep the old classes working.
+
+---
+
+## ✅ Acceptance Criteria
+
+1. Every player has an `overall` computed from a **position-specific weight table** (`POSITION_OVERALL_WEIGHTS`), and the weights per position sum to 1.0.
+2. A striker's `overall` is **independent** of `interceptions`, and a CB's `overall` is **independent** of `finishing` (test-guarded).
+3. `attack` / `defense` remain populated and are derived from the same weight table, bucketed into `ATTACK_ATTRS` / `DEFENSE_ATTRS`.
+4. Every club's philosophy is drawn from **only the allowed list for its reputation band** (`PHILOSOPHY_BANDS`). An elite club can never roll `youth_development`; a lower-league club can never roll `galacticos` (test-guarded with 50 iterations).
+5. Within a band, philosophies are **randomised** — elite clubs don't all roll the same identity.
+6. A **season-end identity-shift event** exists with `PHILOSOPHY_SHIFT_CHANCE = 0.03` (within band) and `PHILOSOPHY_BAND_SHIFT_CHANCE = 0.01` (across bands). It's tested to be **rare** (a forced RNG that never triggers a shift leaves every club unchanged).
+7. Band shifts only happen when justified by the club's league finish (top 3 → up, bottom 3 → down) and never move more than one band per season.
+8. `evaluate_youngster_surprise_potential(player, philosophy)` exists and rewards high-potential youngsters, especially at `youth_development` / `moneyball` clubs — the foundation for the future "smart signing → 2nd place" scenario.
+9. The match engine reads `overall` (not raw `attack` / `defense`) and AI clubs' pressing/tactic are forced from their philosophy at kickoff.
+10. `TEMPLATE_SCHEMA_VERSION` bumped; `_ensure_schema_columns()` adds the new columns; old saves migrate cleanly.
+11. **All 288+ existing tests still pass**, plus the new tests above.
+12. Run `python -m pytest tests/test_backend.py tests/test_frontend.py -q` from repo root — must be **all green** before declaring done.
+13. Commit with message `feat: position-specific overalls + tier-bounded randomised philosophies + rare identity shifts`.
+
+---
+
+## 🚫 Out of Scope (Do NOT implement now)
+
+- The full AI transfer engine that consumes `team_decision_profile()` to sign undervalued youth. Only `evaluate_youngster_surprise_potential()` and the decision-profile contract are in scope — the next task wires them into AI transfers.
+- Continental competitions, weather, referees, media, agents.
+- Rewriting the match engine to use every single attribute. The engine reads `overall` (position-weighted) plus philosophy knobs.
+- Real-player seeding (already done in the previous task).
+
+---
+
+## 📝 Implementation Order (suggested)
+
+1. `config.py` — add `POSITION_OVERALL_WEIGHTS`, `ATTACK_ATTRS`, `DEFENSE_ATTRS`, `PHILOSOPHY_BANDS`, `philosophy_band_for()`, `PHILOSOPHY_SHIFT_CHANCE`, `PHILOSOPHY_BAND_SHIFT_CHANCE`, bump `TEMPLATE_SCHEMA_VERSION`.
+2. `models.py` — add `Player.overall`, `Player.off_the_ball`, `Player.first_touch` if missing; add `TeamPhilosophy.band` / `last_shift_season`; add `Player.position_group()` if missing.
+3. `services.py` — rewrite `recompute_aggregates()` to be position-aware; add `recompute_all_aggregates()`; rewrite `assign_team_philosophy()` to use bands; add `roll_season_philosophy_shifts()`; add `evaluate_youngster_surprise_potential()`; extend `_ensure_schema_columns()`.
+4. `simulation.py` — call `roll_season_philosophy_shifts()` from `process_season_end()`; ensure `recompute_all_aggregates()` runs after development updates.
+5. `live_match.py` — switch `_effective_rating` to use `overall`; force AI pressing/tactic from `effective_pressing()` / `effective_match_tactic()` in `start_live()`.
+6. `templates/squad.html` + `static/style.css` — show `overall` as the headline rating; add CSS classes for the detailed positions.
+7. `tests/` — add `TestPositionSpecificOverall`, `TestPhilosophyBands`, `TestOrganicSurprises`, `TestMatchEnginePhilosophy`.
+8. Run the full gate, fix until green, commit.

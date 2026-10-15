@@ -98,7 +98,7 @@ REPUTATION_TOLERANCE = 10
 OLD_DATA_KEEP_PLAYED_MATCHES = 150
 
 # --- Schema migration guard ---
-TEMPLATE_SCHEMA_VERSION = 7  # bump to force a template.db rebuild
+TEMPLATE_SCHEMA_VERSION = 8  # bump to force a template.db rebuild
 
 # --- Advanced tactics (FM features) ---
 PRESSING_STYLES = ("low", "normal", "high")
@@ -866,4 +866,280 @@ LEAGUE_NAME_TO_KEY = {
     "Serbian SuperLiga": ("Serbia", 1),
     "Czech First League": ("Czech Republic", 1),
     "Liga I": ("Romania", 1),
+}
+
+# --- Position-specific overall ratings (single source of truth) ---
+# For each detailed position, the weights used to compute the "overall"
+# (and the derived attack/defense splits). Weights per position MUST sum
+# to 1.0. Attributes not listed are ignored for that position.
+POSITION_OVERALL_WEIGHTS = {
+    # ------------------------------------------------------------------ GK
+    "GK": {
+        "gk_diving": 0.16, "gk_handling": 0.16, "gk_reflexes": 0.18,
+        "gk_positioning": 0.14, "gk_one_on_ones": 0.10,
+        "gk_kicking": 0.06, "gk_communication": 0.06,
+        "concentration": 0.06, "composure": 0.04, "reactions": 0.04,
+    },
+    # ---------------------------------------------------------------- CB
+    "CB": {
+        "standing_tackle": 0.16, "sliding_tackle": 0.10, "marking": 0.14,
+        "positioning": 0.12, "defensive_awareness": 0.12,
+        "strength": 0.08, "jumping": 0.07, "interceptions": 0.07,
+        "heading": 0.05, "composure": 0.04, "passing": 0.05,
+    },
+    # ---------------------------------------------------------------- LB
+    "LB": {
+        "standing_tackle": 0.12, "marking": 0.10, "positioning": 0.10,
+        "interceptions": 0.08, "defensive_awareness": 0.08,
+        "acceleration": 0.08, "sprint_speed": 0.08, "stamina": 0.08,
+        "crossing": 0.08, "passing": 0.06, "dribbling": 0.04,
+        "work_rate": 0.05, "composure": 0.05,
+    },
+    # ---------------------------------------------------------------- RB
+    # (mirror of LB — kept explicit so future tuning can diverge)
+    "RB": {
+        "standing_tackle": 0.12, "marking": 0.10, "positioning": 0.10,
+        "interceptions": 0.08, "defensive_awareness": 0.08,
+        "acceleration": 0.08, "sprint_speed": 0.08, "stamina": 0.08,
+        "crossing": 0.08, "passing": 0.06, "dribbling": 0.04,
+        "work_rate": 0.05, "composure": 0.05,
+    },
+    # ---------------------------------------------------------------- LWB
+    "LWB": {
+        "stamina": 0.14, "acceleration": 0.10, "sprint_speed": 0.10,
+        "crossing": 0.14, "dribbling": 0.09, "passing": 0.08,
+        "standing_tackle": 0.09, "marking": 0.06,
+        "interceptions": 0.06, "work_rate": 0.08,
+        "positioning": 0.06,
+    },
+    # ---------------------------------------------------------------- RWB
+    "RWB": {
+        "stamina": 0.14, "acceleration": 0.10, "sprint_speed": 0.10,
+        "crossing": 0.14, "dribbling": 0.09, "passing": 0.08,
+        "standing_tackle": 0.09, "marking": 0.06,
+        "interceptions": 0.06, "work_rate": 0.08,
+        "positioning": 0.06,
+    },
+    # ---------------------------------------------------------------- CDM
+    "CDM": {
+        "interceptions": 0.16, "standing_tackle": 0.13,
+        "positioning": 0.13, "defensive_awareness": 0.12,
+        "passing": 0.10, "work_rate": 0.09,
+        "strength": 0.06, "ball_control": 0.06,
+        "vision": 0.05, "composure": 0.05, "teamwork": 0.05,
+    },
+    # ---------------------------------------------------------------- CM
+    "CM": {
+        "passing": 0.16, "vision": 0.13, "ball_control": 0.11,
+        "technique": 0.10, "decision_making": 0.08,
+        "interceptions": 0.08, "standing_tackle": 0.06,
+        "work_rate": 0.08, "stamina": 0.07,
+        "composure": 0.05, "teamwork": 0.05, "long_shots": 0.03,
+    },
+    # ---------------------------------------------------------------- CAM
+    "CAM": {
+        "passing": 0.15, "vision": 0.16, "ball_control": 0.12,
+        "dribbling": 0.12, "technique": 0.10, "flair": 0.08,
+        "finishing": 0.08, "composure": 0.06,
+        "decision_making": 0.05, "agility": 0.04, "long_shots": 0.04,
+    },
+    # ---------------------------------------------------------------- LM
+    "LM": {
+        "crossing": 0.14, "dribbling": 0.12, "passing": 0.11,
+        "acceleration": 0.10, "sprint_speed": 0.10, "stamina": 0.10,
+        "ball_control": 0.09, "work_rate": 0.07,
+        "vision": 0.06, "technique": 0.06, "agility": 0.05,
+    },
+    # ---------------------------------------------------------------- RM
+    "RM": {
+        "crossing": 0.14, "dribbling": 0.12, "passing": 0.11,
+        "acceleration": 0.10, "sprint_speed": 0.10, "stamina": 0.10,
+        "ball_control": 0.09, "work_rate": 0.07,
+        "vision": 0.06, "technique": 0.06, "agility": 0.05,
+    },
+    # ---------------------------------------------------------------- LW
+    "LW": {
+        "dribbling": 0.16, "acceleration": 0.13, "sprint_speed": 0.12,
+        "ball_control": 0.11, "finishing": 0.10, "crossing": 0.08,
+        "agility": 0.08, "technique": 0.07,
+        "vision": 0.05, "flair": 0.05, "composure": 0.05,
+    },
+    # ---------------------------------------------------------------- RW
+    "RW": {
+        "dribbling": 0.16, "acceleration": 0.13, "sprint_speed": 0.12,
+        "ball_control": 0.11, "finishing": 0.10, "crossing": 0.08,
+        "agility": 0.08, "technique": 0.07,
+        "vision": 0.05, "flair": 0.05, "composure": 0.05,
+    },
+    # ---------------------------------------------------------------- CF
+    "CF": {
+        "finishing": 0.16, "off_the_ball": 0.12, "ball_control": 0.10,
+        "dribbling": 0.09, "composure": 0.09, "acceleration": 0.08,
+        "sprint_speed": 0.07, "passing": 0.07, "vision": 0.06,
+        "technique": 0.05, "shot_power": 0.06, "first_touch": 0.05,
+    },
+    # ---------------------------------------------------------------- ST
+    "ST": {
+        "finishing": 0.20, "off_the_ball": 0.14, "shot_power": 0.11,
+        "composure": 0.10, "acceleration": 0.09, "sprint_speed": 0.08,
+        "ball_control": 0.07, "first_touch": 0.06,
+        "heading": 0.05, "strength": 0.05, "positioning": 0.05,
+    },
+}
+
+ATTACK_ATTRS = frozenset({
+    "finishing", "shot_power", "long_shots", "volleys", "penalties",
+    "free_kick_accuracy", "curve", "passing", "vision", "crossing",
+    "ball_control", "dribbling", "agility", "balance", "composure",
+    "off_the_ball", "first_touch", "acceleration", "sprint_speed",
+    "flair", "technique",
+})
+
+DEFENSE_ATTRS = frozenset({
+    "standing_tackle", "sliding_tackle", "marking", "positioning",
+    "interceptions", "defensive_awareness", "strength", "jumping",
+    "heading", "aggression", "work_rate", "teamwork", "concentration",
+    "reactions", "stamina", "bravery", "gk_diving", "gk_handling",
+    "gk_kicking", "gk_positioning", "gk_reflexes", "gk_one_on_ones",
+    "gk_communication",
+})
+
+# --- Tier-bounded philosophies (single source of truth) ---
+# Allowed philosophies per reputation band. The philosophy assignment
+# picks ONLY from the allowed list for the club's band — this is what
+# keeps Barcelona from becoming a "build-and-sell youth project" and
+# keeps a League Two club from becoming "galacticos".
+PHILOSOPHY_BANDS = {
+    "elite": {  # rep >= 85
+        "min_rep": 85,
+        "allowed": ["galacticos", "possession_domination", "total_football",
+                    "fluid_attacking", "tiki_taka", "gegenpress"],
+    },
+    "ambitious": {  # 70 <= rep < 85
+        "min_rep": 70,
+        "allowed": ["tiki_taka", "gegenpress", "wing_play",
+                    "high_line_defense", "moneyball",
+                    "possession_domination", "balanced", "fluid_attacking"],
+    },
+    "pragmatic": {  # 55 <= rep < 70
+        "min_rep": 55,
+        "allowed": ["counter_attack", "direct_football", "wing_play",
+                    "high_line_defense", "balanced", "moneyball",
+                    "youth_development", "route_one"],
+    },
+    "survivor": {  # rep < 55
+        "min_rep": 0,
+        "allowed": ["park_the_bus", "route_one", "direct_football",
+                    "counter_attack", "balanced", "youth_development"],
+    },
+}
+
+
+def philosophy_band_for(reputation: int) -> str:
+    try:
+        rep = int(reputation or 0)
+    except (TypeError, ValueError):
+        rep = 0
+    for band_name, spec in PHILOSOPHY_BANDS.items():
+        if rep >= spec["min_rep"]:
+            return band_name
+    return "survivor"
+
+
+# Probability per club per season that its philosophy shifts within its
+# band. Kept low on purpose — the user asked for "rare in real life,
+# rare in the game".
+PHILOSOPHY_SHIFT_CHANCE = 0.03  # 3%
+
+# Probability per club per season that it MOVES band (up or down).
+# This is the "small club becomes a project" / "big club declines"
+# event. Also kept very low.
+PHILOSOPHY_BAND_SHIFT_CHANCE = 0.01  # 1%
+
+# Canonical tactical profiles per identity. Numeric knobs are 0.0-1.0;
+# assign_team_philosophy() copies the profile and jitters each field.
+PHILOSOPHY_PROFILES = {
+    "galacticos": {"attacking_intent": 0.90, "pressing_intensity": 0.50,
+                   "possession_focus": 0.60, "width": 0.60, "tempo": 0.70,
+                   "defensive_line": 0.60, "build_up_style": 0.50,
+                   "transition_style": 0.70},
+    "possession_domination": {"attacking_intent": 0.80, "pressing_intensity": 0.70,
+                              "possession_focus": 0.95, "width": 0.70, "tempo": 0.55,
+                              "defensive_line": 0.70, "build_up_style": 0.90,
+                              "transition_style": 0.50},
+    "total_football": {"attacking_intent": 0.85, "pressing_intensity": 0.80,
+                       "possession_focus": 0.75, "width": 0.80, "tempo": 0.75,
+                       "defensive_line": 0.70, "build_up_style": 0.80,
+                       "transition_style": 0.75},
+    "fluid_attacking": {"attacking_intent": 0.85, "pressing_intensity": 0.55,
+                        "possession_focus": 0.65, "width": 0.75, "tempo": 0.80,
+                        "defensive_line": 0.55, "build_up_style": 0.60,
+                        "transition_style": 0.85},
+    "tiki_taka": {"attacking_intent": 0.75, "pressing_intensity": 0.70,
+                  "possession_focus": 0.95, "width": 0.65, "tempo": 0.45,
+                  "defensive_line": 0.65, "build_up_style": 0.95,
+                  "transition_style": 0.40},
+    "gegenpress": {"attacking_intent": 0.80, "pressing_intensity": 0.95,
+                   "possession_focus": 0.55, "width": 0.60, "tempo": 0.90,
+                   "defensive_line": 0.75, "build_up_style": 0.40,
+                   "transition_style": 0.95},
+    "wing_play": {"attacking_intent": 0.65, "pressing_intensity": 0.50,
+                  "possession_focus": 0.45, "width": 0.95, "tempo": 0.70,
+                  "defensive_line": 0.50, "build_up_style": 0.35,
+                  "transition_style": 0.70},
+    "high_line_defense": {"attacking_intent": 0.60, "pressing_intensity": 0.75,
+                          "possession_focus": 0.55, "width": 0.55, "tempo": 0.60,
+                          "defensive_line": 0.90, "build_up_style": 0.55,
+                          "transition_style": 0.60},
+    "moneyball": {"attacking_intent": 0.55, "pressing_intensity": 0.50,
+                  "possession_focus": 0.50, "width": 0.55, "tempo": 0.55,
+                  "defensive_line": 0.50, "build_up_style": 0.55,
+                  "transition_style": 0.60},
+    "balanced": {"attacking_intent": 0.50, "pressing_intensity": 0.50,
+                 "possession_focus": 0.50, "width": 0.50, "tempo": 0.50,
+                 "defensive_line": 0.50, "build_up_style": 0.50,
+                 "transition_style": 0.50},
+    "counter_attack": {"attacking_intent": 0.55, "pressing_intensity": 0.35,
+                       "possession_focus": 0.30, "width": 0.55, "tempo": 0.85,
+                       "defensive_line": 0.30, "build_up_style": 0.25,
+                       "transition_style": 0.95},
+    "direct_football": {"attacking_intent": 0.60, "pressing_intensity": 0.45,
+                        "possession_focus": 0.30, "width": 0.60, "tempo": 0.80,
+                        "defensive_line": 0.40, "build_up_style": 0.20,
+                        "transition_style": 0.80},
+    "youth_development": {"attacking_intent": 0.50, "pressing_intensity": 0.55,
+                          "possession_focus": 0.55, "width": 0.60, "tempo": 0.60,
+                          "defensive_line": 0.50, "build_up_style": 0.60,
+                          "transition_style": 0.60},
+    "route_one": {"attacking_intent": 0.55, "pressing_intensity": 0.40,
+                  "possession_focus": 0.20, "width": 0.45, "tempo": 0.75,
+                  "defensive_line": 0.35, "build_up_style": 0.10,
+                  "transition_style": 0.75},
+    "park_the_bus": {"attacking_intent": 0.20, "pressing_intensity": 0.25,
+                     "possession_focus": 0.25, "width": 0.40, "tempo": 0.30,
+                     "defensive_line": 0.15, "build_up_style": 0.20,
+                     "transition_style": 0.30},
+}
+
+# Philosophy -> pressing/tactic mapping for the live engine.
+PHILOSOPHY_PRESSING = {
+    "galacticos": "normal", "possession_domination": "high",
+    "total_football": "high", "fluid_attacking": "normal",
+    "tiki_taka": "high", "gegenpress": "high",
+    "wing_play": "normal", "high_line_defense": "high",
+    "moneyball": "normal", "balanced": "normal",
+    "counter_attack": "low", "direct_football": "normal",
+    "youth_development": "normal", "route_one": "low",
+    "park_the_bus": "low",
+}
+
+PHILOSOPHY_TACTIC = {
+    "galacticos": "attack", "possession_domination": "attack",
+    "total_football": "attack", "fluid_attacking": "attack",
+    "tiki_taka": "attack", "gegenpress": "attack",
+    "wing_play": "balanced", "high_line_defense": "balanced",
+    "moneyball": "balanced", "balanced": "balanced",
+    "counter_attack": "defensive", "direct_football": "defensive",
+    "youth_development": "balanced", "route_one": "defensive",
+    "park_the_bus": "defensive",
 }

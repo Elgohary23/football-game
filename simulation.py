@@ -720,9 +720,17 @@ def generate_free_agents(state: GameState) -> None:
     name = generate_player_name(region)
     stats = generate_player_stats(tier_level=3, position=pos, region=region)
     stats["age"] = max(20, stats["age"])
+    try:
+        from services import _pick_detailed_position, recompute_aggregates
+        _det = _pick_detailed_position(pos)
+    except Exception:
+        from config import POSITION_OVERALL_WEIGHTS as _W
+        _det = {"GK": "GK", "DEF": "CB", "MID": "CM", "FWD": "ST"}.get(pos, "CM")
+        recompute_aggregates = None
     free = Player(
         name=name,
         position=pos,
+        detailed_position=_det,
         attack=stats["attack"],
         defense=stats["defense"],
         potential=stats["potential"],
@@ -736,6 +744,11 @@ def generate_free_agents(state: GameState) -> None:
         is_starting=False,
         traits=generate_player_traits(),
     )
+    try:
+        if recompute_aggregates is not None:
+            recompute_aggregates(free)
+    except Exception:
+        pass
     db.session.add(free)
 
 
@@ -936,6 +949,18 @@ def simulate_day(state: GameState) -> None:
     simulate_ai_transfers(state)
 
 
+def _bump_detailed_attrs(player, gain: int, attacking: bool) -> None:
+    """Nudge a couple of detailed attrs so recompute preserves growth/decline."""
+    try:
+        from config import ATTACK_ATTRS as _A, DEFENSE_ATTRS as _D
+        pool = [a for a in (list(_A) if attacking else list(_D)) if hasattr(player, a)]
+        for attr in random.sample(pool, k=min(2, len(pool))):
+            cur = getattr(player, attr, 50) or 50
+            setattr(player, attr, max(1, min(99, cur + gain)))
+    except Exception:
+        pass
+
+
 def update_player_evolution() -> None:
     players = Player.query.all()
     for p in players:
@@ -953,17 +978,27 @@ def update_player_evolution() -> None:
             if p.attack < p.potential:
                 gain = random.randint(0, 1) + (1 if random.random() < (growth_boost * 0.05) else 0)
                 p.attack = min(p.potential, p.attack + gain)
+                if gain:
+                    _bump_detailed_attrs(p, gain, attacking=True)
             if p.defense < p.potential:
                 gain = random.randint(0, 1) + (1 if random.random() < (growth_boost * 0.05) else 0)
                 p.defense = min(p.potential, p.defense + gain)
+                if gain:
+                    _bump_detailed_attrs(p, gain, attacking=False)
         elif p.age >= 30:
             # FM aging curve: physical attributes crater while technical hold.
             severity = max(1, int((p.age - 30) ** 1.5))
             decline_chance = min(0.95, severity / 40.0 + 0.15)
             if random.random() < decline_chance:
                 loss = max(1, severity // 6)
-                p.attack = max(30, p.attack - random.randint(0, loss))
-                p.defense = max(30, p.defense - random.randint(0, loss))
+                step = random.randint(0, loss)
+                p.attack = max(30, p.attack - step)
+                if step:
+                    _bump_detailed_attrs(p, -step, attacking=True)
+                step2 = random.randint(0, loss)
+                p.defense = max(30, p.defense - step2)
+                if step2:
+                    _bump_detailed_attrs(p, -step2, attacking=False)
 
         # --- FM: aging curve (physical vs technical split) ---
         if p.age >= PHYSICAL_DECLINE_AGE:
@@ -981,6 +1016,13 @@ def update_player_evolution() -> None:
         elif 24 <= p.age < TECHNICAL_DECLINE_AGE:
             if random.random() < 0.15:
                 p.technique = min(99, (p.technique or 50) + 1)
+
+    # Keep position-weighted overalls in sync after development.
+    try:
+        from services import recompute_all_aggregates
+        recompute_all_aggregates()
+    except Exception:
+        pass
 
 
 def generate_youth_players() -> None:
@@ -1004,9 +1046,16 @@ def generate_youth_players() -> None:
     stats = generate_player_stats(tier_level=tier_level, position=pos, region=region)
     new_name = generate_player_name(region)
 
+    try:
+        from services import _pick_detailed_position, recompute_aggregates
+        _det = _pick_detailed_position(pos)
+    except Exception:
+        _det = {"GK": "GK", "DEF": "CB", "MID": "CM", "FWD": "ST"}.get(pos, "CM")
+        recompute_aggregates = None
     youth = Player(
         name=f"{new_name} (شباب)",
         position=pos,
+        detailed_position=_det,
         attack=stats["attack"],
         defense=stats["defense"],
         potential=stats["potential"],
@@ -1019,6 +1068,11 @@ def generate_youth_players() -> None:
         team_id=player_team.id,
         is_starting=False,
     )
+    try:
+        if recompute_aggregates is not None:
+            recompute_aggregates(youth)
+    except Exception:
+        pass
     db.session.add(youth)
 
     state = GameState.query.first()
@@ -1097,6 +1151,7 @@ def process_season_end(state: GameState) -> None:
                 regen = Player(
                     name=f"{new_name} (Regen)",
                     position=pos,
+                    detailed_position=getattr(p, "detailed_position", None) or pos,
                     attack=stats["attack"],
                     defense=stats["defense"],
                     potential=stats["potential"],
@@ -1109,6 +1164,11 @@ def process_season_end(state: GameState) -> None:
                     team_id=team_id,
                     is_starting=False,
                 )
+                try:
+                    from services import recompute_aggregates as _recomp
+                    _recomp(regen)
+                except Exception:
+                    pass
                 db.session.add(regen)
 
     if SEASON_RESET_PLAYER_STATS:
@@ -1124,6 +1184,15 @@ def process_season_end(state: GameState) -> None:
         db.session.add(msg)
     for _ in range(3):
         generate_free_agents(state)
+
+    # Rare identity shifts (within band 3%, across bands 1% with justification).
+    try:
+        from services import recompute_all_aggregates, roll_season_philosophy_shifts
+        for msg in roll_season_philosophy_shifts(state):
+            db.session.add(msg)
+        recompute_all_aggregates()
+    except Exception:
+        logger.exception("philosophy shifts / recompute failed")
 
     cleanup_old_data()
     logger.info("Season ended: %s players retired and regens created.", retired_count)
@@ -1464,17 +1533,34 @@ def train_team_monthly(team: Team) -> None:
 
         if focus == "attack" and p.position in ["FWD", "MID"]:
             if p.attack < p.potential and random.random() < growth_chance:
-                p.attack = min(p.potential, p.attack + random.randint(0, 2))
+                step = random.randint(0, 2)
+                p.attack = min(p.potential, p.attack + step)
+                if step:
+                    _bump_detailed_attrs(p, step, attacking=True)
         elif focus == "defense" and p.position in ["DEF", "GK", "MID"]:
             if p.defense < p.potential and random.random() < growth_chance:
-                p.defense = min(p.potential, p.defense + random.randint(0, 2))
+                step = random.randint(0, 2)
+                p.defense = min(p.potential, p.defense + step)
+                if step:
+                    _bump_detailed_attrs(p, step, attacking=False)
         elif focus == "physical":
             p.fitness = min(100, p.fitness + intensity)
             p.stamina = min(100, (p.stamina or 50) + random.randint(1, 3))
         else:
             if p.attack < p.potential and random.random() < growth_chance:
-                p.attack = min(p.potential, p.attack + random.randint(0, 1))
+                step = random.randint(0, 1)
+                p.attack = min(p.potential, p.attack + step)
+                if step:
+                    _bump_detailed_attrs(p, step, attacking=True)
             if p.defense < p.potential and random.random() < growth_chance:
-                p.defense = min(p.potential, p.defense + random.randint(0, 1))
+                step = random.randint(0, 1)
+                p.defense = min(p.potential, p.defense + step)
+                if step:
+                    _bump_detailed_attrs(p, step, attacking=False)
 
+    try:
+        from services import recompute_all_aggregates
+        recompute_all_aggregates()
+    except Exception:
+        pass
     db.session.commit()

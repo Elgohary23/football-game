@@ -103,6 +103,38 @@ def _effective_rating(attr: int, sharpness: int) -> float:
     return (attr or 0) * (1.0 - SHARPNESS_MATCH_WEIGHT + SHARPNESS_MATCH_WEIGHT * s / 100.0)
 
 
+def _player_overall(p) -> int:
+    """Position-weighted overall with legacy fallback."""
+    try:
+        ov = getattr(p, "overall", None) or 0
+        if ov:
+            return int(ov)
+    except Exception:
+        pass
+    try:
+        return int(max(getattr(p, "attack", 50) or 50, getattr(p, "defense", 50) or 50))
+    except Exception:
+        return 50
+
+
+def _team_philosophy_knobs(team: Team) -> dict:
+    try:
+        from services import get_team_philosophy
+        phil = get_team_philosophy(team)
+        if phil:
+            return {
+                "attacking_intent": float(getattr(phil, "attacking_intent", 0.5) or 0.5),
+                "pressing_intensity": float(getattr(phil, "pressing_intensity", 0.5) or 0.5),
+                "possession_focus": float(getattr(phil, "possession_focus", 0.5) or 0.5),
+                "tempo": float(getattr(phil, "tempo", 0.5) or 0.5),
+                "defensive_line": float(getattr(phil, "defensive_line", 0.5) or 0.5),
+            }
+    except Exception:
+        pass
+    return {"attacking_intent": 0.5, "pressing_intensity": 0.5,
+            "possession_focus": 0.5, "tempo": 0.5, "defensive_line": 0.5}
+
+
 def _formation_shape(team: Team) -> str:
     fd = team.formation_data
     if not isinstance(fd, dict) or not fd:
@@ -163,12 +195,16 @@ def _apply_familiarity(team: Team) -> float:
 
 
 def _team_ratings(team: Team, on_pitch, chemistry: int) -> tuple[float, float]:
-    """Effective attack/defence for both teams incl. pressing+familiarity."""
+    """Effective attack/defence for both teams incl. pressing+familiarity.
+
+    Uses the position-weighted ``overall`` (not raw attack/defense) plus
+    philosophy multipliers.
+    """
     if not on_pitch:
         return 0.0, 0.0
 
-    att = sum(_effective_rating(p.attack, p.sharpness) for p in on_pitch)
-    dff = sum(_effective_rating(p.defense, p.sharpness) for p in on_pitch)
+    att = sum(_effective_rating(_player_overall(p), p.sharpness) for p in on_pitch)
+    dff = sum(_effective_rating(_player_overall(p), p.sharpness) for p in on_pitch)
 
     role_mult = sum(ROLE_DEFENSIVE_MULT[_player_role(team, p.id)] for p in on_pitch) / max(1, len(on_pitch))
     dff *= role_mult
@@ -176,6 +212,12 @@ def _team_ratings(team: Team, on_pitch, chemistry: int) -> tuple[float, float]:
     n = max(1, len(on_pitch))
     att = (att / n) * 10.0
     dff = (dff / n) * 10.0
+
+    knobs = _team_philosophy_knobs(team)
+    # Philosophy influence: attacking intent lifts attack, a high
+    # defensive line slightly exposes the defence but adds possession.
+    att *= 1.0 + (knobs.get("attacking_intent", 0.5) - 0.5) * 0.30
+    dff *= 1.0 + (0.5 - knobs.get("defensive_line", 0.5)) * 0.10
 
     familiarity = _apply_familiarity(team)
     att *= PRESSING_ATTACK_MULT.get(team.pressing_style or "normal", 1.0)
@@ -219,6 +261,16 @@ def start_live(match: Match, mode: str = "live") -> bool:
         away = match.away_team
         if not home or not away:
             return False
+
+        # AI clubs play according to their identity, not stale columns.
+        try:
+            from services import effective_match_tactic, effective_pressing
+            for _t in (home, away):
+                if not getattr(_t, "is_player_team", False):
+                    _t.pressing_style = effective_pressing(_t)
+                    _t.match_tactic = effective_match_tactic(_t)
+        except Exception:
+            pass
 
         _captain_boost(home)
         _captain_boost(away)
@@ -273,8 +325,9 @@ def _xpid(state: dict, key: str, team_key: str):
     pass
 
 
-def _calculate_shot_xg(attacker_rating: float, defender_rating: float) -> float:
+def _calculate_shot_xg(attacker_rating: float, defender_rating: float, attacking_intent: float = 0.5) -> float:
     base = attacker_rating / max(1.0, defender_rating * 2.0)
+    base *= 0.90 + float(attacking_intent or 0.5) * 0.20
     return round(max(XG_MIN, min(XG_MAX, base)), 2)
 
 
@@ -293,7 +346,7 @@ def _shooter_weights(team, on_pitch):
     weights = []
     for p in on_pitch:
         role = _player_role(team, p.id)
-        w = ROLE_SCORER_MULT.get(role, 1.0) * max(1.0, _effective_rating(p.attack, p.sharpness))
+        w = ROLE_SCORER_MULT.get(role, 1.0) * max(1.0, _effective_rating(_player_overall(p), p.sharpness))
         if p.position == "FWD":
             w *= 1.6
         elif p.position == "MID":
@@ -306,14 +359,21 @@ def _shooter_weights(team, on_pitch):
     return weights
 
 
-def _shot_chance(player: Player, opp_def: float) -> tuple[float, float]:
+def _shot_chance(player: Player, opp_def: float, opp_pace_factor: float = 0.0, attacking_intent: float = 0.5) -> tuple[float, float]:
     """Return (xg, on-target probability) for a shooter against a defence."""
-    att = _effective_rating(player.attack, player.sharpness)
+    att = _effective_rating(_player_overall(player), player.sharpness)
     if "long_shots" in (player.traits or []) and player.position in ("MID", "FWD"):
         att *= TRAIT_LONG_SHOTS_MULT
     if "big_game_player" in (player.traits or []):
         att *= TRAIT_BIG_GAME_MULT
-    xg = _calculate_shot_xg(att, max(1.0, opp_def))
+    # Defensive line interacts with pace: a high line is punished by rapid forwards.
+    try:
+        pace = max(float(getattr(player, "sprint_speed", 50) or 50),
+                   float(getattr(player, "acceleration", 50) or 50))
+        att *= 1.0 + max(0.0, (pace - 70) / 200.0) * float(opp_pace_factor or 0.0)
+    except Exception:
+        pass
+    xg = _calculate_shot_xg(att, max(1.0, opp_def), attacking_intent)
     on_target = 0.35 + (xg * 0.5)
     return xg, min(0.95, on_target)
 
@@ -334,6 +394,12 @@ def tick_match(match: Match) -> dict:
         return {"events": [], "finished": True}
 
     event_chance = EVENT_BASE_CHANCE
+    try:
+        h_t = _team_philosophy_knobs(home).get("tempo", 0.5)
+        a_t = _team_philosophy_knobs(away).get("tempo", 0.5)
+        event_chance = EVENT_BASE_CHANCE * (0.80 + ((h_t + a_t) / 2.0) * 0.40)
+    except Exception:
+        pass
     minute = (state.get("minute") or 0) + 1
     if minute > LIVE_MATCH_MINUTES:
         return {"events": [], "finished": True}
@@ -451,6 +517,12 @@ def possession_split(match, home_xp, away_xp) -> tuple[int, int]:
         base = 50
         base += PRESSING_POSSESSION_BONUS.get(h_style, 0) - PRESSING_POSSESSION_BONUS.get(a_style, 0)
         base += int((((home_xp or {}).get("att", 0)) - ((away_xp or {}).get("att", 0))) * 0.2)
+        try:
+            h_knobs = _team_philosophy_knobs(home_team)
+            a_knobs = _team_philosophy_knobs(away_team)
+            base += int((h_knobs.get("possession_focus", 0.5) - a_knobs.get("possession_focus", 0.5)) * 12)
+        except Exception:
+            pass
         base = max(35, min(65, base))
         return base, 100 - base
     except Exception:
@@ -539,7 +611,16 @@ def _shot_event(match, team, team_key, xp, opp_xp, on_pitch, minute):
     player = _weighted_choice(team, on_pitch, _shooter_weights)
     if not player:
         return None
-    xg, on_target = _shot_chance(player, opp_xp.get("def", 5.0))
+    knobs = _team_philosophy_knobs(team)
+    opp_team = match.away_team if team_key == "home_xp" else match.home_team
+    opp_line = 0.5
+    try:
+        opp_line = float(_team_philosophy_knobs(opp_team).get("defensive_line", 0.5) or 0.5)
+    except Exception:
+        pass
+    pace_factor = max(0.0, (opp_line - 0.5) * 1.2)
+    xg, on_target = _shot_chance(player, opp_xp.get("def", 5.0),
+                                 pace_factor, knobs.get("attacking_intent", 0.5))
     xp["shots"] += 1
     xp["xg"] += xg
     is_target = random.random() < on_target
@@ -570,7 +651,7 @@ def _freekick_event(match, team, team_key, xp, opp_xp, on_pitch, minute):
         taker = next((p for p in on_pitch if "set_piece_specialist" in (p.traits or [])), None)
     if not taker:
         return []
-    att = _effective_rating(taker.attack, taker.sharpness)
+    att = _effective_rating(_player_overall(taker), taker.sharpness)
     boost = SET_PIECE_TAKER_BONUS
     if "set_piece_specialist" in (taker.traits or []):
         boost += TRAIT_SET_PIECE_BOOST
@@ -594,10 +675,10 @@ def _penalty_event(match, team, team_key, xp, opp_xp, on_pitch, minute) -> list:
     if team.penalty_taker_id:
         taker = next((p for p in on_pitch if p.id == team.penalty_taker_id), None)
     if not taker:
-        taker = max(on_pitch, key=lambda p: p.attack) if on_pitch else None
+        taker = max(on_pitch, key=lambda p: _player_overall(p)) if on_pitch else None
     if not taker:
         return []
-    chance = PENALTY_BASE_CHANCE + (taker.attack or 0) * PENALTY_ATTACK_WEIGHT
+    chance = PENALTY_BASE_CHANCE + (_player_overall(taker) or 0) * PENALTY_ATTACK_WEIGHT
     if "set_piece_specialist" in (taker.traits or []):
         chance += TRAIT_SET_PIECE_BOOST
     chance = min(0.95, chance)
@@ -624,7 +705,7 @@ def _pick_assister(team, on_pitch, scorer):
     weights = []
     for p in potential:
         role = _player_role(team, p.id)
-        w = ROLE_ASSIST_MULT.get(role, 1.0) * max(1.0, p.attack)
+        w = ROLE_ASSIST_MULT.get(role, 1.0) * max(1.0, _player_overall(p))
         if p.position == "MID":
             w *= 1.3
         weights.append(w)
@@ -917,10 +998,14 @@ def _players_meta(match: Match) -> dict:
         away_ids = set((match.live_state or {}).get("away_xp", {}).get("on_pitch", []))
         on_pitch_ids = home_ids if team.id == match.home_team_id else away_ids
         for p in team.players:
+            try:
+                ov = _player_overall(p)
+            except Exception:
+                ov = 50
             meta[str(p.id)] = {
                 "name": p.name,
                 "position": p.position,
-                "rating": round(max(0.0, p.attack + (0 if p.position == "FWD" else p.defense * 0.4)), 1),
+                "rating": round(float(ov), 1),
                 "on_pitch": p.id in on_pitch_ids,
             }
     return meta

@@ -59,6 +59,9 @@ class Team(db.Model):
     league_id = db.Column(db.Integer, db.ForeignKey('league.id'))
     youth_goals = db.Column(db.Integer, default=0)
     players = db.relationship('Player', backref='team', lazy=True, foreign_keys='Player.team_id')
+    philosophy = db.relationship('TeamPhilosophy', backref='club', uselist=False,
+                                 cascade='all, delete-orphan',
+                                 foreign_keys='TeamPhilosophy.team_id')
 
     table_sort_pipeline = staticmethod(
         lambda teams: sorted(
@@ -135,13 +138,35 @@ class Team(db.Model):
         return att_result, def_result
 
 
+class TeamPhilosophy(db.Model):
+    """Club identity row: one per team, randomised within reputation band."""
+    id = db.Column(db.Integer, primary_key=True)
+    team_id = db.Column(db.Integer, db.ForeignKey('team.id'), unique=True)
+    primary = db.Column(db.String(30), default="balanced")
+    band = db.Column(db.String(20), default="survivor")
+    attacking_intent = db.Column(db.Float, default=0.5)
+    pressing_intensity = db.Column(db.Float, default=0.5)
+    possession_focus = db.Column(db.Float, default=0.5)
+    width = db.Column(db.Float, default=0.5)
+    tempo = db.Column(db.Float, default=0.5)
+    defensive_line = db.Column(db.Float, default=0.5)
+    build_up_style = db.Column(db.Float, default=0.5)
+    transition_style = db.Column(db.Float, default=0.5)
+    season_goal = db.Column(db.String(20), default="mid_table")
+    patience = db.Column(db.Integer, default=60)
+    board_ambition = db.Column(db.Integer, default=50)
+    last_shift_season = db.Column(db.Integer, default=0)
+
+
 class Player(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(50))
     position = db.Column(db.String(10))
+    detailed_position = db.Column(db.String(10), nullable=True)
 
     attack = db.Column(db.Integer)
     defense = db.Column(db.Integer)
+    overall = db.Column(db.Integer, default=50)
     potential = db.Column(db.Integer)
 
     age = db.Column(db.Integer, default=20)
@@ -164,6 +189,51 @@ class Player(db.Model):
     stamina = db.Column(db.Integer, default=100)
     technique = db.Column(db.Integer, default=50)
     speed = db.Column(db.Integer, default=50)
+
+    # --- Detailed attributes (position-specific overalls) ---
+    finishing = db.Column(db.Integer, default=50)
+    shot_power = db.Column(db.Integer, default=50)
+    long_shots = db.Column(db.Integer, default=50)
+    volleys = db.Column(db.Integer, default=50)
+    penalties = db.Column(db.Integer, default=50)
+    free_kick_accuracy = db.Column(db.Integer, default=50)
+    curve = db.Column(db.Integer, default=50)
+    passing = db.Column(db.Integer, default=50)
+    vision = db.Column(db.Integer, default=50)
+    crossing = db.Column(db.Integer, default=50)
+    ball_control = db.Column(db.Integer, default=50)
+    dribbling = db.Column(db.Integer, default=50)
+    first_touch = db.Column(db.Integer, default=50)
+    off_the_ball = db.Column(db.Integer, default=50)
+    heading = db.Column(db.Integer, default=50)
+    acceleration = db.Column(db.Integer, default=50)
+    sprint_speed = db.Column(db.Integer, default=50)
+    agility = db.Column(db.Integer, default=50)
+    balance = db.Column(db.Integer, default=50)
+    jumping = db.Column(db.Integer, default=50)
+    strength = db.Column(db.Integer, default=50)
+    standing_tackle = db.Column(db.Integer, default=50)
+    sliding_tackle = db.Column(db.Integer, default=50)
+    marking = db.Column(db.Integer, default=50)
+    positioning = db.Column(db.Integer, default=50)
+    interceptions = db.Column(db.Integer, default=50)
+    defensive_awareness = db.Column(db.Integer, default=50)
+    aggression = db.Column(db.Integer, default=50)
+    bravery = db.Column(db.Integer, default=50)
+    composure = db.Column(db.Integer, default=50)
+    concentration = db.Column(db.Integer, default=50)
+    decision_making = db.Column(db.Integer, default=50)
+    teamwork = db.Column(db.Integer, default=50)
+    work_rate = db.Column(db.Integer, default=50)
+    flair = db.Column(db.Integer, default=50)
+    reactions = db.Column(db.Integer, default=50)
+    gk_diving = db.Column(db.Integer, default=50)
+    gk_handling = db.Column(db.Integer, default=50)
+    gk_kicking = db.Column(db.Integer, default=50)
+    gk_positioning = db.Column(db.Integer, default=50)
+    gk_reflexes = db.Column(db.Integer, default=50)
+    gk_one_on_ones = db.Column(db.Integer, default=50)
+    gk_communication = db.Column(db.Integer, default=50)
 
     # --- RPG layer (FM features) ---
     traits = db.Column(db.JSON, default=list)
@@ -208,6 +278,37 @@ class Player(db.Model):
 
     def value_label(self) -> str:
         return f"${self.market_value:,}" if self.market_value else "$0"
+
+    def position_group(self) -> str:
+        """Coarse group (GK/DEF/MID/FWD) from detailed or legacy position."""
+        det = (self.detailed_position or self.position or "").upper()
+        if det == "GK":
+            return "GK"
+        if det in ("CB", "LB", "RB", "LWB", "RWB", "DEF"):
+            return "DEF"
+        if det in ("CDM", "CM", "CAM", "LM", "RM", "MID"):
+            return "MID"
+        if det in ("LW", "RW", "CF", "ST", "FWD"):
+            return "FWD"
+        return "MID"
+
+    def top_overall_contributors(self, n: int = 5) -> list[tuple[str, float]]:
+        """Top-N (attribute, weighted contribution) for the UI breakdown."""
+        try:
+            from config import POSITION_OVERALL_WEIGHTS
+        except Exception:
+            return []
+        det = self.detailed_position or self.position
+        weights = POSITION_OVERALL_WEIGHTS.get(det or "CM", {})
+        scored = []
+        for attr, w in weights.items():
+            try:
+                val = getattr(self, attr, 50) or 50
+            except Exception:
+                val = 50
+            scored.append((attr, float(val) * float(w)))
+        scored.sort(key=lambda kv: kv[1], reverse=True)
+        return scored[:n]
 
 
 class League(db.Model):
