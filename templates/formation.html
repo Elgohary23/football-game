@@ -8,6 +8,7 @@
             <div>
                 <span id="formationCount" class="lead" style="color:#888;font-size:0.9rem;margin-left:1rem;">0/11 لاعب</span>
                 <button class="btn btn-primary btn-sm" id="saveFormationBtn"><i class="fas fa-save"></i> حفظ التشكيلة</button>
+                <button class="btn btn-secondary btn-sm" id="autoPickBtn" type="button"><i class="fas fa-magic"></i> اختيار تلقائي</button>
                 <button class="btn btn-secondary btn-sm" id="resetFormationBtn"><i class="fas fa-undo"></i> إعادة ضبط</button>
             </div>
         </div>
@@ -559,6 +560,20 @@ document.addEventListener('DOMContentLoaded', function() {
         placedIds.clear();
         renderAll();
     });
+
+    // Auto-pick (rules engine): best rules-compliant XI, then reload.
+    var autoBtn = document.getElementById('autoPickBtn');
+    if (autoBtn) {
+        autoBtn.addEventListener('click', function() {
+            fetch('/formation/auto-pick', {method: 'POST', headers: {'X-CSRFToken': csrfToken}})
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) { location.reload(); }
+                else { alert(data.message || 'تعذر الاختيار التلقائي'); }
+            })
+            .catch(err => alert('خطأ في الاتصال بالخادم'));
+        });
+    }
 
     // Make pitch boxes draggable for repositioning
     pitchGrid.addEventListener('dragstart', (e) => {

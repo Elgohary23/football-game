@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}محاكاة العالم{% endblock %}
+{% block content %}
+<section class="dashboard">
+    <h1 style="color:#e94560;text-align:center;margin-bottom:1rem;">محاكاة العالم</h1>
+    <div class="card" style="margin-bottom:1rem;text-align:center;">
+        <form action="/world" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <button class="btn btn-primary" type="submit">محاكاة العالم (أسبوع واحد)</button>
+        </form>
+        <div style="color:#888;font-size:0.85rem;margin-top:0.5rem;">كل الدوريات والكؤوس — كاملة / متوسطة / سريعة حسب المستوى</div>
+    </div>
+    {% for entry in leaders %}
+    <div class="card" style="margin-bottom:1rem;">
+        <div class="card-header"><h3>{{ entry.league.name }}</h3></div>
+        <ul>
+            {% for row in entry.top %}
+            <li>{{ row.name }} — {{ row.points }} نقطة</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endfor %}
+</section>
+{% endblock %}
+{% block scripts %}{% endblock %}

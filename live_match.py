@@ -723,6 +723,12 @@ def _pick_assister(team, on_pitch, scorer):
 # --------------------------------------------------------------------------
 def substitute_player(match: Match, team_key: str, player_out_id: int, player_in_id: int) -> tuple[bool, str]:
     try:
+        from config import RULES as _RULES
+        from rules_engine import validate_substitution as _valid_sub
+    except Exception:
+        _RULES = {"subs": 5, "windows": 3}
+        _valid_sub = None
+    try:
         state = match.live_state or {}
         if state.get("finished"):
             return False, "المباراة انتهت!"
@@ -731,10 +737,10 @@ def substitute_player(match: Match, team_key: str, player_out_id: int, player_in
         on_pitch = list(xp.get("on_pitch") or [])
         bench = list(xp.get("bench") or [])
 
-        if player_out_id not in on_pitch:
-            return False, "اللاعب ليس في الملعب!"
-        if player_in_id not in bench:
-            return False, "اللاعب ليس في قائمة الاحتياط!"
+        if _valid_sub is not None:
+            ok, msg = _valid_sub(state, team_key, player_in_id, player_out_id)
+            if not ok:
+                return False, msg
 
         if team_key == "home_xp":
             team = match.home_team
@@ -746,8 +752,8 @@ def substitute_player(match: Match, team_key: str, player_out_id: int, player_in
         p_out = next((p for p in team.players if p.id == player_out_id), None)
         p_in = next((p for p in team.players if p.id == player_in_id), None)
 
-        if xp.get("subs", 0) >= 3:
-            return False, "استنفدت التبديلات الثلاثة!"
+        if xp.get("subs", 0) >= _RULES.get("subs", 5):
+            return False, "استنفدت التبديلات الخمسة!"
 
         on_pitch.remove(player_out_id)
         bench.append(player_out_id)
@@ -756,6 +762,9 @@ def substitute_player(match: Match, team_key: str, player_out_id: int, player_in
         xp["on_pitch"] = on_pitch
         xp["bench"] = bench
         xp["subs"] = xp.get("subs", 0) + 1
+        # Stoppage windows: halftime (45') is free, every other stoppage counts.
+        if minute != LIVE_HALF_MINUTES:
+            xp["sub_windows"] = xp.get("sub_windows", 0) + 1
 
         events = state.setdefault("events", [])
         state["events"] = events
@@ -783,6 +792,100 @@ def substitute_player(match: Match, team_key: str, player_out_id: int, player_in
     except Exception:
         logger.exception("substitute_player failed for match %s", getattr(match, "id", "?"))
         return False, "حدث خطأ أثناء التبديل!"
+
+
+# --------------------------------------------------------------------------
+# In-match AI (Feature D.4): philosophy-driven checkpoints (HT/60'/75')
+# --------------------------------------------------------------------------
+def _ai_side_key(match: Match, team) -> str | None:
+    try:
+        if match.home_team is not None and team.id == match.home_team.id:
+            return "home_xp"
+        if match.away_team is not None and team.id == match.away_team.id:
+            return "away_xp"
+    except Exception:
+        pass
+    return None
+
+
+def maybe_ai_checkpoint(match: Match) -> list:
+    """Run philosophy-driven AI decisions for AI-controlled sides.
+
+    Called at fixed checkpoints only (HT/60'/75') + forced events (injury,
+    red card). All decisions come from the team philosophy via
+    ``ai_coaching.decide_checkpoint``. Returns applied decision summaries.
+    """
+    applied = []
+    try:
+        from config import MATCH_AI_CHECKPOINTS
+        from ai_coaching import decide_checkpoint
+        from rules_engine import validate_substitution as _valid_sub
+    except Exception:
+        return applied
+    try:
+        state = match.live_state or {}
+        if state.get("finished"):
+            return applied
+        minute = int(state.get("minute", 0) or 0)
+        if minute not in MATCH_AI_CHECKPOINTS:
+            return applied
+        for team, key in ((match.home_team, "home_xp"), (match.away_team, "away_xp")):
+            try:
+                if team is None or getattr(team, "is_player_team", False):
+                    continue
+                xp = state.get(key) or {}
+                on_pitch = [p for p in (team.players or [])
+                            if p.id in (xp.get("on_pitch") or [])]
+                bench = [p for p in (team.players or [])
+                         if p.id in (xp.get("bench") or [])]
+                if not on_pitch or not bench:
+                    continue
+                goal_diff = int(xp.get("score", 0) or 0) - int(
+                    (state.get("away_xp" if key == "home_xp" else "home_xp") or {}).get("score", 0) or 0)
+                # Ratings proxy: goals/assists so far are unknown mid-match;
+                # use fitness + overall as the observable signal.
+                ratings = {}
+                decision = decide_checkpoint(match, key, minute, goal_diff, team,
+                                             on_pitch, bench, ratings)
+                sub = decision.get("sub")
+                if sub:
+                    out_p, in_p = sub
+                    ok, _ = _valid_sub(state, key, in_p.id, out_p.id)
+                    if ok:
+                        on_ids = list(xp.get("on_pitch") or [])
+                        bn_ids = list(xp.get("bench") or [])
+                        on_ids.remove(out_p.id)
+                        bn_ids.append(out_p.id)
+                        bn_ids.remove(in_p.id)
+                        on_ids.append(in_p.id)
+                        xp["on_pitch"] = on_ids
+                        xp["bench"] = bn_ids
+                        xp["subs"] = xp.get("subs", 0) + 1
+                        if minute != LIVE_HALF_MINUTES:
+                            xp["sub_windows"] = xp.get("sub_windows", 0) + 1
+                        (state.setdefault("events", [])).append({
+                            "minute": minute, "type": "sub",
+                            "team": team_key_short(key),
+                            "player_out": out_p.name, "player_in": in_p.name,
+                            "ai": True, "reason": decision.get("reason", ""),
+                        })
+                # Mentality shifts are philosophy expressions: a chasing
+                # gegenpress side presses on, a leading park-the-bus side
+                # wastes time. Stored on the live state for the engine tick.
+                if decision.get("mentality_delta"):
+                    xp["ai_mentality_delta"] = int(xp.get("ai_mentality_delta", 0) or 0) \
+                        + int(decision["mentality_delta"])
+                if decision.get("time_wasting"):
+                    xp["ai_time_wasting"] = True
+                applied.append({"team": team.name, "minute": minute,
+                                "reason": decision.get("reason", "")})
+            except Exception:
+                continue
+        if applied:
+            flag_modified(match, "live_state")
+    except Exception:
+        logger.exception("maybe_ai_checkpoint failed for match %s", getattr(match, "id", "?"))
+    return applied
 
 
 # --------------------------------------------------------------------------
@@ -911,6 +1014,10 @@ def run_auto_match(match: Match) -> bool:
                 # In-place JSON mutation is invisible to SQLAlchemy — without
                 # this flag the events are silently lost on commit.
                 flag_modified(match, "live_state")
+            try:
+                maybe_ai_checkpoint(match)
+            except Exception:
+                pass
             if (match.live_state or {}).get("finished"):
                 break
         else:
@@ -983,6 +1090,10 @@ def advance_live_mins(match: Match, minutes: int) -> dict:
         for _ in range(minutes):
             res = tick_match(match)
             collected.extend(res.get("events", []))
+            try:
+                maybe_ai_checkpoint(match)
+            except Exception:
+                pass
             if res.get("finished"):
                 break
         # Persist so the live feed, match report and post-match scorer

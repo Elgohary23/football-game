@@ -1,0 +1,313 @@
+# ملحوظة سريعة
+
+كتبت لك prompt كامل بالإنجليزي على شكل Implementation Plan جاهز تتسلم لأي coding agent، مقسّم على 4 Features رئيسية بالترتيب اللي طلبتها، مع تفاصيل الربط بالكود الموجود فعلاً (routes, live_match, simulation, services) عشان الـ agent ميخترعش حاجات متعارضة مع البنية الحالية:
+
+````markdown
+# Implementation Plan: Hard Rules Engine, FM-style Tactical System, Tiered World Match Simulation & Beatable AI
+
+You are extending an existing Flask football-management game. Read this entire plan before writing code. Implement features in the phase order given at the end. Do not break existing save compatibility (SQLite per save-slot, `db.create_all()` + lazy column bootstrapping is the established migration pattern — follow it).
+
+---
+
+## 0. Existing Architecture (context you MUST respect)
+
+- **Stack**: Flask + SQLAlchemy, one SQLite file per save slot (`services.get_slot_uri`, `refresh_db_engine`). UI templates are Arabic (RTL). Keep all user-facing strings in Arabic, matching existing tone.
+- **Routes** (`routes/`): thin HTTP glue only. All logic lives in `services/`, `simulation/`, `live_match.py`, `cup_services.py`.
+- **Match entry points (there are exactly three — every rule must gate all of them)**:
+  1. `live_match.start_live()` → interactive live match (user's team), `advance_live_mins`, `substitute_player`, `finish_live`.
+  2. `live_match.run_auto_match()` → headless single match.
+  3. `simulation.simulate_calendar(days, state, background=True)` → bulk fast-forward simulation.
+  Also: `finish_match_week()` simulates the rest of a round; `cup_services.after_match_played()` advances cup brackets.
+- **Existing tactical bits (extend, don't duplicate)**: `Team.formation_data` (JSON), `Team.pressing_style`, `Team.match_tactic`, `Team.penalty_taker_id`, `Team.freekick_taker_id`, `TacticPreset` model, `PLAYER_ROLES` in `config.py`, `validate_formation` / `apply_formation` in services.
+- **Existing XI guard**: `_player_xi_complete()` in `routes/game_routes.py` and the flip-then-verify logic in `routes/team_routes.py::toggle_starter`. These must delegate to the new rules engine.
+- **Leagues have tiers** (`League.tier`), promotion/relegation exists, cups + continental competitions exist with `CUP_MATCH_WEEK`.
+- `Player` has: position, attack, defense, age, fitness, morale, injury_days, is_starting, goals, personality. Add fields, don't rename existing ones.
+
+---
+
+## 1. Global Principles
+
+1. **Single funnel**: All three match entry points must converge on one shared post-processing pipeline `simulation.finalize_match_result(match, result)` that applies: score/scorers/ratings, discipline accrual, injuries, fitness deltas, morale, cup advancement, manager records. Never duplicate this logic per engine.
+2. **Server-side authority**: every rule is validated server-side in services/engine code, never only in templates or JS.
+3. **One validation source**: a single `services/rules_engine.py` is the only place rule logic lives. Routes, live engine, and bulk sim all call it.
+4. **Deterministic where needed**: every engine accepts a seeded RNG (`random.Random(seed)`, seed derived from `match.id * 100000 + season * 100 + day`) so results are reproducible in tests.
+5. **No hidden bonuses for or against the player's team.** AI uses the same public data, same rules, same engines.
+
+---
+
+## 2. FEATURE A — Hard Rules Engine ("things you cannot bypass")
+
+### A.1 Rule catalogue (implement all 14; the first 10 are mandatory minimums)
+
+| # | Rule | Parameters (config) | Enforced at | On failure |
+|---|------|--------------------|-------------|-----------|
+| 1 | Starting XI must be exactly **11 players including exactly 1 goalkeeper** | — | `start_live`, `run_auto_match`, bulk sim XI picker, `save_formation` | Block match start with Arabic flash message; bulk sim uses auto-pick instead |
+| 2 | Bench ≤ **9**, max **5 substitutions** across max **3 stoppages (+ halftime)** | `RULES = {bench: 9, subs: 5, windows: 3}` | `substitute_player`, AI sub logic, L1/L2 engines | Reject sub with reason; engine ignores illegal AI sub |
+| 3 | Squad size limits: **min 16 / max 30 registered** players at all times | per-league override via `League.rules_json` | All transfer/release/loan endpoints (`purchase_player`, `swap_offer`, offer accept) | Reject transfer with Arabic reason |
+| 4 | **Transfer windows**: summer (season weeks 1–3) + winter (week `TOTAL_ROUNDS // 2`, 2 weeks long). Permanent & loan moves only inside windows; free-agent signing allowed anytime but still needs registration + budget | `TRANSFER_WINDOWS` in config | Every transfer action, AI transfer planner, bulk sim expiry (already expires pending offers — keep) | Reject with reason; inbox message |
+| 5 | **Squad registration list**: max 25 registered seniors; under-21 players exempt. Only **registered** players may appear in any match at any sim level. Registration only possible during windows | `register list: 25` | XI/bench pickers at ALL sim levels, registration endpoints | Player is unselectable; bulk sim auto-pick skips unregistered |
+| 6 | **Foreign-player cap**: max **5** non-domestic players in the starting XI (domestic = same region as league; add `League.region` + `Player.nationality` if missing; region mapping in config) | `foreign_xi: 5` | XI validation, auto-pick, engines | Block XI / auto-pick respects cap |
+| 7 | **Home-grown quota**: at least **4** home-grown players in the registered 25 (home-grown = `is_homegrown` true: academy product or ≥3 seasons at club) | `homegrown: 4` | Registration endpoint | Registration rejected until quota met |
+| 8 | **Financial rules**: total transfer spend cannot exceed transfer budget; weekly wage bill cannot exceed wage budget (add `Team.transfer_budget`, `Team.wage_budget`; keep `Team.budget` as alias/mirror). Board imposes a **transfer embargo** if cash < 0 after a matchday payroll | budgets in config defaults per tier (`get_budget_for_tier` already exists) | All bid/offer endpoints server-side, AI planner | Reject with reason; embargo blocks incoming signings |
+| 9 | **Discipline & suspensions**: 5 yellows → 1-match ban (then every 5 more); second yellow in a match → 1-match ban; straight red → 1–3 match ban (severity roll). Bans served in the **same competition type first** (league ban serves league matches, cup ban serves cup ties). Counters are shared by ALL engines via `finalize_match_result` | thresholds in config | Squad selection (suspended players unselectable), auto-pick, engines | Player unselectable with "موقوف" badge; inbox notice on new ban |
+| 10 | **Cup-tied**: a player who appeared in tournament T for club A cannot play in T for another club the same season | — | XI validation in cup matches | Player unselectable for that tournament |
+| 11 | **Availability**: `injury_days > 0` → unselectable; `fitness < 40` → cannot start (bench allowed, elevated injury risk); max **1 match per player per day** | fitness floor in config | All pickers + engines | Rejected selection with reason |
+| 12 | **Minimum 7 on pitch**: if red cards + uncovered injuries reduce a side below 7 (incl. GK), match abandoned → **0–3 forfeit** recorded through the normal pipeline. If no GK available (all injured/sent off, none on bench), an outfield player takes goal with a large ability penalty instead of forfeiting | — | In-match logic (L1 live + L1 headless); L2/L3 never reach this by construction | Forfeit result + news message |
+| 13 | **Loan limits**: max **2 loans in** and **2 loans out** per club per season; a loaned player **cannot be selected against his parent club** | in config | Loan endpoints, XI picker | Rejected selection / rejected loan |
+| 14 | **Age & contract floor**: players under 16 cannot appear in senior matches; a player without a contract (expiry passed) cannot play until re-signed | — | Pickers + engines | Unselectable |
+
+### A.2 Architecture
+
+Create `services/rules_engine.py` with **pure, side-effect-free** validators:
+
+```python
+validate_starting_xi(team, competition_type) -> (ok: bool, errors: list[str])
+validate_matchday_squad(team, starters, bench, competition_type) -> (ok, errors)
+validate_substitution(live_state, team_key, player_in, player_out) -> (ok, msg)
+validate_registration_list(team) -> (ok, errors)          # size, homegrown, budget-agnostic
+validate_transfer(team, player, fee, wage, day) -> (ok, msg)   # window, budget, squad size, embargo
+get_suspension_state(player) -> {competition_type: matches_remaining}
+apply_discipline(player, comp_type, yellow=False, second_yellow=False, red=False) -> new_state  # persists
+auto_pick_xi(team, competition_type, rng) -> {starters: [...], bench: [...]}
+   # ALWAYS rules-compliant: best eligible XI by rating, respects GK/foreign/registration/suspension.
+   # Used by every AI team and by bulk simulation.
+```
+
+Add a config module `config/rules.py` holding all rule parameters (single source of truth, overridable per league via `League.rules_json`).
+
+### A.3 Integration points (exhaustive — every one must be done)
+
+- `routes/team_routes.py::toggle_starter` and `save_formation` → call `validate_starting_xi`; keep the existing flip-then-verify pattern but replace its inline logic with the engine call.
+- `routes/game_routes.py::_player_xi_complete` → delegate to `validate_starting_xi`.
+- `live_match.start_live` → hard gate: validate both teams' XI + bench; for AI teams run `auto_pick_xi` when invalid instead of blocking.
+- `live_match.substitute_player` → `validate_substitution` (sub count, windows, bench membership, suspensions/injury of incoming player).
+- `simulation.simulate_calendar` / `finish_match_week` / every L1/L2/L3 engine → **never hand-build XIs**: always obtain them via `auto_pick_xi` for AI teams and stored user XI (validated; if invalid → `auto_pick_xi` fallback + inbox warning) so bulk simulation obeys every rule identically.
+- Transfer endpoints (`purchase_player`, `swap_offer`, `process_offer_accept`, `counter_offer` accept path) → `validate_transfer` + registration write.
+- AI planner (`ai/`) → must call the same validators (AI is not above the rules).
+
+### A.4 Bulk-simulation guarantee
+
+Write a property test that runs 1,000 bulk-simulated matches across all levels and asserts: no side ever has ≠11 starters or ≠1 GK, no suspended/unregistered/injured player ever appears in a lineup, no team exceeds sub caps, budgets never go negative via transfers. This test must pass before Feature A is considered done.
+
+### A.5 UI feedback
+
+- Squad page: badges per player — مصاب / موقوف (n matches) / غير مسجل / مقيد بالكؤوس / أجنبي quota indicator.
+- Transfers/registration blocked with precise Arabic reason strings returned by the engine (engine messages are the single source).
+- Auto-pick button ("اختيار تلقائي") on formation page using `auto_pick_xi`.
+- Inbox messages: new suspensions, embargo activation, window open/close reminders.
+
+---
+
+## 3. FEATURE B — Full Tactical System (FM-style, fully effective)
+
+### B.1 Data model
+
+Replace/extend the current tactic fields with a single JSON on Team: `Team.tactics_data`:
+
+```json
+{
+  "formation": "4-2-3-1",
+  "mentality": 3,                       // 1..5 (Very Defensive .. Very Attacking)
+  "slots": [
+    {"slot": "DMr", "player_id": 12, "role": "BWM", "duty": "S", "pi": ["press_more"]}
+  ],
+  "in_possession": {
+    "width": "standard", "passing_directness": "standard", "tempo": "standard",
+    "play_out_of_defence": false, "work_ball_into_box": true, "crosses": "mixed",
+    "be_more_expressive": false, "overlap_left": false, "overlap_right": false
+  },
+  "out_of_possession": {
+    "defensive_line": "standard",       // much_lower..much_higher (5 steps)
+    "engagement": "standard",           // low_block | standard | high_press
+    "pressing_intensity": 2,            // 1..4
+    "press_trap": "inside",             // inside | outside | none
+    "tackling": "normal",               // cautious | normal | aggressive
+    "offside_trap": false, "counterpress": false
+  },
+  "transitions": { "counter_attack": true, "time_wasting": "normal",
+                   "gk_distribution": "short" },
+  "set_pieces": { "corner_l": null, "corner_r": null, "fk": null, "pen": null,
+                  "att_routine": "mixed", "def_routine": "zonal" }
+}
+```
+
+- Migrate: on first load, any team without `tactics_data` gets a default built from its existing `pressing_style` + `match_tactic` + `formation_data` (bootstrap function like the cups bootstrap). Old columns remain and stay in sync for backward compatibility.
+- Extend the existing `TacticPreset` to store full `tactics_data` snapshots (keep load/save/delete endpoints, extend payloads).
+
+### B.2 Role library (`config/roles.py`)
+
+Define ≥ 22 roles across lines, each with: allowed positions, allowed duties, and numeric modifier dict. Examples (not exhaustive): `SK, CD, BPD, NCB, FB, WB, CWB, DM, Anchor, BWM, REG, VOL, CM, AP, MEZ, BBM, CAR, AM, SS, W, IF, IW, DW, TM, AF, DLF, P, F9`.
+Each role modifier affects derived profile keys, e.g. `BWM: {pressing:+2, tackling:+2, creativity:-1, positioning:+1}`, `AF: {movement:+2, finishing:+1, defensive_work:-2}`.
+
+### B.3 Player instructions (PIs)
+
+Curated catalogue per position group (`config/roles.py::PI_CATALOG`): stay_wider, cut_inside, hug_touchline, roam, hold_position, stay_back, get_forward, press_more, press_less, tackle_harder, ease_off, mark_tighter, move_into_channels, come_deep, run_in_behind. Max 3 PIs per player. Each PI maps to the same derived-profile keys.
+
+### B.4 Derived team profile (the bridge to simulation)
+
+`services/tactics.py::derive_team_profile(team, players) -> TeamProfile` — a pure function computing, from XI abilities + roles + duties + PIs + instructions + familiarity:
+
+```
+attack_eff, defense_eff, possession_base, chance_quality, aerial_threat,
+counter_threat, press_resistance, press_fatigue_mult (1.0..2.2),
+foul_rate_mult, offside_risk, set_piece_threat, gk_exposure
+```
+
+Publish a documented mapping table (put it as a docstring) — e.g. higher defensive line → higher offside_risk + higher through-ball vulnerability + more space won; pressing_intensity → opponent pass accuracy down, own fatigue up; aggressive tackling → duels won up + cards up; long directness + TM → possession down + aerial_threat up; counterpress → regain chance up + defensive gap chance up. **Every engine (L1/L2/L3) consumes TeamProfile — this is what makes tactics "فعالة بالكامل" in match-by-match AND bulk sim.**
+
+### B.5 Tactical familiarity
+
+- `Team.tactical_familiarity` (0–100) + `Team.tactic_fingerprint` (hash of tactics_data key settings).
+- Grows per match played with the same fingerprint (+8 per L1 match, +4 L2, +2 L3) up to 100; drops to 40 on fingerprint change. Effect: at low familiarity add execution noise and scale down positive modifiers (mult = 0.5 + familiarity/200). Show a meter in the UI.
+- Keep quick-preset behavior: `pressing_style`/`match_tactic` endpoints map onto the new structure so old saves and old UI don't break.
+
+### B.6 Set pieces
+
+Takers (corner L/R, FK, pen) are used by L1 engine for set-piece events; routines bias set_piece_threat. If no taker chosen → automatic pick by relevant attribute (existing penalty/freekick taker fields remain as fallback).
+
+### B.7 API & UI
+
+- New `routes/tactics_routes.py` + `templates/tactics.html`: pitch canvas (reuse/extend the existing formation editor), role+duty picker per slot, PI picker, instruction accordions (In Possession / Out of Possession / Transitions), mentality slider, set pieces tab, familiarity meter, presets row.
+- All saves validated server-side (positions must be filled by eligible registered players; `validate_starting_xi` runs on save).
+
+---
+
+## 4. FEATURE C — Three Simulation Levels + World Simulation
+
+### C.1 Engine contract
+
+Create `simulation/engines/` with one interface:
+
+```python
+simulate(match, home_profile, away_profile, rng) -> MatchResult
+# MatchResult: score, scorers[], assists[], cards[], injuries[], ratings{},
+#              fitness_deltas{}, events[] (L1 rich / L2 light / L3 empty), stats{}
+```
+
+All engines route their result through `finalize_match_result` (section 1). XIs always come from `auto_pick_xi` / validated user XI (section A.3).
+
+### C.2 Level 1 — Full minute-by-minute (user's division)
+
+- Extract the existing live engine's core into a reusable headless mode (`live_match` logic parameterized: `mode="live"` vs `mode="headless"`) so `run_auto_match` and live matches share one engine — no divergent duplicate.
+- Consumes: full TeamProfile (roles, PIs, instructions, familiarity), fitness, morale, form, home advantage, set-piece takers, in-match AI decisions (section D.4), weather-free but include momentum.
+- Produces: full events, ratings, cards, injuries, subs, fitness drain scaled by `press_fatigue_mult` and duties.
+- Budget: ≤ 120 ms per headless match.
+
+### C.3 Level 2 — Medium (same tier, other leagues)
+
+- `engine_l2.py`: possession-weighted aggregate model. Compute both TeamProfiles, derive expected goals for each side (attack_eff vs defense_eff, chance_quality, possession_base, home advantage), then sample a short list of 6–12 "key moments" (goal chances, 1–3 cards, 0–1 injury) from that xG. Scorers weighted by role/duty (AF > IF > CM...). Applies discipline/fitness through the shared funnel. Tactics still matter (they change the xG inputs).
+- Budget: ≤ 3 ms per match.
+
+### C.4 Level 3 — Superficial (higher & lower tiers)
+
+- `engine_l3.py`: strength-differential statistical model — `attack_strength`/`defense_strength` from squad average rating + form + morale, λ_home / λ_away → Poisson (or negative binomial) score sample. Scorers picked from attackers weighted by rating. Cards: only rare random yellows into the same discipline counters. **Must visibly respect strength gaps**: a Tier-1 giant vs a Tier-4 minnow produces realistic scorelines (test-documented).
+- Budget: ≤ 0.3 ms per match.
+
+### C.5 Routing (`simulation/levels.py`)
+
+```python
+def get_sim_level(match, user_league) -> 1|2|3:
+    # Any match involving the player's club -> 1 (user plays it live; "instant result" = L1 headless)
+    # Both clubs from the user's league            -> 1 (headless)
+    # Both clubs from the user's tier (other leagues, cup ties, continental) -> 2
+    # Anything involving clubs from higher/lower tiers -> 3
+```
+
+Match report page shows an engine badge (محاكاة كاملة / متوسطة / سريعة).
+
+### C.6 World simulation
+
+- `simulation/world.py::simulate_world_week(state)`: advances **every** competition for the current week — all leagues (L1/L2/L3 by routing), cups on `CUP_MATCH_WEEK`, continental rounds on their designated weeks — updating tables, stats, discipline, fitness, finances for the whole world in one pass.
+- Wire it into: `/continue`, `/advance_week`, `/simulate_to_date` (replace per-league-only behavior with world-wide), plus a new "محاكاة العالم" button + `routes/world_routes.py` + `templates/world.html` (world overview: tiers, per-league leaders, engine-level badges, bulk progress bar using the existing `background=True` pattern).
+- Ensure `start_new_season` generates fixtures for **all** leagues with the same week grid so lockstep world weeks work (audit and fix if any league lacks a fixture list).
+- Non-player leagues' AI teams get results and consequences (tables, promotion race, continental qualification) — the world must feel alive when the user reaches it via promotion/relegation.
+
+### C.7 Performance requirements
+
+- A full world week (all leagues + cups) ≤ 5 s typical; `simulate_to_date` chunks commits (~200 matches per commit) and streams progress; use `joinedload` to avoid N+1 on squads; L3 must not touch more than squad-aggregates (no per-player loops beyond scorer pick).
+
+---
+
+## 5. FEATURE D — Competent-but-Beatable AI
+
+### D.1 Personas
+
+`ai/persona.py`: each AI team gets a stored profile `Team.ai_profile` JSON: `archetype` (pragmatist / attacker / defensive / tinkerer / youth_lover), `skill` (0.35–0.85; mean rises with tier but with wide variance), `patience`, `ambition`, `transfer_aggression`, `risk_tolerance`. Never regenerate mid-save; assign at season start for teams missing one.
+
+### D.2 Weekly planner (`ai/planner.py`)
+
+Runs inside day/week advancement for every AI club: review board objectives, budget health, squad needs, fixture difficulty; choose tactic (from its own presets + persona) for the next match with a **mistake probability** `(1 - skill) * 0.35` (picks the counter-tactic vs opponent's strengths otherwise).
+
+### D.3 Transfer AI (`ai/transfer_ai.py`)
+
+- Needs assessment vs its formation → prioritized shopping list. Valuation = f(overall, age, contract) ± 15 % noise; max bid capped at `valuation * (1 + 0.25*skill)` and at 80 % of its transfer budget (reserve rule).
+- Selling: accepts offers ≥ valuation×1.1 (key players) / ×0.9 (fringe); lists surplus; always keeps ≥16 players and 2 GKs (rules engine enforces anyway).
+- **Beatability mechanics (required)**: 1–3 day reaction delay before acting on a listing; never more than 2 AI bidders on the same player; occasionally (skill-scaled) overpays or undervalues (e.g., undervalues veterans, overrates pace); walks away after 2 counters. The user can consistently out-negotiate a low-`skill` AI and find value the AI misses.
+- AI↔AI transfers run silently in background during windows.
+
+### D.4 In-match AI (`ai/match_ai.py`)
+
+For AI-controlled sides **inside L1 matches** (user's matches and headless L1), act at fixed checkpoints only — HT, 60', 75' — plus forced events (injury, red card):
+- Losing → mentality +1 step (bounded), sub lowest-rated (< 6.2) or fitness < 50 if subs remain.
+- Winning by 2+ after 70' → time_wasting up, defensive_line down one step.
+- Red card → immediate defensive reshuffle, sacrifice an attacker.
+- All changes pass through the same tactics/roles validation and sub rules.
+- **Beatability**: checkpoints only (no per-minute optimal adaptation), each decision has a `(1-skill)` chance to pick the persona-consistent-but-suboptimal option; low-skill AI ignores bait (e.g., keeps high line against a pacy counter) — high-skill AI adapts. No rubber-banding, no stat boosts.
+
+### D.5 Budget & board AI
+
+Split budget transfer/wage by squad state; if wage bill > projected income → sell top earner; invest surplus in facilities/training via the existing facility system; request board funds after overperformance (hooks into existing `BoardObjective`).
+
+### D.6 Difficulty setting
+
+`GameState.ai_difficulty` (سهل/عادي/صعب, default عادي): scales the skill mean and reaction delays only — never adds hidden modifiers to AI teams' players. Expose in setup and dashboard.
+
+---
+
+## 6. Data & Migration Plan (existing saves must keep working)
+
+- Add nullable/defaulted columns only (SQLite `ALTER TABLE ADD COLUMN` via a `ensure_rules_and_tactics_columns()` bootstrap run at load, mirroring the cups bootstrap pattern): `Team.tactics_data, tactical_familiarity, tactic_fingerprint, transfer_budget, wage_budget, ai_profile`; `Player.nationality, is_homegrown, registration_status, contract_until, discipline_data(JSON), loan_info(JSON)`; `League.region, rules_json`; `GameState.ai_difficulty`.
+- Lazy defaults: first access builds `tactics_data` from old fields; `discipline_data` starts zeroed (fresh discipline for old saves is acceptable and must be noted in a message); budgets backfilled from `get_budget_for_tier` when missing.
+- No renames of existing columns; `Team.budget` stays synchronized with `transfer_budget`.
+
+## 7. Security & Integrity
+
+- Keep every existing IDOR/authorization guard (`_player_team_key`, `safe_player_team`, offer ownership checks). New endpoints (`/tactics/*`, `/world/*`, registration, auto-pick) follow the same pattern: verify the team belongs to the player.
+- Never trust client JSON: validate tactics payload shape, cap PIs to 3, restrict role/duty combos to the library.
+
+## 8. Testing Plan
+
+1. **Rules unit tests**: one positive + one negative case per rule (A.1) — including sub windows, foreign cap in XI vs bench, homegrown at registration, embargo, cup-tied.
+2. **Property test (A.4)**: 1,000 bulk-sim matches — zero rule violations across all engines.
+3. **Determinism**: same seed ⇒ identical scoreline/events for each engine.
+4. **Tactics effect tests**: statistical deltas — high-press vs low-block over 500 L1 matches (possession, fatigue, cards), counter vs possession, direct vs short — proving TeamProfile inputs move outcomes.
+5. **L3 fairness**: documented scoreline distributions for large/small strength gaps.
+6. **AI behavior**: over 500 simulated windows — AI never breaks squad/budget rules, transfer offer values within declared noise bands, user-beatability scenarios (listing under market value gets bids within N days).
+7. **Performance benchmarks**: L1 ≤ 120 ms, L2 ≤ 3 ms, L3 ≤ 0.3 ms, world week ≤ 5 s — as assertable test gates.
+8. **Save compatibility**: create a save on the pre-change schema, load after changes, play a live match, run a bulk sim — must not crash.
+
+## 9. Delivery Phases (implement in this order, each phase independently runnable)
+
+1. **Phase 1 — Rules Engine**: `config/rules.py`, `services/rules_engine.py`, integration into all A.3 points, tests 1–2, squad badges + auto-pick button.
+2. **Phase 2 — Tactics**: data model + migration, `config/roles.py`, `services/tactics.py`, tactics UI + routes, familiarity, wire TeamProfile into L1 engine, tests 3–4.
+3. **Phase 3 — Tiered engines + World sim**: engine extraction (L1 headless), `engine_l2/l3`, `levels.py` router, `world.py` + world page + progress, tests 5 & 7.
+4. **Phase 4 — AI**: persona, planner, transfer AI, match AI checkpoints, difficulty setting, tests 6.
+5. **Phase 5 — Polish**: match-report engine badges, inbox notices (bans, window, embargo, AI offers), balance pass, test 8, final review of all Arabic copy.
+
+## 10. Definition of Done
+
+- [ ] All 14 rules enforced identically in live matches, single auto matches, and bulk simulation (property test green).
+- [ ] Tactics UI saves/loads full FM-style setup; changing tactics measurably changes L1/L2 outcomes and familiarity behaves.
+- [ ] User's division = minute-by-minute; same tier = medium; other tiers = fast strength-respecting sim; world button simulates every competition with progress.
+- [ ] AI manages budgets, makes and accepts trades within windows and caps, adapts at match checkpoints — and demonstrably makes beatable decisions (noise tests green).
+- [ ] Old saves load and play without errors; no existing endpoint regressed; all new user-facing text in Arabic.
+- [ ] All tests + performance benchmarks pass.
+````
+
+---
+
+## نصائح لتسليمه للـ agent
+
+- **سلّمه على مراحل**: لو الـ agent بيشتغل session واحدة، ابدأ بالـ Phase 1 لوحده (الـ Rules Engine) لأن باقي النظام كله هيعتمد عليه، واتأكد إن الـ property test عدى قبل ما تكمل.
+- **أهم سطرين في الـ plan** هما: الـ single funnel (`finalize_match_result`) والـ `auto_pick_xi` — دي اللي بتضمن إن القواعد شغالة فعلًا في الـ bulk simulation مش في الـ live بس. لو الـ agent اختصر فيهما، ارجّعه لهما.
+- اطلب منه بعد كل Phase يعرض لك ملخص الـ endpoints والـ migrations اللي عملها قبل ما توافق على الـ Phase اللي بعدها.

@@ -38,6 +38,13 @@ class Team(db.Model):
     training_focus = db.Column(db.String(20), default="balanced")
     training_intensity = db.Column(db.Integer, default=5)
     formation_data = db.Column(db.JSON, nullable=True)
+    # --- Deeper sim (Feature B/D): full tactics + AI profile ---
+    tactics_data = db.Column(db.JSON, nullable=True)
+    tactic_fingerprint = db.Column(db.String(64), nullable=True)
+    transfer_budget = db.Column(db.Integer, nullable=True)
+    wage_budget = db.Column(db.Integer, nullable=True)
+    ai_profile = db.Column(db.JSON, nullable=True)
+    transfer_embargo = db.Column(db.Boolean, default=False)
 
     # --- Advanced tactics (FM features) ---
     freekick_taker_id = db.Column(db.Integer, db.ForeignKey('player.id'), nullable=True)
@@ -175,6 +182,14 @@ class Player(db.Model):
 
     personality = db.Column(db.String(20), default="Normal")
     region = db.Column(db.String(20), default="Europe")
+    # --- Deeper sim (Feature A): registration / discipline / loans ---
+    nationality = db.Column(db.String(30), nullable=True)
+    is_homegrown = db.Column(db.Boolean, default=False)
+    registration_status = db.Column(db.String(20), default="registered")
+    contract_until = db.Column(db.String(10), nullable=True)
+    discipline_data = db.Column(db.JSON, nullable=True)
+    loan_info = db.Column(db.JSON, nullable=True)
+    cup_appearances = db.Column(db.JSON, nullable=True)
 
     height = db.Column(db.Integer)
     weight = db.Column(db.Integer)
@@ -321,6 +336,9 @@ class League(db.Model):
     rating_ceiling = db.Column(db.Integer, nullable=True)
     season_start_week = db.Column(db.Integer, default=1)
     is_continental = db.Column(db.Boolean, default=False)
+    # --- Deeper sim (Feature A): per-league rule overrides + region ---
+    region = db.Column(db.String(30), nullable=True)
+    rules_json = db.Column(db.JSON, nullable=True)
     teams = db.relationship('Team', backref='league', lazy=True)
 
     def rounds(self) -> int:
@@ -353,6 +371,8 @@ class GameState(db.Model):
     board_confidence = db.Column(db.Integer, default=60)
     # Manual window override: None = derive from current_date, else open/closed.
     transfer_window_override = db.Column(db.String(10), nullable=True)
+    # --- Deeper sim (Feature D): difficulty scales AI skill/delays only ---
+    ai_difficulty = db.Column(db.String(10), default="عادي")
 
 
 class Match(db.Model):
@@ -387,6 +407,9 @@ class Match(db.Model):
     # Live interactive match state (new engine). Old engine untouched.
     live_active = db.Column(db.Boolean, default=False)
     live_state = db.Column(db.JSON, nullable=True)
+    # --- Deeper sim (Feature C): engine badge + seeded determinism ---
+    engine_level = db.Column(db.Integer, nullable=True)
+    sim_seed = db.Column(db.Integer, nullable=True)
 
     home_team = db.relationship('Team', foreign_keys=[home_team_id])
     away_team = db.relationship('Team', foreign_keys=[away_team_id])

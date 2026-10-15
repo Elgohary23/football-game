@@ -57,17 +57,28 @@ def _involves_player(match: Match) -> bool:
 
 
 def _player_xi_complete() -> bool:
-    """The manager needs 11 starters before a live match may begin."""
+    """The manager needs 11 starters before a live match may begin.
+
+    Delegates to the hard rules engine (single validation source).
+    """
     try:
+        from rules_engine import validate_starting_xi
         player_team = Team.query.filter_by(is_player_team=True).first()
         if not player_team:
             return False
-        return (
-            Player.query.filter_by(team_id=player_team.id, is_starting=True).count()
-            >= 11
-        )
+        ok, _ = validate_starting_xi(player_team, "league")
+        return bool(ok)
     except Exception:
-        return False
+        try:
+            player_team = Team.query.filter_by(is_player_team=True).first()
+            if not player_team:
+                return False
+            return (
+                Player.query.filter_by(team_id=player_team.id, is_starting=True).count()
+                >= 11
+            )
+        except Exception:
+            return False
 
 
 def _play_or_start_match_day(state: GameState):
@@ -807,3 +818,32 @@ def season_end():
         flash("خطأ في إنهاء الموسم!")
 
     return redirect("/dashboard")
+
+
+@bp.route("/world", methods=["GET", "POST"])
+def world_overview():
+    """World simulation overview + محاكاة العالم button (Feature C.6)."""
+    from sim_levels import simulate_world_week
+
+    state = safe_state()
+    player_team = safe_player_team()
+    result = None
+    if request.method == "POST":
+        result = simulate_world_week(state)
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        flash(f"تمت محاكاة العالم: {result.get('played', 0)} مباراة")
+        return redirect("/world")
+    leagues = League.query.order_by(League.tier).all()
+    leaders = []
+    try:
+        from services import get_league_table
+        for lg in leagues[:8]:
+            rows = get_league_table(lg.id)
+            leaders.append({"league": lg, "top": rows[:3]})
+    except Exception:
+        pass
+    return render_template("world.html", state=state, player_team=player_team,
+                           leaders=leaders, result=result)

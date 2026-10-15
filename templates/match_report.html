@@ -12,6 +12,9 @@
         <div style="text-align:center;">
             <div class="score">{{ report.match.home_score }} - {{ report.match.away_score }}</div>
             <div style="font-size:0.8rem;color:#888;">الأسبوع {{ report.match.week }}</div>
+            {% if report.match.engine_level == 1 %}<div style="font-size:0.75rem;color:#2ecc71;">محاكاة كاملة</div>
+            {% elif report.match.engine_level == 2 %}<div style="font-size:0.75rem;color:#f39c12;">محاكاة متوسطة</div>
+            {% elif report.match.engine_level == 3 %}<div style="font-size:0.75rem;color:#888;">محاكاة سريعة</div>{% endif %}
         </div>
         <div class="team-name" style="text-align:center;">
             <div>{{ report.away.name }}</div>

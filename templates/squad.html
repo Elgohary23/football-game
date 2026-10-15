@@ -162,6 +162,11 @@
                                 {% if player.injury_days > 0 %}
                                 <span style="color:#e74c3c;font-size:0.7rem;font-weight:bold;">مصاب</span>
                                 {% else %}
+                                {% set _disc = player.discipline_data or {} %}
+                                {% set _susp = (_disc.get('suspensions') or {}).get('league', 0) %}
+                                {% if _susp %}<span style="color:#f39c12;font-size:0.7rem;font-weight:bold;">موقوف ({{ _susp }})</span>{% endif %}
+                                {% if (player.registration_status or 'registered') != 'registered' %}<span style="color:#9b59b6;font-size:0.7rem;font-weight:bold;">غير مسجل</span>{% endif %}
+                                {% if player.loan_from_team_id %}<span style="color:#3498db;font-size:0.7rem;">معار</span>{% endif %}
                                 <form class="toggle-starter-form" data-id="{{ player.id }}" action="/toggle_starter/{{ player.id }}" method="POST">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                     <button type="submit" class="btn-icon" title="{{ 'إبعاد' if player.is_starting else 'إضافة' }}">

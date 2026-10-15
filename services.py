@@ -261,12 +261,32 @@ def _ensure_schema_columns() -> None:
         ("transfer_offer", "effective_day", "INTEGER"),
         # GameState window override
         ("game_state", "transfer_window_override", "VARCHAR(10)"),
+        ("game_state", "ai_difficulty", "VARCHAR(10) DEFAULT 'عادي'"),
         # European expansion: per-country pyramids + rating bands
         ("league", "country", "VARCHAR(30) DEFAULT 'England'"),
         ("league", "rating_floor", "INTEGER"),
         ("league", "rating_ceiling", "INTEGER"),
         ("league", "season_start_week", "INTEGER DEFAULT 1"),
         ("league", "is_continental", "BOOLEAN DEFAULT 0"),
+        ("league", "region", "VARCHAR(30)"),
+        ("league", "rules_json", "JSON"),
+        # Deeper sim: tactics + AI profile + budgets
+        ("team", "tactics_data", "JSON"),
+        ("team", "tactic_fingerprint", "VARCHAR(64)"),
+        ("team", "transfer_budget", "INTEGER"),
+        ("team", "wage_budget", "INTEGER"),
+        ("team", "ai_profile", "JSON"),
+        ("team", "transfer_embargo", "BOOLEAN DEFAULT 0"),
+        ("match", "engine_level", "INTEGER"),
+        ("match", "sim_seed", "INTEGER"),
+        # Deeper sim: registration / discipline / loans
+        ("player", "nationality", "VARCHAR(30)"),
+        ("player", "is_homegrown", "BOOLEAN DEFAULT 0"),
+        ("player", "registration_status", "VARCHAR(20) DEFAULT 'registered'"),
+        ("player", "contract_until", "VARCHAR(10)"),
+        ("player", "discipline_data", "JSON"),
+        ("player", "loan_info", "JSON"),
+        ("player", "cup_appearances", "JSON"),
         # Position-specific overalls + detailed attributes
         ("player", "overall", "INTEGER DEFAULT 50"),
         ("player", "detailed_position", "VARCHAR(10)"),
@@ -830,7 +850,30 @@ def ai_weekly_coaching() -> dict:
             continue
         if changed:
             report[team.id] = changed
+    # Deeper sim (Feature D): philosophy-driven planner (mentality targets,
+    # AI profiles). Never touches player teams; failures never break the tick.
+    try:
+        from ai_coaching import weekly_planner_report as _planner
+        extra = _planner()
+        for k, v in (extra or {}).items():
+            report.setdefault(k, v)
+    except Exception:
+        pass
+    # Backfill split budgets from the legacy single budget (lazy migration).
+    try:
+        for team in teams:
+            if getattr(team, "transfer_budget", None) is None:
+                team.transfer_budget = int(getattr(team, "budget", 0) or 0)
+            if getattr(team, "wage_budget", None) is None:
+                team.wage_budget = int((getattr(team, "budget", 0) or 0) // 52)
+    except Exception:
+        pass
     return report
+
+
+def ensure_rules_and_tactics_columns() -> None:
+    """Deeper-sim migration entry point (ALTER-only, idempotent)."""
+    _ensure_schema_columns()
 
 
 def team_decision_profile(team: Team) -> dict:

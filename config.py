@@ -98,7 +98,7 @@ REPUTATION_TOLERANCE = 10
 OLD_DATA_KEEP_PLAYED_MATCHES = 150
 
 # --- Schema migration guard ---
-TEMPLATE_SCHEMA_VERSION = 9  # bump to force a template.db rebuild
+TEMPLATE_SCHEMA_VERSION = 10  # bump to force a template.db rebuild (deeper_sim: rules+tactics+AI)
 
 # --- Advanced tactics (FM features) ---
 PRESSING_STYLES = ("low", "normal", "high")
@@ -1223,4 +1223,118 @@ PHILOSOPHY_TRAINING_FOCUS = {
     "high_line_defense": "defense",
     "moneyball": "balanced", "balanced": "balanced",
     "youth_development": "balanced",
+}
+
+# --- Deeper sim: hard rules engine (Feature A, single source of truth) ---
+# League.rules_json may override any of these per league.
+RULES = {
+    "bench": 9,
+    "subs": 5,
+    "windows": 3,  # + halftime always allowed as a free window
+    "min_squad": 16,
+    "max_squad": 30,
+    "registered_max": 25,
+    "foreign_xi": 5,
+    "homegrown_min": 4,
+    "loans_in_max": 2,
+    "loans_out_max": 2,
+    "fitness_floor_start": 40,
+    "min_age": 16,
+    "suspension_yellows": 5,
+    "min_on_pitch": 7,
+}
+# Summer = season weeks 1-3, winter = mid-season 2-week window.
+TRANSFER_WINDOWS = {
+    "summer_weeks": (1, 3),
+    "winter_week": None,  # resolved at runtime: TOTAL_ROUNDS // 2
+    "winter_length": 2,
+}
+# Region mapping for the foreign-player cap (Player.nationality -> region).
+NATIONALITY_REGION = {
+    "Europe": "Europe", "South_America": "South_America",
+    "Middle_East": "Middle_East", "Africa": "Africa", "Asia": "Asia",
+}
+
+# --- Deeper sim: tactical system (Feature B) ---
+TACTICS_MENTALITY = (1, 2, 3, 4, 5)  # very defensive .. very attacking
+TACTICS_DEFENSIVE_LINES = ("much_lower", "lower", "standard", "higher", "much_higher")
+TACTICS_ENGAGEMENT = ("low_block", "standard", "high_press")
+TACTICS_TACKLING = ("cautious", "normal", "aggressive")
+FAMILIARITY_PER_L1 = 8
+FAMILIARITY_PER_L2 = 4
+FAMILIARITY_PER_L3 = 2
+FAMILIARITY_RESET_ON_CHANGE = 40
+
+# --- Deeper sim: tiered engines + world sim (Feature C) ---
+SIM_LEVELS = (1, 2, 3)
+ENGINE_BADGES = {1: "محاكاة كاملة", 2: "محاكاة متوسطة", 3: "محاكاة سريعة"}
+L1_BUDGET_MS = 120
+L2_BUDGET_MS = 3
+L3_BUDGET_MS = 0.3
+WORLD_WEEK_BUDGET_S = 5
+WORLD_COMMIT_CHUNK = 200
+
+# --- Deeper sim: competent-but-beatable AI (Feature D) ---
+AI_DIFFICULTIES = ("سهل", "عادي", "صعب")
+AI_DIFFICULTY_DEFAULT = "عادي"
+AI_SKILL_RANGE = (0.35, 0.85)
+AI_MISTAKE_BASE = 0.35  # mistake prob = (1 - skill) * AI_MISTAKE_BASE
+AI_MAX_BIDDERS_PER_PLAYER = 2
+AI_MAX_COUNTERS = 2
+AI_REACTION_DAYS = (1, 3)
+MATCH_AI_CHECKPOINTS = (45, 60, 75)
+MATCH_AI_LOW_RATING = 6.2
+MATCH_AI_LOW_FITNESS = 50
+
+# Philosophy -> full coaching profile. THIS is what makes AI coaching
+# decisions come from the team philosophy: every AI choice (mentality,
+# pressing, line, tempo, width, subs, risk) is derived here first, then
+# only modulated by match state and skill noise. Never hard-code AI
+# tactics elsewhere — import from here.
+PHILOSOPHY_COACHING = {
+    "galacticos": {"mentality": 4, "pressing": 2, "def_line": "higher",
+                   "tempo": "fast", "width": "standard", "risk": 0.7,
+                   "sub_aggression": 0.7, "chase_shape": "attack"},
+    "possession_domination": {"mentality": 4, "pressing": 3, "def_line": "higher",
+                   "tempo": "normal", "width": "wide", "risk": 0.5,
+                   "sub_aggression": 0.5, "chase_shape": "possession"},
+    "total_football": {"mentality": 4, "pressing": 3, "def_line": "higher",
+                   "tempo": "fast", "width": "wide", "risk": 0.6,
+                   "sub_aggression": 0.6, "chase_shape": "attack"},
+    "fluid_attacking": {"mentality": 4, "pressing": 2, "def_line": "standard",
+                   "tempo": "fast", "width": "wide", "risk": 0.65,
+                   "sub_aggression": 0.7, "chase_shape": "attack"},
+    "tiki_taka": {"mentality": 3, "pressing": 3, "def_line": "higher",
+                   "tempo": "slow", "width": "standard", "risk": 0.4,
+                   "sub_aggression": 0.4, "chase_shape": "possession"},
+    "gegenpress": {"mentality": 4, "pressing": 4, "def_line": "much_higher",
+                   "tempo": "fast", "width": "standard", "risk": 0.7,
+                   "sub_aggression": 0.8, "chase_shape": "press"},
+    "wing_play": {"mentality": 3, "pressing": 2, "def_line": "standard",
+                   "tempo": "fast", "width": "wide", "risk": 0.5,
+                   "sub_aggression": 0.5, "chase_shape": "width"},
+    "high_line_defense": {"mentality": 3, "pressing": 3, "def_line": "much_higher",
+                   "tempo": "normal", "width": "standard", "risk": 0.55,
+                   "sub_aggression": 0.5, "chase_shape": "press"},
+    "moneyball": {"mentality": 3, "pressing": 2, "def_line": "standard",
+                   "tempo": "normal", "width": "standard", "risk": 0.5,
+                   "sub_aggression": 0.5, "chase_shape": "balanced"},
+    "balanced": {"mentality": 3, "pressing": 2, "def_line": "standard",
+                   "tempo": "normal", "width": "standard", "risk": 0.5,
+                   "sub_aggression": 0.5, "chase_shape": "balanced"},
+    "counter_attack": {"mentality": 2, "pressing": 1, "def_line": "lower",
+                   "tempo": "fast", "width": "standard", "risk": 0.6,
+                   "sub_aggression": 0.6, "chase_shape": "counter"},
+    "direct_football": {"mentality": 3, "pressing": 2, "def_line": "lower",
+                   "tempo": "fast", "width": "standard", "risk": 0.55,
+                   "sub_aggression": 0.5, "chase_shape": "direct"},
+    "youth_development": {"mentality": 3, "pressing": 2, "def_line": "standard",
+                   "tempo": "normal", "width": "standard", "risk": 0.5,
+                   "sub_aggression": 0.6, "chase_shape": "balanced"},
+    "route_one": {"mentality": 2, "pressing": 1, "def_line": "lower",
+                   "tempo": "fast", "width": "narrow", "risk": 0.55,
+                   "sub_aggression": 0.4, "chase_shape": "direct"},
+    "park_the_bus": {"mentality": 1, "pressing": 1, "def_line": "much_lower",
+                   "tempo": "slow", "width": "narrow", "risk": 0.25,
+                   "sub_aggression": 0.3, "chase_shape": "defend"},
 }

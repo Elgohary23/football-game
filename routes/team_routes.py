@@ -82,6 +82,18 @@ def toggle_starter(player_id):
             400,
         )
 
+    # Hard rules engine: suspended / unregistered / low-fitness players are
+    # unselectable (single validation source; messages come from the engine).
+    turning_on = not player.is_starting
+    if turning_on:
+        try:
+            from rules_engine import _player_eligible
+            ok, reason = _player_eligible(player, "league", need_start=True)
+            if not ok:
+                return jsonify({"success": False, "message": reason}), 400
+        except Exception:
+            pass
+
     # Flip-then-verify: count AFTER the change (post-flush) so two rapid
     # clicks can't both pass a stale pre-check and leave 12 starters.
     turning_on = not player.is_starting
@@ -187,6 +199,27 @@ def save_formation():
     ok, error = validate_formation(player_team, data["positions"])
     if not ok:
         return jsonify({"error": error}), 400
+
+    # Hard rules engine on the candidate XI (foreign cap/suspensions/etc.).
+    try:
+        from rules_engine import validate_starting_xi as _valid_xi
+        if len(data["positions"] or {}) == 11:
+            ids = set()
+            for k in (data["positions"] or {}).keys():
+                try:
+                    ids.add(int(k))
+                except Exception:
+                    pass
+            prev = {p.id: p.is_starting for p in player_team.players}
+            for p in player_team.players:
+                p.is_starting = p.id in ids
+            ok2, errs = _valid_xi(player_team, "league")
+            for p in player_team.players:
+                p.is_starting = prev.get(p.id, False)
+            if not ok2:
+                return jsonify({"error": errs[0] if errs else error}), 400
+    except Exception:
+        pass
 
     apply_formation(player_team, data["positions"])
 
@@ -1138,3 +1171,84 @@ def buyback_exercise(player_id):
             message = "حدث خطأ!"
     flash(message)
     return redirect("/scouting")
+
+
+@bp.route("/formation/auto-pick", methods=["POST"])
+def formation_auto_pick():
+    """Auto-pick button (rules engine): best rules-compliant XI + bench."""
+    from rules_engine import auto_pick_xi
+    from services import apply_formation
+
+    player_team = safe_player_team()
+    pick = auto_pick_xi(player_team, "league")
+    starters = pick.get("starters") or []
+    if len(starters) != 11:
+        return jsonify({"success": False, "message": "لا يوجد 11 لاعباً مؤهلاً!"}), 400
+    apply_formation(player_team, {str(p.id): {} for p in starters})
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({"success": False, "message": "فشل في حفظ التشكيلة!"}), 500
+    return jsonify({"success": True, "message": "تم اختيار التشكيلة تلقائياً!",
+                    "ids": [p.id for p in starters]})
+
+
+@bp.route("/tactics/save", methods=["POST"])
+def save_full_tactics():
+    """FM-style full tactics save (validated server-side, capped PIs)."""
+    from tactics import get_team_tactics, on_tactics_changed
+
+    player_team = safe_player_team()
+    try:
+        payload = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"success": False, "message": "بيانات غير صالحة"}), 400
+    base = get_team_tactics(player_team)
+    merged = dict(base)
+    for key in ("formation", "mentality", "in_possession", "out_of_possession",
+                "transitions", "set_pieces", "slots"):
+        if key in payload:
+            merged[key] = payload[key]
+    try:
+        mentality = int(merged.get("mentality", 3))
+        merged["mentality"] = max(1, min(5, mentality))
+    except Exception:
+        merged["mentality"] = 3
+    try:
+        slots = merged.get("slots") or []
+        for s in slots:
+            pis = (s.get("pi") or [])[:3]
+            s["pi"] = pis
+        merged["slots"] = slots
+    except Exception:
+        pass
+    changed = on_tactics_changed(player_team, merged)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({"success": False, "message": "فشل في حفظ الخطة!"}), 500
+    return jsonify({"success": True, "familiarity_reset": bool(changed),
+                    "familiarity": getattr(player_team, "tactical_familiarity", 100)})
+
+
+@bp.route("/difficulty", methods=["POST"])
+def set_difficulty():
+    """AI difficulty (scales skill means + delays only, never hidden mods)."""
+    from config import AI_DIFFICULTIES
+
+    state = safe_state()
+    mode = (request.form.get("mode") or "عادي").strip()
+    if mode not in AI_DIFFICULTIES:
+        flash("مستوى صعوبة غير صالح!")
+        return redirect("/dashboard")
+    state.ai_difficulty = mode
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("فشل في حفظ الصعوبة!")
+        return redirect("/dashboard")
+    flash(f"مستوى صعوبة الذكاء الاصطناعي: {mode}")
+    return redirect("/dashboard")

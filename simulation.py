@@ -235,7 +235,11 @@ def simulate_match(match: Match, state: Optional[GameState] = None, mode: str = 
 
 
 def match_director(match: Match, state: GameState) -> bool:
-    """Pick the right simulation depth, then run it (Tip 4)."""
+    """Pick the right simulation depth, then run it (Tip 4).
+
+    Deeper sim (Feature C): the tier router assigns the engine level badge;
+    the mode mapping below is preserved so behavior never regresses.
+    """
     home = match.home_team
     away = match.away_team
 
@@ -246,9 +250,30 @@ def match_director(match: Match, state: GameState) -> bool:
     else:
         mode = "quick"
 
+    try:
+        from sim_levels import get_sim_level
+        user_tier = None
+        try:
+            from models import Team as _T
+            _pt = _T.query.filter_by(is_player_team=True).first()
+            user_tier = getattr(getattr(_pt, "league", None), "tier", None)
+        except Exception:
+            pass
+        match.engine_level = get_sim_level(match, state.user_league_id, user_tier)
+    except Exception:
+        pass
     result = simulate_match(match, state, mode=mode)
     update_manager_record(match, state)
     return result
+
+
+def finalize_match_result(match: Match, result: dict, state=None):
+    """Single-funnel alias (deeper_sim §1): all engines converge here."""
+    try:
+        from sim_levels import finalize_match_result as _fin
+        return _fin(match, result, state)
+    except Exception:
+        return match
 
 
 def generate_match_events(h_score, a_score, state) -> tuple[list, list]:
