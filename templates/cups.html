@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}الكؤوس والبطولات{% endblock %}
+{% block content %}
+<section class="cups-page">
+    <div class="cups-header">
+        <h1><i class="fas fa-trophy"></i> الكؤوس والبطولات القارية</h1>
+        <p class="cups-subtitle">القرعة عشوائية قبل كل دور — التعادل يُحسم بالوقت الإضافي وركلات الترجيح</p>
+    </div>
+
+    {% if not view %}
+    <div class="card">
+        <p>لا توجد بطولات هذا الموسم بعد.</p>
+        <form action="/cups/start" method="POST" style="display:inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <button type="submit" class="btn btn-primary"><i class="fas fa-play"></i> بدء منافسات الكؤوس</button>
+        </form>
+    </div>
+    {% endif %}
+
+    {% for entry in view %}
+    {% set t = entry.tournament %}
+    <div class="card cup-card">
+        <div class="card-header cup-title-row">
+            <h3>
+                <i class="fas fa-trophy"></i> {{ t.name }}
+                <span class="cup-scope-badge">{{ 'قارية' if t.scope == 'continental' else 'محلية' }}</span>
+            </h3>
+            <span class="cup-round-badge">{{ round_label(t.current_round) }}</span>
+        </div>
+
+        {% if entry.champion %}
+        <div class="cup-champion">
+            <i class="fas fa-crown"></i> البطل: {{ entry.champion.name }}
+        </div>
+        {% endif %}
+
+        {% if entry.table %}
+        <div class="cup-table-wrap">
+            <h4><i class="fas fa-list-ol"></i> جدول مرحلة الدوري (يتأهل 1-8 مباشرة، 9-24 للملحق)</h4>
+            <table class="cup-table">
+                <thead>
+                    <tr><th>#</th><th>الفريق</th><th>لعب</th><th>ف</th><th>ت</th><th>خ</th><th>له</th><th>عليه</th><th>نقاط</th></tr>
+                </thead>
+                <tbody>
+                    {% for row in entry.table %}
+                    <tr class="{% if loop.index <= 8 %}cup-direct{% elif loop.index <= 24 %}cup-playoff{% else %}cup-out{% endif %}">
+                        <td>{{ loop.index }}</td>
+                        <td>{{ row.team.name if row.team else row.team_id }}</td>
+                        <td>{{ row.played }}</td>
+                        <td>{{ row.wins }}</td>
+                        <td>{{ row.draws }}</td>
+                        <td>{{ row.losses }}</td>
+                        <td>{{ row.goals_for }}</td>
+                        <td>{{ row.goals_against }}</td>
+                        <td><strong>{{ row.points }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        {% for round_name, fixtures in entry.bracket.items() %}
+        <div class="cup-round">
+            <h4><i class="fas fa-shuffle"></i> {{ round_label(round_name) }}</h4>
+            <ul class="cup-fixtures">
+                {% for fx in fixtures %}
+                <li class="cup-fixture">
+                    {% if fx.match %}
+                    {% set m = fx.match %}
+                    <span class="cup-team {% if fx.winner_team_id == m.home_team_id %}cup-winner{% endif %}">{{ m.home_team.name if m.home_team else '؟' }}</span>
+                    <span class="cup-score">{% if m.played %}{{ m.home_score }} - {{ m.away_score }}{% else %}ضد{% endif %}</span>
+                    <span class="cup-team {% if fx.winner_team_id == m.away_team_id %}cup-winner{% endif %}">{{ m.away_team.name if m.away_team else '؟' }}</span>
+                    {% if fx.leg == 2 and (fx.aggregate_home_score or fx.aggregate_away_score) %}
+                    <span class="cup-agg">(المجموع {{ fx.aggregate_home_score }}-{{ fx.aggregate_away_score }})</span>
+                    {% endif %}
+                    <span class="cup-date">{{ m.date or '' }}</span>
+                    {% else %}
+                    <span class="cup-team cup-winner">{{ fx.winner.name if fx.winner else '؟' }}</span>
+                    <span class="cup-bye">إعفاء (bye) — تأهل مباشر</span>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endfor %}
+    </div>
+    {% endfor %}
+</section>
+
+<style>
+.cups-page { display: flex; flex-direction: column; gap: 1.25rem; }
+.cups-header h1 { margin: 0 0 0.25rem 0; }
+.cups-subtitle { color: #8e9bb0; font-size: 0.9rem; }
+.cup-title-row { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+.cup-scope-badge { background: rgba(255,255,255,0.1); border-radius: 10px; padding: 0.1rem 0.5rem; font-size: 0.75rem; }
+.cup-round-badge { background: #e94560; color: #fff; border-radius: 12px; padding: 0.15rem 0.7rem; font-size: 0.8rem; font-weight: bold; }
+.cup-champion { background: rgba(241,196,15,0.12); border: 1px solid rgba(241,196,15,0.5); border-radius: 10px; padding: 0.6rem; margin-bottom: 0.75rem; font-weight: bold; }
+.cup-round h4 { margin: 0.75rem 0 0.4rem 0; }
+.cup-fixtures { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.cup-fixture { display: flex; align-items: center; gap: 0.6rem; background: rgba(255,255,255,0.03); border-radius: 8px; padding: 0.4rem 0.6rem; font-size: 0.9rem; flex-wrap: wrap; }
+.cup-team { flex: 1; }
+.cup-winner { color: #2ecc71; font-weight: bold; }
+.cup-score { font-weight: 800; min-width: 70px; text-align: center; }
+.cup-agg, .cup-date { color: #8e9bb0; font-size: 0.8rem; }
+.cup-bye { color: #8e9bb0; font-size: 0.8rem; }
+.cup-table-wrap { overflow-x: auto; margin: 0.5rem 0; }
+.cup-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.cup-table th, .cup-table td { padding: 0.3rem 0.5rem; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.cup-direct { background: rgba(46,204,113,0.08); }
+.cup-playoff { background: rgba(230,126,34,0.08); }
+.cup-out { opacity: 0.6; }
+</style>
+{% endblock %}

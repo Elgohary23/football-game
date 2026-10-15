@@ -98,7 +98,7 @@ REPUTATION_TOLERANCE = 10
 OLD_DATA_KEEP_PLAYED_MATCHES = 150
 
 # --- Schema migration guard ---
-TEMPLATE_SCHEMA_VERSION = 8  # bump to force a template.db rebuild
+TEMPLATE_SCHEMA_VERSION = 9  # bump to force a template.db rebuild
 
 # --- Advanced tactics (FM features) ---
 PRESSING_STYLES = ("low", "normal", "high")
@@ -867,6 +867,71 @@ LEAGUE_NAME_TO_KEY = {
     "Czech First League": ("Czech Republic", 1),
     "Liga I": ("Romania", 1),
 }
+
+# --- Cup & continental tournaments (single source of truth) ---
+# week == 0 on a Match marks a cup/non-league fixture; the league engine
+# (weeks >= 1) never touches those rows.
+CUP_MATCH_WEEK = 0
+
+CUP_TYPES = (
+    "fa_cup",
+    "league_cup",
+    "national_cup",
+    "bsm",
+    "super_cup",
+    "champions_league",
+    "europa_league",
+    "conference_league",
+)
+
+CUP_SCOPES = {
+    "fa_cup": "domestic",
+    "league_cup": "domestic",
+    "national_cup": "domestic",
+    "bsm": "domestic",
+    "super_cup": "domestic",
+    "champions_league": "continental",
+    "europa_league": "continental",
+    "conference_league": "continental",
+}
+
+CUP_NAMES = {
+    "fa_cup": "كأس الاتحاد",
+    "league_cup": "كأس الرابطة",
+    "national_cup": "الكأس الوطنية",
+    "bsm": "كأس BSM",
+    "super_cup": "كأس السوبر",
+    "champions_league": "دوري أبطال أوروبا",
+    "europa_league": "الدوري الأوروبي",
+    "conference_league": "دوري المؤتمر الأوروبي",
+}
+
+# Badge colours for the calendar (Blue = league, Red = FA Cup, Gold = UCL).
+CUP_BADGE_COLORS = {
+    "league": "#3498db",
+    "fa_cup": "#e74c3c",
+    "league_cup": "#e67e22",
+    "national_cup": "#e74c3c",
+    "bsm": "#9b59b6",
+    "super_cup": "#f1c40f",
+    "champions_league": "#f1c40f",
+    "europa_league": "#e67e22",
+    "conference_league": "#2ecc71",
+}
+
+# Continental league-phase size + games per team (Swiss system).
+CONTINENTAL_SIZE = 36
+UCL_LEAGUE_MATCHES = 8
+UEL_LEAGUE_MATCHES = 8
+CONFERENCE_LEAGUE_MATCHES = 6
+# 1-8 -> R16 directly, 9-24 -> play-offs, 25-36 eliminated.
+CONTINENTAL_DIRECT_SPOTS = 8
+CONTINENTAL_PLAYOFF_SPOTS = 24
+
+# Days between cup rounds when auto-scheduling a new edition.
+CUP_ROUND_SPACING_DAYS = 21
+CUP_LEG_SPACING_DAYS = 7
+CONTINENTAL_PHASE_SPACING_DAYS = 14
 
 # --- Position-specific overall ratings (single source of truth) ---
 # For each detailed position, the weights used to compute the "overall"

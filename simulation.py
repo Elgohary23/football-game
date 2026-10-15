@@ -14,6 +14,7 @@ import numpy as np
 from sqlalchemy import update
 
 from config import (
+    CUP_MATCH_WEEK,
     DAILY_FITNESS_RECOVERY,
     DAYS_PER_WEEK,
     DEVELOPMENT_UPDATE_DAYS,
@@ -161,7 +162,10 @@ def simulate_match(match: Match, state: Optional[GameState] = None, mode: str = 
             match.away_score = _clamp_goals(np.random.poisson(away_exp))
             match.result = f"{match.home_score}-{match.away_score}"
             match.played = True
-            update_league_table(home, away, match.home_score, match.away_score)
+            # Cup ties (week == 0) never touch the league table — the cup
+            # engine records winners separately via cup_services.
+            if (match.week or 0) != CUP_MATCH_WEEK:
+                update_league_table(home, away, match.home_score, match.away_score)
             return True
 
         home_score = _clamp_goals(
@@ -219,7 +223,9 @@ def simulate_match(match: Match, state: Optional[GameState] = None, mode: str = 
         injury_max = INJURY_MAX_DAYS_HARD if mode == "deep" else INJURY_MAX_DAYS_SOFT
         _apply_match_fatigue(home, away, injury_chance, injury_max)
 
-        update_league_table(home, away, home_score, away_score)
+        # Cup ties (week == 0) never touch the league table.
+        if (match.week or 0) != CUP_MATCH_WEEK:
+            update_league_table(home, away, home_score, away_score)
         return True
 
     except Exception as e:
@@ -948,6 +954,16 @@ def simulate_day(state: GameState) -> None:
 
     simulate_ai_transfers(state)
 
+    # Cup ties due today play alongside the league calendar. Foreground
+    # stepping leaves the manager's own ties for live play; the cup engine
+    # resolves winners and draws the next round automatically.
+    if is_match_day(state):
+        try:
+            from cup_services import play_due_cup_fixtures
+            play_due_cup_fixtures(state)
+        except Exception:
+            logger.exception("cup fixtures daily tick failed")
+
 
 def _bump_detailed_attrs(player, gain: int, attacking: bool) -> None:
     """Nudge a couple of detailed attrs so recompute preserves growth/decline."""
@@ -1371,6 +1387,14 @@ def simulate_calendar(days: int, state: GameState, background: bool = False) -> 
         simulate_day(state)
         res["expired_offers"] += expire_transfer_offers(state)
         if is_match_day(state):
+            try:
+                from cup_services import play_due_cup_fixtures as _play_cups
+                # simulate_day already played non-player ties; background
+                # fast-forward also plays the manager's own cup ties.
+                _cup_res = _play_cups(state, background=background)
+                res["matches_played"] += _cup_res.get("played", 0)
+            except Exception:
+                logger.exception("cup fixtures calendar tick failed")
             matches = Match.query.filter_by(week=state.current_week, played=False).all()
             if background:
                 for m in matches:

@@ -80,7 +80,14 @@ def _play_or_start_match_day(state: GameState):
         return None
     match = get_current_match(state)
     if not match or match.played:
-        return None
+        # No league fixture — a cup tie may still be due for the manager.
+        try:
+            from cup_services import get_current_cup_match
+            match = get_current_cup_match(state)
+        except Exception:
+            match = None
+        if not match or match.played:
+            return None
     if _involves_player(match):
         if not _player_xi_complete():
             flash("التشكيلة الأساسية ناقصة! اختر 11 لاعباً أساسياً قبل بدء المباراة.")
@@ -94,6 +101,12 @@ def _play_or_start_match_day(state: GameState):
         return match if match.live_active else None
     if run_auto_match(match):
         db.session.commit()
+        try:
+            from cup_services import after_match_played
+            after_match_played(match, state)
+            db.session.commit()
+        except Exception:
+            pass
     return None
 
 
@@ -102,6 +115,13 @@ def _pending_live_match(state: GameState):
     match = get_current_match(state)
     if match and _involves_player(match) and not match.played:
         return match
+    try:
+        from cup_services import get_current_cup_match
+        cup = get_current_cup_match(state)
+        if cup and _involves_player(cup) and not cup.played:
+            return cup
+    except Exception:
+        pass
     return None
 
 
@@ -192,6 +212,12 @@ def dashboard():
         team_id=player_team.id, season=state.season_number or 1
     ).all()
 
+    try:
+        from cup_services import get_user_cup_statuses
+        cup_statuses = get_user_cup_statuses()
+    except Exception:
+        cup_statuses = []
+
     return render_template(
         "dashboard.html",
         state=state,
@@ -203,6 +229,7 @@ def dashboard():
         recent_results=recent_results,
         pending_actions=pending_actions,
         board_objectives=board_objectives,
+        cup_statuses=cup_statuses,
     )
 
 
@@ -261,17 +288,20 @@ def calendar():
     )
 
     player_matches_json = {}
+    try:
+        from cup_services import fixture_competition
+    except Exception:
+        fixture_competition = None
+    try:
+        from config import CUP_BADGE_COLORS
+        league_color = CUP_BADGE_COLORS.get("league", "#3498db")
+    except Exception:
+        league_color = "#3498db"
     for m in player_matches:
         home = m.home_team
         away = m.away_team
-        # A club normally plays once per date, but on a (data-bug) collision
-        # keep the unplayed fixture so the calendar never hides a live match.
-        key = m.date or f"week-{m.week}"
-        if key in player_matches_json and player_matches_json[key]["played"]:
-            pass
-        elif key in player_matches_json and m.played:
-            continue
-        player_matches_json[key] = {
+        comp = fixture_competition(m) if fixture_competition else None
+        entry = {
             "id": m.id,
             "home": home.name if home else "?",
             "away": away.name if away else "?",
@@ -282,7 +312,30 @@ def calendar():
             "week": m.week,
             "home_score": m.home_score,
             "away_score": m.away_score,
+            "competition": (comp or {}).get("name") or "الدوري",
+            "comp_type": (comp or {}).get("type") or "league",
+            "comp_round": (comp or {}).get("round") or "",
+            "comp_color": (comp or {}).get("color") or league_color,
         }
+        # One entry per date (the calendar JSON contract): an unplayed
+        # fixture always wins the slot so a live match is never hidden;
+        # same-date extras (cup midweek + league weekend) are counted in
+        # "more" with their competition badge.
+        key = m.date or f"week-{m.week}"
+        existing = player_matches_json.get(key)
+        if existing is None:
+            player_matches_json[key] = entry
+            continue
+        extra = {"id": 0, "competition": "", "comp_color": league_color}
+        if existing["played"] and not entry["played"]:
+            extra.update({k: existing[k] for k in ("id", "competition", "comp_color")})
+            entry.setdefault("more", []).append(extra)
+            entry["more"].extend(existing.get("more", []))
+            player_matches_json[key] = entry
+        else:
+            extra.update({k: entry[k] for k in ("id", "competition", "comp_color")})
+            existing.setdefault("more", []).append(extra)
+            existing["more"].extend(entry.get("more", []))
 
     return render_template(
         "calendar.html",
@@ -569,8 +622,20 @@ def live_finish(match_id):
                 logging.getLogger(__name__).exception(
                     "update_manager_record failed for match %s: %s", match.id, exc
                 )
-            others_played = finish_match_week(match)
-            advance_week_if_complete(match)
+            try:
+                from cup_services import after_match_played
+                from config import CUP_MATCH_WEEK as _CUP_WEEK
+            except Exception:
+                after_match_played = None
+                _CUP_WEEK = 0
+            if (match.week or 0) == _CUP_WEEK:
+                # Cup tie: record the winner / draw the next round instead
+                # of simulating the league week.
+                if after_match_played is not None:
+                    after_match_played(match, state)
+            else:
+                others_played = finish_match_week(match)
+                advance_week_if_complete(match)
             if state.current_week >= get_season_rounds(state.user_league_id):
                 state.season_over = True
         try:

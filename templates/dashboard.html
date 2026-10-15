@@ -64,6 +64,25 @@
     </div>
     {% endif %}
 
+    <!-- Cup Competitions Overview -->
+    {% if cup_statuses %}
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-trophy"></i> منافسات الكؤوس <a href="/cups" class="btn btn-secondary" style="font-size:0.75rem;">عرض البطولات</a></h3></div>
+        <div class="board-objectives">
+            {% for cup in cup_statuses %}
+            <div class="objective-item">
+                <span class="objective-label">{{ cup.tournament.name }}</span>
+                <span class="morale-mid">{{ cup.status }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <div class="card" style="text-align:center;font-size:0.85rem;">
+        <a href="/cups"><i class="fas fa-trophy"></i> الكؤوس والبطولات القارية</a>
+    </div>
+    {% endif %}
+
     <!-- Team Stats -->
     <div class="stats-grid">
         <div class="stat-card">

@@ -590,8 +590,15 @@ def finish_live(match: Match, state=None) -> None:
         _write_player_stats(match, home, away, h_score, a_score, state)
         _apply_match_fatigue_live(match, home, away, state)
         _update_sharpness(match, home, away, state)
-        from simulation import update_league_table
-        update_league_table(home, away, h_score, a_score)
+        # Cup ties (week == 0) never touch the league table — winners are
+        # recorded by cup_services.after_match_played instead.
+        try:
+            from config import CUP_MATCH_WEEK as _CUP_WEEK
+        except Exception:
+            _CUP_WEEK = 0
+        if (match.week or 0) != _CUP_WEEK:
+            from simulation import update_league_table
+            update_league_table(home, away, h_score, a_score)
 
         match.live_state = {"status": "finished", "finished": True, "minute": LIVE_MATCH_MINUTES}
     except Exception:
@@ -934,6 +941,10 @@ def finish_match_week(match: Match) -> int:
     """After the player's match ends, complete every other fixture that week."""
     played = 0
     try:
+        # Cup ties live outside the weekly league cycle (week == 0 groups
+        # every cup together) — they are driven by the cup engine instead.
+        if (match.week or 0) == 0:
+            return 0
         others = Match.query.filter_by(week=match.week, played=False).all()
         for m in others:
             if m.id == match.id:
@@ -952,6 +963,9 @@ def finish_match_week(match: Match) -> int:
 def advance_week_if_complete(match: Match) -> None:
     """Roll ``current_week`` forward once every fixture of the week is done."""
     try:
+        # Cup ties are not part of the weekly league cycle.
+        if (match.week or 0) == 0:
+            return
         remaining = Match.query.filter_by(week=match.week, played=False).count()
         if remaining > 0:
             return

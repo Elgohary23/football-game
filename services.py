@@ -2471,6 +2471,14 @@ def start_new_season(state: GameState) -> int:
     """
     import datetime as _dt
 
+    # Cup rollover first: crown decided champions BEFORE the wipe of
+    # leftover unplayed fixtures below (which includes old cup ties).
+    try:
+        from cup_services import close_season_tournaments
+        close_season_tournaments(state.season_number or 1, state)
+    except Exception:
+        logger.exception("cup season close failed")
+
     for team in Team.query.all():
         team.points = 0
         team.wins = 0
@@ -2511,6 +2519,16 @@ def start_new_season(state: GameState) -> int:
 
     if new_matches:
         adjust_match_dates(new_matches, new_start)
+
+    # New season's cup & continental editions (qualification uses the final
+    # tables / reputations; cup ties are week-0 so they never disturb the
+    # league schedule above).
+    try:
+        from cup_services import seed_initial_cups
+        seed_initial_cups(season=(state.season_number or 1) + 1,
+                          base_date=new_start.isoformat())
+    except Exception:
+        logger.exception("new season cup seeding failed")
 
     invalidate_league_cache()
     logger.info("New season: %d fixtures from %s", len(new_matches), new_start)
@@ -3064,6 +3082,14 @@ def _build_template_database() -> None:
 
     # FM: set-piece takers and default tactics will be assigned per save start.
     _assign_template_set_pieces()
+
+    # Domestic cups + continental league phases for season 1.
+    try:
+        import datetime as _dt
+        from cup_services import seed_initial_cups
+        seed_initial_cups(season=1, base_date=_dt.date.today().isoformat())
+    except Exception:
+        logger.exception("template cup seeding failed")
     _write_schema_version()
 
     db.session.commit()

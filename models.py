@@ -363,7 +363,6 @@ class Match(db.Model):
     date = db.Column(db.String(10), nullable=True)
     played = db.Column(db.Boolean, default=False)
     result = db.Column(db.String(20), nullable=True)
-
     home_score = db.Column(db.Integer, default=0)
     away_score = db.Column(db.Integer, default=0)
 
@@ -604,3 +603,64 @@ class PerformanceBonus(db.Model):
     paid = db.Column(db.Boolean, default=False)
 
     player = db.relationship('Player', foreign_keys=[player_id])
+
+
+class Tournament(db.Model):
+    """Cup / continental competition edition (one row per season).
+
+    ``type`` is one of ``fa_cup``, ``league_cup``, ``national_cup``,
+    ``bsm``, ``super_cup``, ``champions_league``, ``europa_league``,
+    ``conference_league``. ``scope`` is ``domestic`` or ``continental``.
+    Cup fixtures are ``Match`` rows with ``week == 0`` linked through
+    ``TournamentFixture`` so the league engine (weeks >= 1) never sees them.
+    """
+    __tablename__ = "tournaments"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    type = db.Column(db.String(50), nullable=False)
+    scope = db.Column(db.String(20), default="domestic")
+    tier_restriction = db.Column(db.String(50), nullable=True)
+    current_round = db.Column(db.String(50), default="Round 1")
+    is_active = db.Column(db.Boolean, default=True)
+    season = db.Column(db.Integer, default=1)
+    country = db.Column(db.String(30), nullable=True)
+    winner_team_id = db.Column(db.Integer, db.ForeignKey('team.id'), nullable=True)
+
+    winner = db.relationship('Team', foreign_keys=[winner_team_id])
+
+
+class TournamentFixture(db.Model):
+    """Link between a tournament round slot and its ``Match`` row."""
+    __tablename__ = "tournament_fixtures"
+    id = db.Column(db.Integer, primary_key=True)
+    tournament_id = db.Column(db.Integer, db.ForeignKey("tournaments.id"), nullable=False)
+    # NULL match = first-round bye: the team advances without playing.
+    match_id = db.Column(db.Integer, db.ForeignKey("match.id"), nullable=True)
+    round_name = db.Column(db.String(50), nullable=False)
+    leg = db.Column(db.Integer, default=1)
+    aggregate_home_score = db.Column(db.Integer, default=0)
+    aggregate_away_score = db.Column(db.Integer, default=0)
+    winner_team_id = db.Column(db.Integer, db.ForeignKey('team.id'), nullable=True)
+    group_name = db.Column(db.String(50), nullable=True)
+
+    tournament = db.relationship('Tournament', backref='fixtures')
+    match = db.relationship('Match', foreign_keys=[match_id])
+    winner = db.relationship('Team', foreign_keys=[winner_team_id])
+
+
+class ContinentalStandings(db.Model):
+    """League-phase table for the Swiss/36-team continental competitions."""
+    __tablename__ = "continental_standings"
+    id = db.Column(db.Integer, primary_key=True)
+    tournament_id = db.Column(db.Integer, db.ForeignKey("tournaments.id"), nullable=False)
+    team_id = db.Column(db.Integer, db.ForeignKey("team.id"), nullable=False)
+    played = db.Column(db.Integer, default=0)
+    wins = db.Column(db.Integer, default=0)
+    draws = db.Column(db.Integer, default=0)
+    losses = db.Column(db.Integer, default=0)
+    goals_for = db.Column(db.Integer, default=0)
+    goals_against = db.Column(db.Integer, default=0)
+    points = db.Column(db.Integer, default=0)
+
+    tournament = db.relationship('Tournament', backref='continental_table')
+    team = db.relationship('Team', foreign_keys=[team_id])

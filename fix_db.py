@@ -190,7 +190,11 @@ def regenerate_schedule(conn: sqlite3.Connection) -> dict:
     """Delete unplayed fixtures; regenerate perfect round-robin per league."""
     stats = {"deleted_unplayed": 0, "created": 0, "leagues": 0}
     cur = conn.cursor()
-    cur.execute("DELETE FROM match WHERE played = 0 OR played IS NULL")
+    # Cup ties (week == 0) belong to the cup engine — never wipe or rebuild
+    # them here; only league fixtures (weeks >= 1) are regenerated.
+    cur.execute(
+        "DELETE FROM match WHERE (played = 0 OR played IS NULL) AND week != 0"
+    )
     stats["deleted_unplayed"] = cur.rowcount or 0
 
     decided = played_pairings(conn)
@@ -320,8 +324,11 @@ def check_database(path: str) -> list[str]:
         rows = conn.execute(
             "SELECT week, home_team_id, away_team_id, played FROM match"
         ).fetchall()
-        # Validate only future (unplayed) weeks for overlaps.
-        unplayed = [(w, h, a) for (w, h, a, p) in rows if not p]
+        # Validate only future (unplayed) league weeks for overlaps.
+        # Cup ties (week == 0) are knockout/midweek fixtures outside the
+        # round-robin cycle, so they are excluded from overlap checks, as
+        # are their results from the league-table cross-check below.
+        unplayed = [(w, h, a) for (w, h, a, p) in rows if not p and w != 0]
         problems.extend(
             f"UNPLAYED: {e}" for e in validate_fixtures(unplayed)
         )
@@ -332,7 +339,7 @@ def check_database(path: str) -> list[str]:
         }
         expected: dict[int, int] = {tid: 0 for tid in teams}
         for w, h, a, p in rows:
-            if not p:
+            if not p or w == 0:
                 continue
             scores = conn.execute(
                 "SELECT home_score, away_score FROM match WHERE week=? "

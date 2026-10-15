@@ -847,3 +847,99 @@ class TestPromotionRelegationPerCountry:
         db.session.commit()
         for team_id in relegated_ids:
             assert db.session.get(Team, team_id).league_id == e2.id
+
+
+# ---------------------------------------------------------------- cups
+class TestCupCompetitions:
+    def _two_team_cup(self):
+        from cup_services import create_tournament, seed_knockout
+        team, opp = _player_team(), _opponent()
+        t = create_tournament("fa_cup", 1, country="England")
+        seed_knockout(t, [team.id, opp.id], "2026-08-01")
+        db.session.commit()
+        return t, team, opp
+
+    def test_draw_engine_creates_week_zero_fixtures(self, ctx):
+        from config import CUP_MATCH_WEEK
+        from models import TournamentFixture
+        t, team, opp = self._two_team_cup()
+        fixtures = TournamentFixture.query.filter_by(tournament_id=t.id).all()
+        assert len(fixtures) == 1
+        m = fixtures[0].match
+        assert m.week == CUP_MATCH_WEEK
+        assert {m.home_team_id, m.away_team_id} == {team.id, opp.id}
+
+    def test_cup_winner_guaranteed_on_draw(self, ctx):
+        from cup_services import process_cup_match_winner
+        team, opp = _player_team(), _opponent()
+        m = Match(home_team_id=team.id, away_team_id=opp.id, week=0,
+                  played=True, home_score=1, away_score=1)
+        db.session.add(m)
+        db.session.commit()
+        for _ in range(10):
+            assert process_cup_match_winner(m) in (team.id, opp.id)
+
+    def test_cup_result_leaves_league_table_untouched(self, ctx):
+        from simulation import simulate_match
+        t, team, opp = self._two_team_cup()
+        m = t.fixtures[0].match
+        simulate_match(m, _state(), mode="deep")
+        db.session.commit()
+        assert m.played is True
+        assert db.session.get(Team, team.id).points == 0
+        assert db.session.get(Team, opp.id).points == 0
+
+    def test_knockout_completes_with_champion_and_trophy(self, ctx):
+        from cup_services import after_match_played, play_due_cup_fixtures
+        from models import Tournament
+        t, team, opp = self._two_team_cup()
+        state = _state()
+        state.current_date = "2027-01-01"
+        before = state.trophies or 0
+        res = play_due_cup_fixtures(state, background=True)
+        db.session.commit()
+        assert res["played"] == 1
+        t = db.session.get(Tournament, t.id)
+        assert t.is_active is False
+        assert t.winner_team_id in (team.id, opp.id)
+        if t.winner_team_id == team.id:
+            assert (state.trophies or 0) == before + 1
+
+    def test_after_match_played_idempotent(self, ctx):
+        from cup_services import after_match_played
+        t, team, opp = self._two_team_cup()
+        m = t.fixtures[0].match
+        from simulation import simulate_match
+        simulate_match(m, _state(), mode="quick")
+        db.session.commit()
+        first = after_match_played(m, _state())
+        db.session.commit()
+        assert first == after_match_played(m, _state())
+
+    def test_continental_standings_updated(self, ctx):
+        from cup_services import (create_tournament,
+                                  seed_continental_league_phase,
+                                  continental_table)
+        from models import ContinentalStandings
+        team, opp = _player_team(), _opponent()
+        t = create_tournament("champions_league", 1)
+        seed_continental_league_phase(t, [team.id, opp.id], "2026-08-01")
+        db.session.commit()
+        assert ContinentalStandings.query.filter_by(tournament_id=t.id).count() == 2
+        table = continental_table(t.id)
+        assert {r.team_id for r in table} == {team.id, opp.id}
+
+    def test_cups_page_and_dashboard_strip(self, client):
+        self._two_team_cup()
+        r = client.get("/cups")
+        assert r.status_code == 200
+        text = r.get_data(as_text=True)
+        assert "<html" in text and len(text.strip()) > 500
+        dash = client.get("/dashboard").get_data(as_text=True)
+        assert "/cups" in dash  # nav + dashboard strip link
+
+    def test_calendar_carries_competition_badge(self, client):
+        self._two_team_cup()
+        text = client.get("/calendar").get_data(as_text=True)
+        assert "comp_color" in text
+        assert "competition" in text

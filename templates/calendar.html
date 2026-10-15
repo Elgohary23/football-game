@@ -503,6 +503,28 @@
     margin-top: 0.5rem;
     text-align: center;
 }
+
+/* Competition badges: Blue = league, Red = FA Cup, Gold = UCL, ... */
+.comp-row {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 0.25rem;
+}
+
+.comp-badge {
+    color: #fff;
+    padding: 0.15rem 0.7rem;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: bold;
+}
+
+.match-count {
+    font-size: 0.7rem;
+    font-weight: bold;
+    color: var(--primary-neon);
+    margin: 0 auto;
+}
 </style>
 {% endblock %}
 
@@ -579,17 +601,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 cell.classList.add('today');
             }
             
-            // Check if there's a match scheduled for the player's team
+            // Check if there's a match scheduled for the player's team.
+            // Each date holds one fixture (unplayed wins the slot) plus an
+            // optional "more" overflow when a cup midweek shares the date.
+            // The competition badge is colour-coded: Blue = league,
+            // Red = FA Cup, Gold = Champions League, ...
             const match = matchData[cellDateStr];
             let cellContent = `<span class="day-num">${day}</span>`;
-            
+
             if (match) {
                 cell.classList.add('has-match');
                 if (match.played) {
                     cell.classList.add('played');
                     cellContent += `<div class="match-dot played"></div>`;
                 } else {
-                    cellContent += `<div class="match-dot"></div>`;
+                    const dotColor = match.comp_color || 'var(--primary-neon)';
+                    cellContent += `<div class="match-dot" style="background:${dotColor}"></div>`;
+                }
+                const extraCount = (match.more && match.more.length) || 0;
+                if (extraCount) {
+                    cellContent += `<div class="match-count">+${extraCount}</div>`;
                 }
             }
             
@@ -646,65 +677,85 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        // We have a match! Render the premium match details box
-        const isFuture = !match.played;
-        
-        let scoreDisplay = '<span class="vs-badge">VS</span>';
-        if (match.played) {
-            scoreDisplay = `
-                <div class="score-display">${match.home_score} - ${match.away_score}</div>
-                <span class="vs-badge success">انتهت</span>
+        // The day's fixture with its colour-coded competition badge,
+        // plus any same-date overflow (cup midweek sharing the date).
+        const primary = match;
+        let blocksHtml = '';
+        {
+            const isFuture = !primary.played;
+
+            let scoreDisplay = '<span class="vs-badge">VS</span>';
+            if (primary.played) {
+                scoreDisplay = `
+                    <div class="score-display">${primary.home_score} - ${primary.away_score}</div>
+                    <span class="vs-badge success">انتهت</span>
+                `;
+            }
+
+            let actionBtnHtml = '';
+            if (isFuture) {
+                actionBtnHtml = `
+                    <div class="sim-actions">
+                        <button class="btn btn-primary btn-wide" onclick="simulateToDate('${dateStr}')">
+                            <i class="fas fa-play"></i> محاكاة ولعب هذه المباراة
+                        </button>
+                    </div>
+                `;
+            } else {
+                actionBtnHtml = `
+                    <div class="sim-actions">
+                        <a href="/match_report/${primary.id}" class="btn btn-success btn-wide">
+                            <i class="fas fa-file-alt"></i> تقرير المباراة بالتفصيل
+                        </a>
+                    </div>
+                `;
+            }
+
+            const compBadge = `<span class="comp-badge" style="background:${primary.comp_color || '#3498db'}">${primary.competition || 'الدوري'}${primary.comp_round ? ' — ' + primary.comp_round : ''}</span>`;
+
+            blocksHtml += `
+                <div class="match-info-box">
+                    <div class="comp-row">${compBadge}</div>
+                    <div class="match-teams-row">
+                        <div class="team-block ${primary.home_is_player ? 'player-team' : ''}">
+                            <div class="team-logo-mock">${primary.home[0]}</div>
+                            <span class="team-name">${primary.home}</span>
+                        </div>
+                        <div class="match-score-block">
+                            ${scoreDisplay}
+                        </div>
+                        <div class="team-block ${primary.away_is_player ? 'player-team' : ''}">
+                            <div class="team-logo-mock">${primary.away[0]}</div>
+                            <span class="team-name">${primary.away}</span>
+                        </div>
+                    </div>
+
+                    <div class="match-meta-info">
+                        <div class="meta-item">
+                            <span class="lbl">الملعب:</span>
+                            <span class="val">${primary.home_is_player ? 'أرضك' : 'خارج أرضك'}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="lbl">الجولة:</span>
+                            <span class="val">${primary.week === 0 ? 'كأس' : 'الأسبوع ' + primary.week}</span>
+                        </div>
+                    </div>
+                </div>
+                ${actionBtnHtml}
             `;
         }
-
-        let actionBtnHtml = '';
-        if (isFuture) {
-            actionBtnHtml = `
-                <div class="sim-actions">
-                    <button class="btn btn-primary btn-wide" onclick="simulateToDate('${dateStr}')">
-                        <i class="fas fa-play"></i> محاكاة ولعب هذه المباراة
-                    </button>
-                </div>
-            `;
-        } else {
-            actionBtnHtml = `
-                <div class="sim-actions">
-                    <a href="/match_report/${match.id}" class="btn btn-success btn-wide">
-                        <i class="fas fa-file-alt"></i> تقرير المباراة بالتفصيل
-                    </a>
+        for (const extra of (match.more || [])) {
+            blocksHtml += `
+                <div class="match-info-box">
+                    <div class="comp-row"><span class="comp-badge" style="background:${extra.comp_color || '#3498db'}">${extra.competition || ''}</span></div>
+                    <p class="sim-note">مباراة إضافية بنفس اليوم — <a href="/match_report/${extra.id}">التقرير</a></p>
                 </div>
             `;
         }
 
         detailsContent.innerHTML = `
             <div class="details-wrapper">
-                <div class="match-info-box">
-                    <div class="match-teams-row">
-                        <div class="team-block ${match.home_is_player ? 'player-team' : ''}">
-                            <div class="team-logo-mock">${match.home[0]}</div>
-                            <span class="team-name">${match.home}</span>
-                        </div>
-                        <div class="match-score-block">
-                            ${scoreDisplay}
-                        </div>
-                        <div class="team-block ${match.away_is_player ? 'player-team' : ''}">
-                            <div class="team-logo-mock">${match.away[0]}</div>
-                            <span class="team-name">${match.away}</span>
-                        </div>
-                    </div>
-                    
-                    <div class="match-meta-info">
-                        <div class="meta-item">
-                            <span class="lbl">الملعب:</span>
-                            <span class="val">${match.home_is_player ? 'أرضك' : 'خارج أرضك'}</span>
-                        </div>
-                        <div class="meta-item">
-                            <span class="lbl">الجولة:</span>
-                            <span class="val">الأسبوع ${match.week}</span>
-                        </div>
-                    </div>
-                </div>
-                ${actionBtnHtml}
+                ${blocksHtml}
             </div>
         `;
     }
