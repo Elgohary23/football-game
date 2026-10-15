@@ -1208,3 +1208,19 @@ PHILOSOPHY_TACTIC = {
     "youth_development": "balanced", "route_one": "defensive",
     "park_the_bus": "defensive",
 }
+
+# Philosophy -> training focus mapping for AI coaching decisions.
+# The weekly AI planner syncs each AI club's training_focus to its
+# identity so a gegenpress side drills fitness while a tiki-taka side
+# drills attack, etc. Player teams are never touched (user's choice wins).
+PHILOSOPHY_TRAINING_FOCUS = {
+    "galacticos": "attack", "possession_domination": "attack",
+    "total_football": "attack", "fluid_attacking": "attack",
+    "tiki_taka": "attack", "wing_play": "attack",
+    "gegenpress": "physical",
+    "counter_attack": "defense", "direct_football": "defense",
+    "route_one": "defense", "park_the_bus": "defense",
+    "high_line_defense": "defense",
+    "moneyball": "balanced", "balanced": "balanced",
+    "youth_development": "balanced",
+}

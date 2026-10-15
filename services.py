@@ -54,6 +54,7 @@ from config import (
     PHILOSOPHY_PROFILES,
     PHILOSOPHY_SHIFT_CHANCE,
     PHILOSOPHY_TACTIC,
+    PHILOSOPHY_TRAINING_FOCUS,
     POSITION_OVERALL_WEIGHTS,
     MARKET_VALUE_MIN,
     MARKET_VALUE_MAX,
@@ -768,14 +769,79 @@ def effective_match_tactic(team: Team) -> str:
     return (getattr(team, "match_tactic", None) or "balanced")
 
 
-def team_decision_profile(team: Team) -> dict:
-    """Decision profile for the (future) AI transfer engine.
+def effective_training_focus(team: Team) -> str:
+    """Training focus implied by the club's philosophy (fallback: stored value)."""
+    try:
+        phil = get_team_philosophy(team) if team else None
+        key = (phil.primary if phil and getattr(phil, "primary", None) else "").strip()
+        if key in PHILOSOPHY_TRAINING_FOCUS:
+            return PHILOSOPHY_TRAINING_FOCUS[key]
+    except Exception:
+        pass
+    return (getattr(team, "training_focus", None) or "balanced")
 
-    NOTE: the profile's ``priority_positions`` and ``attribute_weights``
-    must be used by the future AI when evaluating transfer targets —
-    a mid-table club signing undervalued youngsters who fit its
-    philosophy is how organic surprises (e.g. an unexpected 2nd place)
-    emerge from rational decisions rather than budgets alone.
+
+def apply_philosophy_to_coaching(team: Team) -> dict:
+    """Sync one AI club's coaching decisions to its philosophy identity.
+
+    Sets ``pressing_style`` / ``match_tactic`` / ``training_focus`` from
+    the philosophy mappings. No commit — the caller owns the transaction.
+    Returns the fields that changed (for tests / logging).
+    """
+    changed = {}
+    try:
+        want_pressing = effective_pressing(team)
+        want_tactic = effective_match_tactic(team)
+        want_training = effective_training_focus(team)
+    except Exception:
+        return changed
+    try:
+        if (team.pressing_style or None) != want_pressing:
+            changed["pressing_style"] = ((team.pressing_style or None), want_pressing)
+            team.pressing_style = want_pressing
+        if (team.match_tactic or None) != want_tactic:
+            changed["match_tactic"] = ((team.match_tactic or None), want_tactic)
+            team.match_tactic = want_tactic
+        if (getattr(team, "training_focus", None) or None) != want_training:
+            changed["training_focus"] = (getattr(team, "training_focus", None), want_training)
+            team.training_focus = want_training
+    except Exception:
+        pass
+    return changed
+
+
+def ai_weekly_coaching() -> dict:
+    """Weekly AI planner hook: every AI club coaches to its philosophy.
+
+    Called from the weekly tick so AI identities never go stale (e.g.
+    after a season philosophy shift). Player teams are never touched.
+    No commit — the caller owns the transaction. Returns
+    ``{team_id: changed_fields}`` for the clubs that changed.
+    """
+    report: dict = {}
+    try:
+        teams = Team.query.filter_by(is_player_team=False).all()
+    except Exception:
+        return report
+    for team in teams:
+        try:
+            changed = apply_philosophy_to_coaching(team)
+        except Exception:
+            continue
+        if changed:
+            report[team.id] = changed
+    return report
+
+
+def team_decision_profile(team: Team) -> dict:
+    """Decision profile for the AI transfer engine.
+
+    The profile's ``priority_positions`` steer which line the AI shops
+    for (see ``simulation._ai_transfer_round``) and
+    ``evaluate_youngster_surprise_potential`` boosts high-potential
+    youngsters for youth/moneyball identities — this is how organic
+    surprises (e.g. an unexpected 2nd place) emerge from rational
+    decisions rather than budgets alone.
     """
     phil = None
     try:
@@ -822,8 +888,8 @@ def _philosophy_primary_str(club_philosophy) -> str:
 
 def evaluate_youngster_surprise_potential(player: Player, club_philosophy) -> float:
     """Return a 0-1 score of how much this youngster could overperform
-    his market value given the club's philosophy. Used by the future AI
-    to sign undervalued youth. For now, tests only."""
+    his market value given the club's philosophy. Used by the AI
+    transfer engine to sign undervalued youth that fits its identity."""
     try:
         overall = getattr(player, "overall", None) or 0
         if not overall:

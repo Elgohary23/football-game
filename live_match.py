@@ -264,11 +264,10 @@ def start_live(match: Match, mode: str = "live") -> bool:
 
         # AI clubs play according to their identity, not stale columns.
         try:
-            from services import effective_match_tactic, effective_pressing
+            from services import apply_philosophy_to_coaching
             for _t in (home, away):
                 if not getattr(_t, "is_player_team", False):
-                    _t.pressing_style = effective_pressing(_t)
-                    _t.match_tactic = effective_match_tactic(_t)
+                    apply_philosophy_to_coaching(_t)
         except Exception:
             pass
 

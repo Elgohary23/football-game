@@ -609,9 +609,23 @@ def simulate_ai_transfers(state: GameState) -> None:
 
 def _ai_transfer_round(state: GameState, deadline: bool = False) -> None:
     try:
-        from services import get_player_valuation
+        from services import (
+            evaluate_youngster_surprise_potential,
+            get_player_valuation,
+            team_decision_profile,
+        )
     except Exception:
         get_player_valuation = None
+        evaluate_youngster_surprise_potential = None
+        team_decision_profile = None
+
+    # Detailed -> coarse position map for philosophy priority lists.
+    _DET_TO_COARSE = {
+        "GK": "GK",
+        "CB": "DEF", "LB": "DEF", "RB": "DEF", "LWB": "DEF", "RWB": "DEF",
+        "CDM": "MID", "CM": "MID", "CAM": "MID", "LM": "MID", "RM": "MID",
+        "LW": "FWD", "RW": "FWD", "CF": "FWD", "ST": "FWD",
+    }
 
     ai_teams = Team.query.filter_by(is_player_team=False).all()
     for team in ai_teams:
@@ -625,7 +639,38 @@ def _ai_transfer_round(state: GameState, deadline: bool = False) -> None:
             continue
 
         weakest, line_vals = _weakest_line(squad)
-        target_pos = weakest if weakest in positions_needed else random.choice(positions_needed)
+        # Philosophy steers *which* need the AI fills first: a priority
+        # line for its identity gets a bonus, but a genuinely weakest
+        # line still wins ties so squads never rot (min-size rule first).
+        priority_det: list = []
+        primary = "balanced"
+        if team_decision_profile is not None:
+            try:
+                profile = team_decision_profile(team)
+                priority_det = list(profile.get("priority_positions") or [])
+                primary = profile.get("primary") or "balanced"
+            except Exception:
+                priority_det, primary = [], "balanced"
+        priority_coarse = {_DET_TO_COARSE.get(d, None) for d in priority_det}
+        priority_coarse.discard(None)
+
+        def _need_score(pos: str) -> float:
+            gap = 0
+            for p, count in POSITION_REQUIREMENTS:
+                if p == pos:
+                    have = len([x for x in squad if x.position == pos])
+                    gap = max(0, count - have)
+                    break
+            score = float(gap) * 2.0
+            if pos == weakest:
+                score += 2.0
+            if pos in priority_coarse:
+                score += 1.5
+            return score
+
+        best = max(_need_score(p) for p in positions_needed)
+        tied = [p for p in positions_needed if _need_score(p) == best]
+        target_pos = random.choice(tied)
         our_avg = line_vals[target_pos]
 
         candidates = Player.query.filter(
@@ -640,11 +685,30 @@ def _ai_transfer_round(state: GameState, deadline: bool = False) -> None:
         def candidate_gain(c: Player) -> float:
             return c.rating_for() - our_avg
 
+        def candidate_score(c: Player) -> float:
+            score = candidate_gain(c) + (c.potential - c.rating_for()) * 0.3
+            # Philosophy fit: detailed-position match plus a youth bonus
+            # for identities that live off undervalued potential.
+            try:
+                det = (getattr(c, "detailed_position", None) or c.position or "").strip()
+                if det in priority_det:
+                    score += 3.0
+            except Exception:
+                pass
+            if evaluate_youngster_surprise_potential is not None:
+                try:
+                    surprise = float(evaluate_youngster_surprise_potential(c, primary) or 0.0)
+                    weight = 6.0 if primary in ("youth_development", "moneyball") else 2.0
+                    score += surprise * weight
+                except Exception:
+                    pass
+            return score
+
         upgraded = [c for c in candidates if candidate_gain(c) > 0]
         pool = upgraded or candidates
         # Phase 1 (items 9-10): listed / requesting players are hotter targets.
         listed = [c for c in pool if c.transfer_listed or c.transfer_requested]
-        target = max(listed or pool, key=lambda c: candidate_gain(c) + (c.potential - c.rating_for()) * 0.3)
+        target = max(listed or pool, key=candidate_score)
 
         if team.reputation >= (target.team.reputation if target.team else 0) - REPUTATION_TOLERANCE:
             low, high = TRANSFER_OFFER_PRICE_RANGE
@@ -928,6 +992,13 @@ def simulate_day(state: GameState) -> None:
 
     if state.current_day % DAYS_PER_WEEK == 0:
         check_training_complaints(state)
+        # Weekly AI coaching: AI clubs re-align tactics + training focus
+        # with their philosophy (cheap attribute sync, no commit here).
+        try:
+            from services import ai_weekly_coaching
+            ai_weekly_coaching()
+        except Exception:
+            logger.exception("ai weekly coaching tick failed")
 
     # --- Full transfer system: daily contract/loan/debt ticks ---
     try:
