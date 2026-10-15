@@ -40,7 +40,7 @@ STAFF_MARKET_POOL_LIMIT = 8
 PROMOTION_BONUS_PER_TIER = 500_000
 
 MARKET_VALUE_MIN = 50_000
-MARKET_VALUE_MAX = 50_000_000
+MARKET_VALUE_MAX = 300_000_000
 MARKET_PERF_GOAL = 3_000
 MARKET_PERF_ASSIST = 2_000
 MARKET_VALUE_GROWTH_CAP = 0.05
@@ -98,7 +98,7 @@ REPUTATION_TOLERANCE = 10
 OLD_DATA_KEEP_PLAYED_MATCHES = 150
 
 # --- Schema migration guard ---
-TEMPLATE_SCHEMA_VERSION = 6  # bump to force a template.db rebuild
+TEMPLATE_SCHEMA_VERSION = 7  # bump to force a template.db rebuild
 
 # --- Advanced tactics (FM features) ---
 PRESSING_STYLES = ("low", "normal", "high")
@@ -309,3 +309,561 @@ FFP_SPEND_RATIO = 1.0  # allowed spend = income + base allowance
 TRANSFER_LIST_DISCOUNT = 0.9  # listed players go ~10% cheaper
 TRANSFER_REQUEST_MORALE_LOSS = 15
 TRANSFER_REQUEST_AI_INTEREST_MULT = 1.5
+
+# --- European domestic pyramids (single source of truth) ---
+# (country, tier) -> (rating_floor, rating_ceiling)
+# floor = worst player primary ability in this league
+# ceiling = best player primary ability in this league
+LEAGUE_RATING_BANDS = {
+    # England
+    ("England", 1): (60, 88),
+    ("England", 2): (54, 78),
+    ("England", 3): (50, 68),
+    ("England", 4): (47, 62),
+    # Germany
+    ("Germany", 1): (60, 87),
+    ("Germany", 2): (54, 77),
+    ("Germany", 3): (50, 67),
+    # Spain
+    ("Spain", 1): (61, 89),
+    ("Spain", 2): (54, 78),
+    # France
+    ("France", 1): (59, 87),
+    ("France", 2): (53, 76),
+    # Italy
+    ("Italy", 1): (60, 87),
+    ("Italy", 2): (54, 77),
+    ("Italy", 3): (48, 64),
+    # Netherlands
+    ("Netherlands", 1): (57, 82),
+    ("Netherlands", 2): (50, 68),
+    # Portugal
+    ("Portugal", 1): (57, 83),
+    ("Portugal", 2): (50, 68),
+    # Belgium
+    ("Belgium", 1): (56, 80),
+    ("Belgium", 2): (49, 66),
+    # Turkey
+    ("Turkey", 1): (56, 81),
+    ("Turkey", 2): (49, 66),
+    # Scotland
+    ("Scotland", 1): (54, 78),
+    ("Scotland", 2): (47, 64),
+    # Others (top divisions)
+    ("Austria", 1): (55, 79),
+    ("Switzerland", 1): (55, 79),
+    ("Greece", 1): (54, 78),
+    ("Ukraine", 1): (54, 79),
+    ("Russia", 1): (55, 80),
+    ("Denmark", 1): (54, 78),
+    ("Sweden", 1): (51, 74),
+    ("Norway", 1): (51, 75),
+    ("Poland", 1): (51, 74),
+    ("Croatia", 1): (52, 77),
+    ("Serbia", 1): (51, 75),
+    ("Czech Republic", 1): (51, 75),
+    ("Romania", 1): (49, 73),
+}
+
+# (country, tier) -> base reputation for clubs without an explicit entry
+# in CLUB_REPUTATIONS. Big-5 top flights keep their historic values.
+LEAGUE_REPUTATIONS = {
+    ("England", 1): 90,
+    ("England", 2): 70,
+    ("England", 3): 50,
+    ("England", 4): 35,
+    ("Germany", 1): 84,
+    ("Germany", 2): 66,
+    ("Germany", 3): 46,
+    ("Spain", 1): 88,
+    ("Spain", 2): 68,
+    ("France", 1): 82,
+    ("France", 2): 62,
+    ("Italy", 1): 84,
+    ("Italy", 2): 66,
+    ("Italy", 3): 44,
+    ("Netherlands", 1): 72,
+    ("Netherlands", 2): 48,
+    ("Portugal", 1): 73,
+    ("Portugal", 2): 48,
+    ("Belgium", 1): 68,
+    ("Belgium", 2): 44,
+    ("Turkey", 1): 68,
+    ("Turkey", 2): 44,
+    ("Scotland", 1): 64,
+    ("Scotland", 2): 40,
+    ("Austria", 1): 64,
+    ("Switzerland", 1): 63,
+    ("Greece", 1): 63,
+    ("Ukraine", 1): 64,
+    ("Russia", 1): 66,
+    ("Denmark", 1): 62,
+    ("Sweden", 1): 56,
+    ("Norway", 1): 56,
+    ("Poland", 1): 56,
+    ("Croatia", 1): 60,
+    ("Serbia", 1): 57,
+    ("Czech Republic", 1): 57,
+    ("Romania", 1): 53,
+}
+
+# League prestige multiplier applied on top of the reputation-based budget.
+# Premier League gets the biggest TV money; lower divisions get less.
+LEAGUE_BUDGET_MULTIPLIER = {
+    # England
+    ("England", 1): 1.6,
+    ("England", 2): 0.8,
+    ("England", 3): 0.4,
+    ("England", 4): 0.2,
+    # Germany
+    ("Germany", 1): 1.3,
+    ("Germany", 2): 0.6,
+    ("Germany", 3): 0.25,
+    # Spain
+    ("Spain", 1): 1.4,
+    ("Spain", 2): 0.6,
+    # France
+    ("France", 1): 1.2,
+    ("France", 2): 0.5,
+    # Italy
+    ("Italy", 1): 1.2,
+    ("Italy", 2): 0.6,
+    ("Italy", 3): 0.25,
+    # Netherlands
+    ("Netherlands", 1): 0.7,
+    ("Netherlands", 2): 0.3,
+    # Portugal
+    ("Portugal", 1): 0.7,
+    ("Portugal", 2): 0.3,
+    # Belgium
+    ("Belgium", 1): 0.6,
+    ("Belgium", 2): 0.25,
+    # Turkey
+    ("Turkey", 1): 0.6,
+    ("Turkey", 2): 0.25,
+    # Scotland
+    ("Scotland", 1): 0.5,
+    ("Scotland", 2): 0.2,
+    # Others (top divisions)
+    ("Austria", 1): 0.5,
+    ("Switzerland", 1): 0.5,
+    ("Greece", 1): 0.5,
+    ("Ukraine", 1): 0.5,
+    ("Russia", 1): 0.7,
+    ("Denmark", 1): 0.5,
+    ("Sweden", 1): 0.4,
+    ("Norway", 1): 0.4,
+    ("Poland", 1): 0.4,
+    ("Croatia", 1): 0.4,
+    ("Serbia", 1): 0.4,
+    ("Czech Republic", 1): 0.4,
+    ("Romania", 1): 0.35,
+}
+
+# Per-club reputation table. Clubs missing here fall back to
+# LEAGUE_REPUTATIONS[(country, tier)] + random.randint(-8, 8).
+CLUB_REPUTATIONS = {
+    # Spain
+    "Real Madrid": 95, "Barcelona": 94, "Atlético Madrid": 88,
+    "Sevilla": 80, "Real Sociedad": 78, "Athletic Bilbao": 77,
+    "Villarreal": 76, "Real Betis": 74, "Valencia": 73,
+    "Getafe": 65, "Almería": 58, "Cádiz": 58,
+    # England
+    "Manchester City": 95, "Arsenal": 93, "Liverpool": 93,
+    "Manchester United": 91, "Chelsea": 90, "Tottenham Hotspur": 88,
+    "Newcastle United": 85, "Aston Villa": 84, "West Ham United": 80,
+    "Everton": 74, "Wolverhampton Wanderers": 74,
+    # Germany
+    "Bayern München": 94, "Borussia Dortmund": 86, "RB Leipzig": 84,
+    "Bayer Leverkusen": 83, "Eintracht Frankfurt": 78,
+    "VfB Stuttgart": 77, "Borussia Mönchengladbach": 74,
+    # France
+    "Paris Saint-Germain": 92, "Marseille": 80, "Lyon": 78,
+    "Monaco": 78, "Lille": 76, "Nice": 74,
+    # Italy
+    "Inter": 90, "AC Milan": 88, "Juventus": 88, "Napoli": 85,
+    "Roma": 83, "Lazio": 80, "Atalanta": 80, "Fiorentina": 77,
+    # Netherlands
+    "Ajax": 80, "PSV": 80, "Feyenoord": 78, "AZ Alkmaar": 72,
+    # Portugal
+    "Benfica": 80, "Porto": 80, "Sporting CP": 79, "Braga": 72,
+    # Turkey
+    "Galatasaray": 76, "Fenerbahçe": 76, "Beşiktaş": 73,
+    # Others
+    "Celtic": 74, "Rangers": 72,
+    "Shakhtar Donetsk": 74, "Dynamo Kyiv": 72,
+    "Club Brugge": 73, "Anderlecht": 70,
+    "Red Bull Salzburg": 73, "Young Boys": 70,
+    "Olympiacos": 72, "Panathinaikos": 70,
+    "Red Star Belgrade": 70,
+    "Copenhagen": 70, "Zenit": 74, "Spartak Moscow": 70,
+}
+
+# Seeded world-class players (procedural generation covers everyone else).
+# Each entry overrides one generated squad member at the named club.
+SEED_STAR_PLAYERS = [
+    {"name": "Kylian Mbappé", "position": "FWD", "attack": 91, "defense": 45,
+     "potential": 93, "age": 25, "region": "Europe", "club": "Real Madrid"},
+    {"name": "Erling Haaland", "position": "FWD", "attack": 90, "defense": 42,
+     "potential": 92, "age": 24, "region": "Europe", "club": "Manchester City"},
+    {"name": "Jude Bellingham", "position": "MID", "attack": 88, "defense": 74,
+     "potential": 92, "age": 21, "region": "Europe", "club": "Real Madrid"},
+    {"name": "Vinícius Júnior", "position": "FWD", "attack": 89, "defense": 40,
+     "potential": 91, "age": 24, "region": "South_America", "club": "Real Madrid"},
+    {"name": "Lamine Yamal", "position": "FWD", "attack": 88, "defense": 38,
+     "potential": 95, "age": 17, "region": "Europe", "club": "Barcelona"},
+    {"name": "Rodri", "position": "MID", "attack": 82, "defense": 88,
+     "potential": 89, "age": 28, "region": "Europe", "club": "Manchester City"},
+    {"name": "Mohamed Salah", "position": "FWD", "attack": 89, "defense": 45,
+     "potential": 90, "age": 32, "region": "Middle_East", "club": "Liverpool"},
+    {"name": "Harry Kane", "position": "FWD", "attack": 89, "defense": 48,
+     "potential": 90, "age": 31, "region": "Europe", "club": "Bayern München"},
+    {"name": "Kevin De Bruyne", "position": "MID", "attack": 87, "defense": 60,
+     "potential": 88, "age": 33, "region": "Europe", "club": "Manchester City"},
+    {"name": "Virgil van Dijk", "position": "DEF", "attack": 55, "defense": 89,
+     "potential": 90, "age": 33, "region": "Europe", "club": "Liverpool"},
+    {"name": "Robert Lewandowski", "position": "FWD", "attack": 88, "defense": 44,
+     "potential": 89, "age": 36, "region": "Europe", "club": "Barcelona"},
+    {"name": "Jamal Musiala", "position": "MID", "attack": 87, "defense": 55,
+     "potential": 93, "age": 21, "region": "Europe", "club": "Bayern München"},
+    {"name": "Florian Wirtz", "position": "MID", "attack": 86, "defense": 52,
+     "potential": 92, "age": 21, "region": "Europe", "club": "Bayer Leverkusen"},
+    {"name": "Bukayo Saka", "position": "FWD", "attack": 86, "defense": 50,
+     "potential": 90, "age": 23, "region": "Europe", "club": "Arsenal"},
+    {"name": "Phil Foden", "position": "MID", "attack": 85, "defense": 52,
+     "potential": 89, "age": 24, "region": "Europe", "club": "Manchester City"},
+    {"name": "Cole Palmer", "position": "FWD", "attack": 85, "defense": 45,
+     "potential": 90, "age": 22, "region": "Europe", "club": "Chelsea"},
+    {"name": "Declan Rice", "position": "MID", "attack": 78, "defense": 85,
+     "potential": 88, "age": 25, "region": "Europe", "club": "Arsenal"},
+    {"name": "Martin Ødegaard", "position": "MID", "attack": 85, "defense": 58,
+     "potential": 89, "age": 25, "region": "Europe", "club": "Arsenal"},
+    {"name": "Antoine Griezmann", "position": "FWD", "attack": 86, "defense": 55,
+     "potential": 87, "age": 33, "region": "Europe", "club": "Atlético Madrid"},
+    {"name": "Federico Valverde", "position": "MID", "attack": 83, "defense": 78,
+     "potential": 89, "age": 26, "region": "South_America", "club": "Real Madrid"},
+    {"name": "Thibaut Courtois", "position": "GK", "attack": 40, "defense": 89,
+     "potential": 90, "age": 32, "region": "Europe", "club": "Real Madrid"},
+    {"name": "Alisson Becker", "position": "GK", "attack": 38, "defense": 88,
+     "potential": 89, "age": 32, "region": "South_America", "club": "Liverpool"},
+    {"name": "Gianluigi Donnarumma", "position": "GK", "attack": 38, "defense": 87,
+     "potential": 90, "age": 25, "region": "Europe", "club": "Paris Saint-Germain"},
+    {"name": "Antonio Rüdiger", "position": "DEF", "attack": 50, "defense": 86,
+     "potential": 87, "age": 31, "region": "Europe", "club": "Real Madrid"},
+    {"name": "William Saliba", "position": "DEF", "attack": 52, "defense": 86,
+     "potential": 90, "age": 23, "region": "Europe", "club": "Arsenal"},
+    {"name": "Rúben Dias", "position": "DEF", "attack": 50, "defense": 87,
+     "potential": 88, "age": 27, "region": "Europe", "club": "Manchester City"},
+    {"name": "Achraf Hakimi", "position": "DEF", "attack": 78, "defense": 82,
+     "potential": 86, "age": 25, "region": "Middle_East", "club": "Paris Saint-Germain"},
+    {"name": "Ousmane Dembélé", "position": "FWD", "attack": 86, "defense": 48,
+     "potential": 88, "age": 27, "region": "Europe", "club": "Paris Saint-Germain"},
+    {"name": "Lautaro Martínez", "position": "FWD", "attack": 87, "defense": 50,
+     "potential": 89, "age": 27, "region": "South_America", "club": "Inter"},
+    {"name": "Nicolò Barella", "position": "MID", "attack": 80, "defense": 83,
+     "potential": 87, "age": 27, "region": "Europe", "club": "Inter"},
+    {"name": "Rafael Leão", "position": "FWD", "attack": 85, "defense": 42,
+     "potential": 89, "age": 25, "region": "Europe", "club": "AC Milan"},
+    {"name": "Mike Maignan", "position": "GK", "attack": 40, "defense": 86,
+     "potential": 88, "age": 29, "region": "Europe", "club": "AC Milan"},
+    {"name": "Khvicha Kvaratskhelia", "position": "FWD", "attack": 85, "defense": 50,
+     "potential": 89, "age": 23, "region": "Europe", "club": "Napoli"},
+    {"name": "Victor Osimhen", "position": "FWD", "attack": 86, "defense": 45,
+     "potential": 88, "age": 25, "region": "Middle_East", "club": "Napoli"},
+    {"name": "Dušan Vlahović", "position": "FWD", "attack": 84, "defense": 42,
+     "potential": 87, "age": 24, "region": "Europe", "club": "Juventus"},
+    {"name": "Alex Grimaldo", "position": "DEF", "attack": 76, "defense": 80,
+     "potential": 84, "age": 29, "region": "Europe", "club": "Bayer Leverkusen"},
+    {"name": "Xavi Simons", "position": "MID", "attack": 82, "defense": 55,
+     "potential": 89, "age": 21, "region": "Europe", "club": "RB Leipzig"},
+    {"name": "Serhou Guirassy", "position": "FWD", "attack": 84, "defense": 40,
+     "potential": 85, "age": 28, "region": "Europe", "club": "Borussia Dortmund"},
+    {"name": "Antoine Mac Allister", "position": "MID", "attack": 80, "defense": 78,
+     "potential": 85, "age": 25, "region": "South_America", "club": "Liverpool"},
+    {"name": "Ryan Gravenberch", "position": "MID", "attack": 78, "defense": 80,
+     "potential": 87, "age": 22, "region": "Europe", "club": "Liverpool"},
+]
+
+# Real club names per domestic pyramid, keyed by (country, tier).
+# Each country's pyramid is self-contained (promotion/relegation never
+# crosses countries).
+EUROPEAN_TEAMS = {
+    ("England", 1): [
+        "Arsenal", "Aston Villa", "Bournemouth", "Brentford",
+        "Brighton & Hove Albion", "Chelsea", "Crystal Palace", "Everton",
+        "Fulham", "Ipswich Town", "Leicester City", "Liverpool",
+        "Manchester City", "Manchester United", "Newcastle United",
+        "Nottingham Forest", "Southampton", "Tottenham Hotspur",
+        "West Ham United", "Wolverhampton Wanderers",
+    ],
+    ("England", 2): [
+        "Blackburn Rovers", "Bristol City", "Burnley", "Cardiff City",
+        "Coventry City", "Derby County", "Hull City", "Leeds United",
+        "Luton Town", "Middlesbrough", "Millwall", "Norwich City",
+        "Oxford United", "Plymouth Argyle", "Portsmouth", "Preston North End",
+        "Queens Park Rangers", "Sheffield United", "Sheffield Wednesday",
+        "Stoke City", "Sunderland", "Swansea City", "Watford",
+        "West Bromwich Albion",
+    ],
+    ("England", 3): [
+        "Barnsley", "Birmingham City", "Blackpool", "Bolton Wanderers",
+        "Bristol Rovers", "Burton Albion", "Cambridge United",
+        "Charlton Athletic", "Crawley Town", "Exeter City",
+        "Huddersfield Town", "Leyton Orient", "Lincoln City",
+        "Mansfield Town", "Northampton Town", "Peterborough United",
+        "Reading", "Rotherham United", "Shrewsbury Town", "Stevenage",
+        "Stockport County", "Wigan Athletic", "Wrexham", "Wycombe Wanderers",
+    ],
+    ("England", 4): [
+        "Accrington Stanley", "AFC Wimbledon", "Barrow", "Bradford City",
+        "Bromley", "Carlisle United", "Cheltenham Town", "Chesterfield",
+        "Colchester United", "Crewe Alexandra", "Doncaster Rovers",
+        "Fleetwood Town", "Gillingham", "Grimsby Town", "Harrogate Town",
+        "Milton Keynes Dons", "Morecambe", "Newport County", "Notts County",
+        "Port Vale", "Salford City", "Swindon Town", "Tranmere Rovers",
+        "Walsall",
+    ],
+    ("Germany", 1): [
+        "Bayern München", "Borussia Dortmund", "RB Leipzig",
+        "Bayer Leverkusen", "VfB Stuttgart", "Eintracht Frankfurt",
+        "Borussia Mönchengladbach", "Wolfsburg", "Freiburg", "Hoffenheim",
+        "Mainz 05", "Augsburg", "Union Berlin", "Werder Bremen", "Bochum",
+        "Heidenheim", "St. Pauli", "Holstein Kiel",
+    ],
+    ("Germany", 2): [
+        "Schalke 04", "Hamburger SV", "Hertha Berlin", "Kaiserslautern",
+        "Nürnberg", "Hannover 96", "Fortuna Düsseldorf", "Karlsruher SC",
+        "Greuther Fürth", "Darmstadt 98", "Paderborn", "Elversberg",
+        "Magdeburg", "Jahn Regensburg", "Eintracht Braunschweig", "Ulm",
+        "Preußen Münster", "Dynamo Dresden",
+    ],
+    ("Germany", 3): [
+        "Arminia Bielefeld", "Hansa Rostock", "Ingolstadt", "1860 München",
+        "Waldhof Mannheim", "Rot-Weiss Essen", "Borussia Dortmund II",
+        "Verl", "Viktoria Köln", "Saarbrücken", "Alemannia Aachen",
+        "Energie Cottbus", "Erzgebirge Aue", "Unterhaching", "Sandhausen",
+        "Osnabrück", "Wehen Wiesbaden", "VfB Lübeck", "Hallescher FC",
+        "Jahn Regensburg II",
+    ],
+    ("Spain", 1): [
+        "Real Madrid", "Barcelona", "Atlético Madrid", "Sevilla",
+        "Real Sociedad", "Athletic Bilbao", "Villarreal", "Real Betis",
+        "Valencia", "Getafe", "Almería", "Cádiz", "Girona", "Osasuna",
+        "Celta Vigo", "Rayo Vallecano", "Mallorca", "Las Palmas", "Alavés",
+        "Granada",
+    ],
+    ("Spain", 2): [
+        "Espanyol", "Real Valladolid", "Eibar", "Real Oviedo",
+        "Sporting Gijón", "Racing Santander", "Real Zaragoza", "Tenerife",
+        "Levante", "Albacete", "Cartagena", "Burgos", "Mirandés", "Huesca",
+        "Eldense", "Andorra", "Leganés", "Elche", "Alcorcón", "Amorebieta",
+        "Racing Ferrol", "Málaga",
+    ],
+    ("France", 1): [
+        "Paris Saint-Germain", "Marseille", "Lyon", "Monaco", "Lille",
+        "Nice", "Lens", "Rennes", "Nantes", "Montpellier", "Toulouse",
+        "Strasbourg", "Reims", "Auxerre", "Angers", "Le Havre",
+        "Saint-Étienne", "Brest",
+    ],
+    ("France", 2): [
+        "Bordeaux", "Caen", "Guingamp", "Paris FC", "Amiens", "Bastia",
+        "Ajaccio", "Troyes", "Valenciennes", "Quevilly", "Rodez", "Pau",
+        "Grenoble", "Annecy", "Laval", "Dunkerque", "Martigues", "Red Star",
+        "Clermont", "Metz",
+    ],
+    ("Italy", 1): [
+        "Inter", "AC Milan", "Juventus", "Napoli", "Roma", "Lazio",
+        "Atalanta", "Fiorentina", "Torino", "Udinese", "Empoli", "Lecce",
+        "Cagliari", "Genoa", "Verona", "Monza", "Bologna", "Sassuolo",
+        "Como", "Parma",
+    ],
+    ("Italy", 2): [
+        "Sampdoria", "Palermo", "Bari", "Brescia", "Cremonese", "Venezia",
+        "Catanzaro", "Pisa", "Ascoli", "Reggiana", "Modena", "Südtirol",
+        "Cosenza", "Ternana", "Spezia", "Cittadella", "Frosinone", "Salernitana",
+        "Sassuolo B", "Lecco",
+    ],
+    ("Italy", 3): [
+        "Juventus Next Gen", "Padova", "Triestina", "Vicenza", "Mantova",
+        "Cesena", "Perugia", "Pescara", "Catania", "Avellino", "Benevento",
+        "Foggia", "Taranto", "Crotone", "Messina", "Rimini", "Pontedera",
+        "Arezzo", "Torres", "Carrarese",
+    ],
+    ("Netherlands", 1): [
+        "Ajax", "PSV", "Feyenoord", "AZ Alkmaar", "Twente", "Utrecht",
+        "Vitesse", "Heerenveen", "Groningen", "Sparta Rotterdam", "NEC",
+        "Go Ahead Eagles", "Zwolle", "Fortuna Sittard", "Heracles",
+        "Excelsior", "Volendam", "Almere City",
+    ],
+    ("Netherlands", 2): [
+        "Willem II", "Roda JC", "NAC Breda", "ADO Den Haag", "De Graafschap",
+        "VVV-Venlo", "Cambuur", "Emmen", "Telstar", "TOP Oss", "Jong Ajax",
+        "Jong PSV", "Jong AZ", "Jong Utrecht", "Dordrecht", "Eindhoven",
+        "Helmond Sport", "MVV", "Den Bosch", "RKC Waalwijk",
+    ],
+    ("Portugal", 1): [
+        "Benfica", "Porto", "Sporting CP", "Braga", "Vitória Guimarães",
+        "Boavista", "Famalicão", "Rio Ave", "Gil Vicente", "Estoril",
+        "Casa Pia", "Chaves", "Farense", "Arouca", "Moreirense",
+        "Estrela Amadora", "Portimonense", "Vizela",
+    ],
+    ("Portugal", 2): [
+        "Santa Clara", "Nacional", "Marítimo", "Paços de Ferreira",
+        "Académico Viseu", "Leixões", "Mafra", "Torreense", "Feirense",
+        "Oliveirense", "Penafiel", "Tondela", "União Leiria", "Belenenses",
+        "Alverca", "Felgueiras", "Benfica B", "Porto B",
+    ],
+    ("Belgium", 1): [
+        "Club Brugge", "Anderlecht", "Genk", "Standard Liège", "Gent",
+        "Antwerp", "Union Saint-Gilloise", "Cercle Brugge", "Mechelen",
+        "Charleroi", "Sint-Truiden", "Kortrijk", "OH Leuven", "Westerlo",
+        "Eupen", "RWDM",
+    ],
+    ("Belgium", 2): [
+        "Beerschot", "Dender", "Deinze", "Zulte Waregem", "Lierse", "Lommel",
+        "Patro Eisden", "RFC Liège", "Francs Borains", "Seraing",
+        "Jong Genk", "Club NXT", "RSCA Futures", "Beveren", "Lokeren-Temse",
+        "Olympic Charleroi",
+    ],
+    ("Turkey", 1): [
+        "Galatasaray", "Fenerbahçe", "Beşiktaş", "Trabzonspor",
+        "Başakşehir", "Antalyaspor", "Konyaspor", "Kayserispor", "Sivasspor",
+        "Ankaragücü", "Rizespor", "Samsunspor", "Kasımpaşa", "Alanyaspor",
+        "Hatayspor", "Pendikspor", "Fatih Karagümrük", "İstanbulspor",
+        "Adana Demirspor", "Gaziantep",
+    ],
+    ("Turkey", 2): [
+        "Eyüpspor", "Göztepe", "Sakaryaspor", "Bodrum", "Kocaelispor",
+        "Bandırmaspor", "Boluspor", "Erzurumspor", "Gençlerbirliği",
+        "Altay", "Manisa", "Ümraniyespor", "Tuzlaspor", "Şanlıurfaspor",
+        "Adanaspor", "Keçiörengücü", "Çorum", "Iğdır",
+    ],
+    ("Scotland", 1): [
+        "Celtic", "Rangers", "Hearts", "Aberdeen", "Hibernian",
+        "St Mirren", "Dundee", "Motherwell", "Kilmarnock", "St Johnstone",
+        "Ross County", "Livingston",
+    ],
+    ("Scotland", 2): [
+        "Dundee United", "Raith Rovers", "Partick Thistle", "Ayr United",
+        "Morton", "Dunfermline", "Inverness", "Queen's Park",
+        "Airdrieonians", "Arbroath",
+    ],
+    ("Austria", 1): [
+        "Red Bull Salzburg", "Sturm Graz", "Rapid Wien", "Austria Wien",
+        "LASK", "Wolfsberger AC", "Austria Klagenfurt", "Hartberg",
+        "WSG Tirol", "Altach", "Blau-Weiß Linz", "Grazer AK",
+    ],
+    ("Switzerland", 1): [
+        "Young Boys", "Basel", "Servette", "Lugano", "St. Gallen",
+        "Luzern", "Zürich", "Grasshopper", "Winterthur", "Lausanne-Sport",
+        "Yverdon", "Sion",
+    ],
+    ("Greece", 1): [
+        "Olympiacos", "Panathinaikos", "AEK Athens", "PAOK", "Aris",
+        "Asteras Tripolis", "OFI Crete", "Atromitos", "Lamia", "Volos",
+        "Panetolikos", "PAS Giannina", "Panserraikos", "Kifisia",
+    ],
+    ("Ukraine", 1): [
+        "Shakhtar Donetsk", "Dynamo Kyiv", "Dnipro-1", "Zorya Luhansk",
+        "Vorskla Poltava", "Oleksandriya", "Kryvbas", "Kolos Kovalivka",
+        "Rukh Lviv", "Polissya Zhytomyr", "Chornomorets Odesa",
+        "Metalist 1925", "Veres Rivne", "Obolon Kyiv", "LNZ Cherkasy",
+        "Mynai",
+    ],
+    ("Russia", 1): [
+        "Zenit", "Spartak Moscow", "CSKA Moscow", "Dynamo Moscow",
+        "Lokomotiv Moscow", "Krasnodar", "Rubin Kazan", "Akhmat Grozny",
+        "Rostov", "Ural", "Krylia Sovetov", "Orenburg", "Fakel Voronezh",
+        "Pari NN", "Sochi", "Baltika",
+    ],
+    ("Denmark", 1): [
+        "Copenhagen", "Midtjylland", "Brøndby", "Nordsjælland", "Aarhus",
+        "Silkeborg", "Viborg", "Randers", "Odense", "Lyngby", "Vejle",
+        "Hvidovre",
+    ],
+    ("Sweden", 1): [
+        "Malmö FF", "AIK", "Djurgården", "Hammarby", "IFK Göteborg",
+        "Elfsborg", "Häcken", "Norrköping", "Kalmar", "Sirius",
+        "Brommapojkarna", "Halmstad", "Mjällby", "Värnamo", "Västerås",
+        "GAIS",
+    ],
+    ("Norway", 1): [
+        "Bodø/Glimt", "Molde", "Rosenborg", "Viking", "Brann",
+        "Lillestrøm", "Vålerenga", "Tromsø", "Odd", "Sarpsborg",
+        "Haugesund", "Strømsgodset", "Sandefjord", "HamKam", "KFUM Oslo",
+        "Fredrikstad",
+    ],
+    ("Poland", 1): [
+        "Legia Warsaw", "Lech Poznań", "Raków", "Górnik Zabrze",
+        "Jagiellonia", "Pogoń Szczecin", "Wisła Kraków", "Śląsk Wrocław",
+        "Cracovia", "Piast Gliwice", "Zagłębie Lubin", "Stal Mielec",
+        "Widzew Łódź", "Radomiak", "Warta Poznań", "Puszcza Niepołomice",
+        "Korona Kielce", "Ruch Chorzów",
+    ],
+    ("Croatia", 1): [
+        "Dinamo Zagreb", "Hajduk Split", "Rijeka", "Osijek",
+        "Lokomotiva Zagreb", "Gorica", "Slaven Belupo", "Varaždin",
+        "Istra 1961", "Rudeš",
+    ],
+    ("Serbia", 1): [
+        "Red Star Belgrade", "Partizan", "TSC Bačka Topola", "Vojvodina",
+        "Čukarički", "Radnički Niš", "Napredak", "Spartak Subotica",
+        "Mladost Lučani", "Novi Pazar", "Radnik Surdulica", "Voždovac",
+        "Javor Ivanjica", "Železničar Pančevo", "IMT Beograd",
+        "Jedinstvo Ub",
+    ],
+    ("Czech Republic", 1): [
+        "Slavia Prague", "Sparta Prague", "Viktoria Plzeň", "Baník Ostrava",
+        "Slovácko", "Sigma Olomouc", "Mladá Boleslav", "Liberec",
+        "Jablonec", "Bohemians 1905", "Hradec Králové", "Teplice",
+        "Pardubice", "Zlín", "Karviná", "České Budějovice",
+    ],
+    ("Romania", 1): [
+        "FCSB", "CFR Cluj", "Universitatea Craiova", "Rapid București",
+        "Farul Constanța", "Sepsi", "Petrolul Ploiești", "UTA Arad",
+        "Hermannstadt", "Oțelul Galați", "Universitatea Cluj",
+        "Dinamo București", "Poli Iași", "Voluntari", "Botoșani",
+        "Gloria Buzău",
+    ],
+}
+
+# (league name) -> (country, tier), derived from EUROPEAN_TEAMS.
+LEAGUE_NAME_TO_KEY = {
+    "Premier League": ("England", 1),
+    "Championship": ("England", 2),
+    "League One": ("England", 3),
+    "League Two": ("England", 4),
+    "Bundesliga": ("Germany", 1),
+    "2. Bundesliga": ("Germany", 2),
+    "3. Liga": ("Germany", 3),
+    "La Liga": ("Spain", 1),
+    "La Liga 2": ("Spain", 2),
+    "Ligue 1": ("France", 1),
+    "Ligue 2": ("France", 2),
+    "Serie A": ("Italy", 1),
+    "Serie B": ("Italy", 2),
+    "Serie C": ("Italy", 3),
+    "Eredivisie": ("Netherlands", 1),
+    "Eerste Divisie": ("Netherlands", 2),
+    "Primeira Liga": ("Portugal", 1),
+    "Liga Portugal 2": ("Portugal", 2),
+    "Belgian Pro League": ("Belgium", 1),
+    "Challenger Pro League": ("Belgium", 2),
+    "Süper Lig": ("Turkey", 1),
+    "1. Lig": ("Turkey", 2),
+    "Scottish Premiership": ("Scotland", 1),
+    "Scottish Championship": ("Scotland", 2),
+    "Austrian Bundesliga": ("Austria", 1),
+    "Swiss Super League": ("Switzerland", 1),
+    "Super League Greece": ("Greece", 1),
+    "Ukrainian Premier League": ("Ukraine", 1),
+    "Russian Premier League": ("Russia", 1),
+    "Danish Superliga": ("Denmark", 1),
+    "Allsvenskan": ("Sweden", 1),
+    "Eliteserien": ("Norway", 1),
+    "Ekstraklasa": ("Poland", 1),
+    "HNL": ("Croatia", 1),
+    "Serbian SuperLiga": ("Serbia", 1),
+    "Czech First League": ("Czech Republic", 1),
+    "Liga I": ("Romania", 1),
+}

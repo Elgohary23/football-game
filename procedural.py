@@ -10,13 +10,13 @@ from config import (
 # Weighted lists for name generation
 FIRST_NAMES = {
     "Europe": ["Thomas", "Lucas", "Marc", "Julian", "Oliver", "Harry", "Jack", "Noah", "Leo", "Theo"],
-    "Middle_East": ["Mohamed", "Ahmed", "Ali", "Omar", "Zaid", "Hassan", "Youssef", "Ibrahim", "Mustafa", "Karim"],
+    "Middle_East": ["Ahmed", "Ali", "Omar", "Zaid", "Hassan", "Youssef", "Ibrahim", "Mustafa", "Karim", "Tariq"],
     "South_America": ["Gabriel", "Enzo", "Mateo", "Thiago", "Diego", "Luis", "Felipe", "Bruno", "Lucas", "Juan"],
 }
 
 LAST_NAMES = {
     "Europe": ["Smith", "Jones", "Williams", "Brown", "Taylor", "Davies", "Wilson", "Evans", "Thomas", "Roberts"],
-    "Middle_East": ["El-Sayed", "Ghanem", "Mansour", "Salah", "Hassan", "Mahmoud", "Abdullah", "Ebeid", "Fahmy", "Salem"],
+    "Middle_East": ["El-Sayed", "Ghanem", "Mansour", "Hassan", "Mahmoud", "Abdullah", "Ebeid", "Fahmy", "Salem", "Nasser"],
     "South_America": ["Silva", "Santos", "Ferreira", "Oliveira", "Pereira", "Rodrigues", "Almeida", "Nascimento", "Lima", "Araujo"],
 }
 
@@ -99,6 +99,85 @@ def generate_player_stats(tier_level=3, position="MID", region="Europe"):
         "personality": personality,
         "market_value": int(val),
         "region": region
+    }
+
+
+def generate_player_stats_v2(league_rating_floor: int, league_rating_ceiling: int,
+                             position: str = "MID", region: str = "Europe") -> dict:
+    """
+    Generate a player whose primary ability sits inside [floor, ceiling].
+    Distribution is a Gaussian centred at (floor + ceiling) / 2 with
+    std = (ceiling - floor) / 6, clamped to the band.
+    """
+    floor = max(30, min(99, int(league_rating_floor)))
+    ceiling = max(30, min(99, int(league_rating_ceiling)))
+    if ceiling < floor:
+        floor, ceiling = ceiling, floor
+
+    mean = (floor + ceiling) / 2.0
+    std = max(1.0, (ceiling - floor) / 6.0)
+
+    base_primary = random.gauss(mean, std)
+    base_secondary = random.gauss(mean - 3, std)
+    base_pot = random.gauss(mean + 6, std)
+
+    # Position bias (dampened so the league ceiling is never exceeded):
+    # FWD -> attack-weighted, DEF/GK -> defense-weighted, MID -> balanced.
+    if position == "FWD":
+        attack_raw = base_primary * 1.08
+        defense_raw = base_secondary * 0.85
+    elif position in ("DEF", "GK"):
+        attack_raw = base_secondary * 0.85
+        defense_raw = base_primary * 1.08
+    else:  # MID
+        attack_raw = base_primary * 1.02
+        defense_raw = base_primary * 1.02
+
+    # Regional bias (kept subtle so bands stay the source of truth).
+    if region == "South_America":
+        attack_raw *= 1.03
+        defense_raw *= 0.97
+    elif region == "Middle_East":
+        base_pot *= 1.02
+
+    # Clamp BOTH attributes into the league band so the global worst/best
+    # across every league always stays inside the configured extremes.
+    final_attack = max(floor, min(ceiling, int(attack_raw)))
+    final_defense = max(floor, min(ceiling, int(defense_raw)))
+    final_potential = max(max(final_attack, final_defense),
+                          min(99, int(base_pot)))
+
+    if position == "GK":
+        height = random.randint(185, 200)
+        weight = random.randint(80, 95)
+    elif position == "DEF":
+        height = random.randint(180, 195)
+        weight = random.randint(75, 90)
+    else:
+        height = random.randint(165, 185)
+        weight = random.randint(60, 80)
+
+    age = random.randint(16, 35)
+    personality = random.choices(PERSONALITIES, weights=[50, 5, 10, 10, 5, 15, 5], k=1)[0]
+
+    # Realistic valuation (local import: services imports this module).
+    try:
+        from services import calculate_market_value
+        market_value = calculate_market_value(
+            final_attack, final_defense, final_potential, age, 60)
+    except Exception:
+        market_value = (final_attack + final_defense) * 1000
+
+    return {
+        "attack": final_attack,
+        "defense": final_defense,
+        "potential": final_potential,
+        "age": age,
+        "height": height,
+        "weight": weight,
+        "personality": personality,
+        "market_value": int(market_value),
+        "region": region,
     }
 
 

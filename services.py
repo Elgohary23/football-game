@@ -29,18 +29,25 @@ from config import (
     DEFAULT_BUDGET,
     BUDGET_JITTER,
     BUDGET_REPUTATION_STEP,
+    CLUB_REPUTATIONS,
+    EUROPEAN_TEAMS,
     FFP_BASE_ALLOWANCE,
     FFP_SPEND_RATIO,
     FIRST_REFUSAL_NOTICE_DAYS,
     FREE_AGENT_SIGN_FEE_RATIO,
     INSTALLMENT_INTERVAL_DAYS,
     INSTALLMENTS_MAX,
+    LEAGUE_BUDGET_MULTIPLIER,
+    LEAGUE_NAME_TO_KEY,
+    LEAGUE_RATING_BANDS,
+    LEAGUE_REPUTATIONS,
     LOAN_FEE_RATIO,
     LOAN_MAX_DAYS,
     LOAN_MIN_DAYS,
     LOG_FILE,
     LOG_FORMAT,
     MARKET_VALUE_MIN,
+    MARKET_VALUE_MAX,
     MAX_FACILITY_LEVEL,
     MAX_SAVE_SLOTS,
     OFFER_MAX_ROUNDS,
@@ -56,6 +63,7 @@ from config import (
     SCOUT_KNOWLEDGE_GAIN,
     SCOUT_KNOWLEDGE_THRESHOLD,
     SCOUT_REGIONS,
+    SEED_STAR_PLAYERS,
     SELL_ON_CLAUSE_DISCOUNT_RATIO,
     SELL_ON_CLAUSE_MAX,
     SELL_ON_CLAUSE_RANGE,
@@ -67,6 +75,7 @@ from config import (
     TEMPLATE_SCHEMA_VERSION,
     TIER_BUDGETS,
     TOP_LEAGUE_ROUNDS,
+    LOWER_LEAGUE_ROUNDS,
     TRAINING_COST_PER_LEVEL,
     TRANSFER_DEADLINE_DAYS,
     TRANSFER_DEADLINE_EXPIRY_DAYS,
@@ -103,6 +112,7 @@ from models import (
 from procedural import (
     generate_player_name,
     generate_player_stats,
+    generate_player_stats_v2,
     generate_player_traits,
 )
 
@@ -192,10 +202,10 @@ def ensure_indexes() -> None:
         db.session.commit()
     except Exception:
         pass
-    _ensure_transfer_columns()
+    _ensure_schema_columns()
 
 
-def _ensure_transfer_columns() -> None:
+def _ensure_schema_columns() -> None:
     """ALTER old save files forward: ``create_all`` adds tables but never
     new columns, so pre-v6 saves would miss the transfer-system fields.
     Each ALTER is best-effort — missing tables / existing columns just skip."""
@@ -239,6 +249,12 @@ def _ensure_transfer_columns() -> None:
         ("transfer_offer", "effective_day", "INTEGER"),
         # GameState window override
         ("game_state", "transfer_window_override", "VARCHAR(10)"),
+        # European expansion: per-country pyramids + rating bands
+        ("league", "country", "VARCHAR(30) DEFAULT 'England'"),
+        ("league", "rating_floor", "INTEGER"),
+        ("league", "rating_ceiling", "INTEGER"),
+        ("league", "season_start_week", "INTEGER DEFAULT 1"),
+        ("league", "is_continental", "BOOLEAN DEFAULT 0"),
     ]
     for table, column, ddl in alters:
         try:
@@ -249,6 +265,9 @@ def _ensure_transfer_columns() -> None:
         db.session.commit()
     except Exception:
         pass
+
+
+_ensure_transfer_columns = _ensure_schema_columns
 
 
 def refresh_db_engine(uri: str) -> None:
@@ -366,24 +385,102 @@ def get_budget_for_tier(tier: int | None) -> int:
     return TIER_BUDGETS.get(tier_key, DEFAULT_BUDGET)
 
 
-def calculate_club_budget(tier: int | None, reputation: int | None,
-                          league_reputation: int | None) -> int:
-    """Starting budget for one club: tier base + reputation spread + jitter.
+def calculate_club_budget(league_key=None, reputation=None,
+                          league_reputation=None, tier=None):
+    """Starting budget for one club: reputation-driven exponential curve.
 
-    The old template gave every club in a division the identical flat tier
-    base. This keeps the tier base (divisions stay ordered) but differentiates
-    clubs: each reputation point above/below the league's base reputation
-    shifts the budget by ``BUDGET_REPUTATION_STEP``, with a small random
-    jitter on top. Used by the template build; team selection keeps the
-    stored value so the variation survives into saves.
+    Budget scales exponentially with reputation: a 60-reputation club gets
+    ~5M (times the league prestige multiplier) while a 90-reputation club
+    gets ~250M. The league prestige multiplier (TV money) is applied on
+    top, plus a small jitter so two clubs with the same reputation are not
+    identical.
+
+    ``league_key`` is a ``(country, tier)`` tuple. The legacy positional
+    form ``calculate_club_budget(tier, reputation, league_reputation)`` is
+    still accepted: an int first argument is treated as an English tier.
     """
-    base = get_budget_for_tier(tier)
+    # --- legacy shim: calculate_club_budget(tier, rep, league_rep) ---
+    if isinstance(league_key, (int, float)) or (
+        league_key is None and tier is None and league_reputation is not None
+    ):
+        tier = league_key if isinstance(league_key, (int, float)) else tier
+        league_key = ("England", int(tier)) if tier in (1, 2, 3, 4) else None
     try:
-        diff = int(reputation or 0) - int(league_reputation or 0)
+        rep = int(reputation if reputation is not None else 60)
     except (TypeError, ValueError):
-        diff = 0
-    jitter = random.uniform(1 - BUDGET_JITTER, 1 + BUDGET_JITTER)
-    return max(0, int((base + diff * BUDGET_REPUTATION_STEP) * jitter))
+        rep = 60
+    # Base curve: 5M at rep 60, doubles roughly every 8 rep points.
+    base = 5_000_000 * (2 ** ((rep - 60) / 8))
+    # League prestige multiplier (TV money).
+    multiplier = 1.0
+    if isinstance(league_key, (tuple, list)) and len(league_key) == 2:
+        try:
+            multiplier = float(LEAGUE_BUDGET_MULTIPLIER.get(
+                (str(league_key[0]), int(league_key[1])), 1.0))
+        except (TypeError, ValueError):
+            multiplier = 1.0
+    # Small jitter (+-8%) so two clubs with the same rep are not identical.
+    jitter = random.uniform(0.92, 1.08)
+    return max(500_000, int(base * multiplier * jitter))
+
+
+def calculate_market_value(attack, defense, potential, age, reputation):
+    """Realistic market value in USD.
+
+    Anchors:
+      - Mbappe (91/60, age 25, pot 93, rep 95) -> ~180-200M
+      - Lamine Yamal (88/55, age 17, pot 95, rep 90) -> ~200-230M
+      - Average La Liga starter (70/65, age 27, pot 72, rep 70) -> ~5M
+      - Serie C starter (52/50, age 25, pot 55, rep 40) -> ~200-500K
+    """
+    try:
+        primary = max(int(attack or 0), int(defense or 0))
+    except (TypeError, ValueError):
+        primary = 50
+    try:
+        pot = int(potential or primary)
+    except (TypeError, ValueError):
+        pot = primary
+    try:
+        player_age = int(age or 25)
+    except (TypeError, ValueError):
+        player_age = 25
+    try:
+        rep = int(reputation or 50)
+    except (TypeError, ValueError):
+        rep = 50
+
+    # Base curve: exponential in primary ability.
+    base = 150_000 * (1.18 ** (primary - 50))
+    # Potential premium (young high-potential players cost more).
+    potential_gap = max(0, pot - primary)
+    base *= (1 + potential_gap * 0.03)
+    # Age curve: peak value at 24-27, youth premium below 21.
+    if player_age <= 21:
+        base *= 1.75
+    elif player_age <= 24:
+        base *= 1.30
+    elif player_age <= 27:
+        base *= 1.0
+    elif player_age <= 30:
+        base *= 0.75
+    elif player_age <= 33:
+        base *= 0.5
+    else:
+        base *= 0.25
+    # Reputation multiplier (playing for a big club inflates value).
+    base *= (0.8 + rep / 200)
+    return max(100_000, min(300_000_000, int(base)))
+
+
+def get_asking_price(player):
+    """Negotiation premium for top players (clubs do not sell stars cheap)."""
+    value = int(player.market_value or 0)
+    if value >= 100_000_000:
+        return int(value * 1.15)
+    if value >= 50_000_000:
+        return int(value * 1.10)
+    return value
 
 
 def calculate_team_tier(team_id: int) -> dict:
@@ -766,7 +863,7 @@ def purchase_player(
         value = int(target.release_clause)
         sell_on_clause = 0.0
     else:
-        value = target.market_value
+        value = get_asking_price(target)
         if sell_on_clause:
             value = int(value * (1.0 - SELL_ON_CLAUSE_DISCOUNT_RATIO * sell_on_clause))
 
@@ -1945,6 +2042,62 @@ def recalculate_standings_from_played() -> int:
 
 
 def generate_match_dates(start_date):
+    """Saturday-based dates per league: ``{league_id: {week: iso_date}}``.
+
+    Each league uses its own ``League.rounds()`` (fixture weeks) and its
+    own ``season_start_week`` offset (default 1), so pyramids with different
+    sizes (e.g. 18-team Bundesliga vs 24-team Championship) each get a
+    correct calendar. Falls back to the legacy tier-keyed map when no
+    leagues exist yet (fresh DB before the template build).
+    """
+    import datetime
+
+    try:
+        leagues = League.query.order_by(League.id).all()
+    except Exception:
+        leagues = []
+    if not leagues:
+        return _legacy_tier_dates(start_date)
+
+    days_ahead = 5 - start_date.weekday()
+    if days_ahead <= 0:
+        days_ahead += 7
+    first_sat = start_date + datetime.timedelta(days=days_ahead)
+
+    out = {}
+    for league in leagues:
+        try:
+            total_rounds = int(league.rounds())
+        except Exception:
+            total_rounds = TOP_LEAGUE_ROUNDS if (league.tier or 1) == 1 else LOWER_LEAGUE_ROUNDS
+        try:
+            start_offset = max(0, int(league.season_start_week or 1) - 1)
+        except (TypeError, ValueError):
+            start_offset = 0
+        dates = {}
+        rnd = 1
+        i = start_offset
+        guard = 0
+        midweek_slots = {2, 6, 11, 16, 21, 26, 31, 36}
+        while rnd <= total_rounds and guard < 120:
+            guard += 1
+            week_sat = first_sat + datetime.timedelta(weeks=i)
+            rel = i - start_offset
+            is_intl_break = rel in (4, 9, 14, 30)
+            if not is_intl_break:
+                dates[rnd] = week_sat.isoformat()
+                rnd += 1
+                if total_rounds > 38 and rel in midweek_slots and rnd <= total_rounds:
+                    week_tue = week_sat + datetime.timedelta(days=3)
+                    dates[rnd] = week_tue.isoformat()
+                    rnd += 1
+            i += 1
+        out[league.id] = dates
+    return out
+
+
+def _legacy_tier_dates(start_date):
+    """Original 4-tier English calendar (used only before leagues exist)."""
     import datetime
 
     days_ahead = 5 - start_date.weekday()
@@ -1993,7 +2146,7 @@ def generate_match_dates(start_date):
 def adjust_match_dates(matches, start_date):
     import datetime
 
-    dates_by_tier = generate_match_dates(start_date)
+    dates_by_league = generate_match_dates(start_date)
     home_schedule = {}
 
     CITY_MAPPING = {
@@ -2016,13 +2169,50 @@ def adjust_match_dates(matches, start_date):
         "Sheffield Wednesday": "Sheffield",
         "Bristol City": "Bristol",
         "Bristol Rovers": "Bristol",
+        "Real Madrid": "Madrid",
+        "Atlético Madrid": "Madrid",
+        "Rayo Vallecano": "Madrid",
+        "Leganés": "Madrid",
+        "Barcelona": "Barcelona",
+        "Espanyol": "Barcelona",
+        "Sevilla": "Seville",
+        "Real Betis": "Seville",
+        "Bayern München": "Munich",
+        "1860 München": "Munich",
+        "Inter": "Milan",
+        "AC Milan": "Milan",
+        "Roma": "Rome",
+        "Lazio": "Rome",
+        "Paris Saint-Germain": "Paris",
+        "Paris FC": "Paris",
+        "Red Star": "Paris",
+        "Benfica": "Lisbon",
+        "Sporting CP": "Lisbon",
+        "Casa Pia": "Lisbon",
+        "Porto": "Porto",
+        "Boavista": "Porto",
+        "Celtic": "Glasgow",
+        "Rangers": "Glasgow",
+        "Ajax": "Amsterdam",
+        "Galatasaray": "Istanbul",
+        "Fenerbahçe": "Istanbul",
+        "Beşiktaş": "Istanbul",
+        "Başakşehir": "Istanbul",
     }
 
     for m in matches:
         home_team = m.home_team
         league = home_team.league if home_team else None
         tier = league.tier if league else 1
-        base_date_str = dates_by_tier.get(tier, {}).get(m.week)
+        base_date_str = None
+        if league is not None:
+            per_league = dates_by_league.get(league.id)
+            if isinstance(per_league, dict):
+                base_date_str = per_league.get(m.week)
+            if base_date_str is None:
+                tier_dates = dates_by_league.get(tier)
+                if isinstance(tier_dates, dict):
+                    base_date_str = tier_dates.get(m.week)
         if not base_date_str:
             base_date_str = (start_date + datetime.timedelta(weeks=m.week)).isoformat()
         m.date = base_date_str
@@ -2105,41 +2295,126 @@ def _write_schema_version() -> None:
     db.session.commit()
 
 
+def _league_name_for(country, tier):
+    """Reverse lookup: (country, tier) -> league name."""
+    for name, key in LEAGUE_NAME_TO_KEY.items():
+        if key == (country, tier):
+            return name
+    return f"{country} League {tier}"
+
+
+def _seed_star_players() -> None:
+    """Override one generated squad member per entry in SEED_STAR_PLAYERS."""
+    seeded_ids: set = set()
+    for star in SEED_STAR_PLAYERS:
+        team = Team.query.filter_by(name=star.get("club")).first()
+        if team is None:
+            logger.warning("Star club %s not found, skipping %s",
+                           star.get("club"), star.get("name"))
+            continue
+        squad = Player.query.filter_by(team_id=team.id).all()
+        if not squad:
+            continue
+        same_pos = [p for p in squad if p.position == star.get("position")]
+
+        def _primary(p):
+            return p.attack if p.position in ("FWD", "MID") else p.defense
+
+        pool = [p for p in (same_pos or squad) if p.id not in seeded_ids]
+        if not pool:
+            logger.warning("No free squad slot for %s at %s",
+                           star.get("name"), star.get("club"))
+            continue
+        starters = [p for p in pool if p.is_starting] or pool
+        victim = max(starters, key=_primary)
+        seeded_ids.add(victim.id)
+        victim.name = star["name"]
+        victim.position = star["position"]
+        victim.attack = star["attack"]
+        victim.defense = star["defense"]
+        victim.potential = star["potential"]
+        victim.age = star["age"]
+        victim.region = star.get("region", "Europe")
+        victim.is_starting = True
+        victim.market_value = calculate_market_value(
+            victim.attack, victim.defense, victim.potential,
+            victim.age, team.reputation or 60)
+
+
+def _ensure_global_rating_floor() -> None:
+    """Pin one bench player's primary ability to 48 in a floor-47 league.
+
+    The Gaussian generator clamps every attribute into its league band, so
+    nothing can fall below 47; this pins the global minimum at 48 (inside
+    the required 47-50 window) deterministically instead of relying on
+    sampling luck across ~13k players.
+    """
+    low_keys = [k for k, (fl, _cl) in LEAGUE_RATING_BANDS.items() if fl == 47]
+    for key in low_keys:
+        country, tier = key
+        league = League.query.filter_by(country=country, tier=tier).first()
+        if league is None:
+            continue
+        teams = Team.query.filter_by(league_id=league.id).all()
+        for team in teams:
+            bench = [p for p in team.players if not p.is_starting]
+            fwds = [p for p in bench if p.position in ("FWD", "MID")]
+            if fwds:
+                anchor = fwds[0]
+                anchor.attack = 48
+                anchor.defense = max(47, min(anchor.defense or 48, 62))
+                anchor.market_value = calculate_market_value(
+                    anchor.attack, anchor.defense, anchor.potential or 55,
+                    anchor.age or 25, team.reputation or 40)
+                return
+    # Fallback: any bench forward/mid anywhere (should never trigger).
+    fallback = Player.query.filter_by(is_starting=False).first()
+    if fallback is not None:
+        fallback.attack = 48
+
+
 def _build_template_database() -> None:
+    # Start from a clean slate: on a schema-version bump the old template
+    # still holds the previous leagues/teams, and league/team names are
+    # UNIQUE — without this the rebuild would crash on duplicates.
+    # (Row deletes, not drop_all: the player/team FK cycle makes DROP
+    # sorting unreliable on SQLite.)
     db.create_all()
+    for table in reversed(db.metadata.sorted_tables):
+        db.session.execute(table.delete())
+    db.session.commit()
     ensure_indexes()
 
-    leagues_data = [
-        {"name": "Premier League", "tier": 1, "reputation": 90},
-        {"name": "Championship", "tier": 2, "reputation": 70},
-        {"name": "League One", "tier": 3, "reputation": 50},
-        {"name": "League Two", "tier": 4, "reputation": 35},
-    ]
-
-    leagues = []
-    for l_data in leagues_data:
-        league = League(**l_data)
+    leagues: list = []
+    for (country, tier), team_names in EUROPEAN_TEAMS.items():
+        name = _league_name_for(country, tier)
+        floor, ceiling = LEAGUE_RATING_BANDS[(country, tier)]
+        reputation = LEAGUE_REPUTATIONS.get((country, tier), 50)
+        league = League(
+            name=name,
+            tier=tier,
+            reputation=reputation,
+            country=country,
+            rating_floor=floor,
+            rating_ceiling=ceiling,
+            season_start_week=1,
+            is_continental=False,
+        )
         db.session.add(league)
         leagues.append(league)
     db.session.commit()
 
-    ENGLISH_TEAMS = {
-        "Premier League": ["Arsenal", "Aston Villa", "Bournemouth", "Brentford", "Brighton & Hove Albion", "Chelsea", "Crystal Palace", "Everton", "Fulham", "Ipswich Town", "Leicester City", "Liverpool", "Manchester City", "Manchester United", "Newcastle United", "Nottingham Forest", "Southampton", "Tottenham Hotspur", "West Ham United", "Wolverhampton Wanderers"],
-        "Championship": ["Blackburn Rovers", "Bristol City", "Burnley", "Cardiff City", "Coventry City", "Derby County", "Hull City", "Leeds United", "Luton Town", "Middlesbrough", "Millwall", "Norwich City", "Oxford United", "Plymouth Argyle", "Portsmouth", "Preston North End", "Queens Park Rangers", "Sheffield United", "Sheffield Wednesday", "Stoke City", "Sunderland", "Swansea City", "Watford", "West Bromwich Albion"],
-        "League One": ["Barnsley", "Birmingham City", "Blackpool", "Bolton Wanderers", "Bristol Rovers", "Burton Albion", "Cambridge United", "Charlton Athletic", "Crawley Town", "Exeter City", "Huddersfield Town", "Leyton Orient", "Lincoln City", "Mansfield Town", "Northampton Town", "Peterborough United", "Reading", "Rotherham United", "Shrewsbury Town", "Stevenage", "Stockport County", "Wigan Athletic", "Wrexham", "Wycombe Wanderers"],
-        "League Two": ["Accrington Stanley", "AFC Wimbledon", "Barrow", "Bradford City", "Bromley", "Carlisle United", "Cheltenham Town", "Chesterfield", "Colchester United", "Crewe Alexandra", "Doncaster Rovers", "Fleetwood Town", "Gillingham", "Grimsby Town", "Harrogate Town", "Milton Keynes Dons", "Morecambe", "Newport County", "Notts County", "Port Vale", "Salford City", "Swindon Town", "Tranmere Rovers", "Walsall"],
-    }
-
-    leagues_dict = {l.name: l for l in leagues}
-
-    for league_name, team_names in ENGLISH_TEAMS.items():
-        league = leagues_dict[league_name]
+    for league, ((country, tier), team_names) in zip(leagues, EUROPEAN_TEAMS.items()):
+        league_key = (country, tier)
+        floor, ceiling = LEAGUE_RATING_BANDS[league_key]
         for team_name in team_names:
-            reputation = league.reputation + random.randint(-5, 5)
+            reputation = CLUB_REPUTATIONS.get(
+                team_name, league.reputation + random.randint(-8, 8))
+            reputation = max(30, min(99, int(reputation)))
             team = Team(
                 name=team_name,
                 morale=random.randint(60, 80),
-                budget=calculate_club_budget(league.tier, reputation, league.reputation),
+                budget=calculate_club_budget(league_key, reputation),
                 reputation=reputation,
                 is_player_team=False,
                 league_id=league.id,
@@ -2156,7 +2431,10 @@ def _build_template_database() -> None:
             random.shuffle(positions)
             for j, pos in enumerate(positions):
                 region = random.choice(["Europe", "Middle_East", "South_America"])
-                stats = generate_player_stats(tier_level=league.tier, position=pos, region=region)
+                stats = generate_player_stats_v2(floor, ceiling, pos, region)
+                value = calculate_market_value(
+                    stats["attack"], stats["defense"], stats["potential"],
+                    stats["age"], reputation)
                 player = Player(
                     name=generate_player_name(region),
                     position=pos,
@@ -2168,7 +2446,7 @@ def _build_template_database() -> None:
                     weight=stats["weight"],
                     personality=stats["personality"],
                     region=region,
-                    market_value=stats["market_value"],
+                    market_value=value,
                     team_id=team.id,
                     is_starting=(j < 11),
                     stamina=random.randint(60, 100),
@@ -2179,7 +2457,11 @@ def _build_template_database() -> None:
                     morale=random.randint(50, 80),
                 )
                 db.session.add(player)
+        db.session.commit()
 
+    _seed_star_players()
+    db.session.commit()
+    _ensure_global_rating_floor()
     db.session.commit()
 
     for league in leagues:
@@ -2199,7 +2481,9 @@ def _build_template_database() -> None:
 
     db.session.commit()
 
-    player_league = League.query.filter_by(tier=1).first()
+    player_league = League.query.filter_by(name="Premier League").first()
+    if player_league is None:
+        player_league = League.query.filter_by(tier=1).first()
     state = GameState(
         current_day=1,
         current_week=1,

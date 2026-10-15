@@ -2205,3 +2205,30 @@ class TestCrossCutting:
         # Progression endpoints explicitly allow GET too (redirect-after-POST).
         for url in ("/advance_day", "/continue", "/advance_week"):
             assert client.get(url, follow_redirects=False).status_code in (200, 301, 302), url
+
+
+# ======================================================================
+# European leagues on the standings league selector
+# ======================================================================
+class TestEuropeanPages:
+    def test_standings_league_selector_lists_all(self, client):
+        leagues = [
+            ("Bundesliga", "Germany", 1),
+            ("La Liga", "Spain", 1),
+            ("Ligue 1", "France", 1),
+            ("Serie A", "Italy", 1),
+            ("Eredivisie", "Netherlands", 1),
+            ("Primeira Liga", "Portugal", 1),
+            ("Süper Lig", "Turkey", 1),
+            ("Scottish Premiership", "Scotland", 1),
+            ("Allsvenskan", "Sweden", 1),
+        ]
+        with client.application.app_context():
+            for name, country, tier in leagues:
+                if League.query.filter_by(name=name).first() is None:
+                    db.session.add(League(name=name, tier=tier,
+                                          reputation=70, country=country))
+            db.session.commit()
+        text = _html(client, "/standings")
+        for name, _, _ in leagues:
+            assert name in text, name

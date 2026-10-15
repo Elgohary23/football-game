@@ -331,18 +331,21 @@ class TestServices:
         assert get_budget_for_tier(None) == DEFAULT_BUDGET
 
     def test_club_budget_varies_with_reputation(self, ctx):
-        from config import BUDGET_JITTER, BUDGET_REPUTATION_STEP, TIER_BUDGETS
         from services import calculate_club_budget
 
-        base = TIER_BUDGETS[1]
-        low = calculate_club_budget(1, 85, 90)
-        high = calculate_club_budget(1, 95, 90)
-        # Reputation spread must differentiate clubs of the same tier...
-        assert high - low >= 2 * BUDGET_REPUTATION_STEP - base * BUDGET_JITTER * 4
-        # ...while staying near the tier base (divisions stay ordered).
-        for value in (low, high, calculate_club_budget(1, 90, 90)):
-            assert base * 0.5 < value < base * 1.5
-        # Unknown tier falls back to the default budget base.
+        # New league-key API: exponential reputation curve + TV multiplier.
+        low = calculate_club_budget(("Spain", 1), 65)
+        high = calculate_club_budget(("Spain", 1), 95)
+        # Reputation spread must differentiate clubs of the same league...
+        assert high - low >= 100_000_000
+        # ...while staying positive and ordered across leagues.
+        for value in (low, high, calculate_club_budget(("England", 1), 90)):
+            assert value > 0
+        assert calculate_club_budget(("England", 1), 75) > \
+            calculate_club_budget(("Italy", 3), 55)
+        # Legacy positional form calculate_club_budget(tier, rep, league_rep)
+        # still works (treated as an English tier).
+        assert calculate_club_budget(1, 95, 90) > calculate_club_budget(1, 85, 90)
         assert calculate_club_budget(999, 50, 50) > 0
 
     def test_validate_formation(self, ctx):
@@ -574,3 +577,273 @@ class TestRoutes:
     def test_404_json_for_api(self, client):
         r = client.get("/api/no-such-thing", headers={"Accept": "application/json"})
         assert r.status_code == 404
+
+
+# ------------------------------------------- European expansion (37 leagues)
+class TestEuropeanExpansion:
+    EXPECTED_KEYS = {
+        ("England", 1), ("England", 2), ("England", 3), ("England", 4),
+        ("Germany", 1), ("Germany", 2), ("Germany", 3),
+        ("Spain", 1), ("Spain", 2),
+        ("France", 1), ("France", 2),
+        ("Italy", 1), ("Italy", 2), ("Italy", 3),
+        ("Netherlands", 1), ("Netherlands", 2),
+        ("Portugal", 1), ("Portugal", 2),
+        ("Belgium", 1), ("Belgium", 2),
+        ("Turkey", 1), ("Turkey", 2),
+        ("Scotland", 1), ("Scotland", 2),
+        ("Austria", 1), ("Switzerland", 1), ("Greece", 1),
+        ("Ukraine", 1), ("Russia", 1), ("Denmark", 1),
+        ("Sweden", 1), ("Norway", 1), ("Poland", 1),
+        ("Croatia", 1), ("Serbia", 1), ("Czech Republic", 1),
+        ("Romania", 1),
+    }
+    EXPECTED_SIZES = {
+        ("England", 1): 20, ("England", 2): 24, ("England", 3): 24,
+        ("England", 4): 24,
+        ("Germany", 1): 18, ("Germany", 2): 18, ("Germany", 3): 20,
+        ("Spain", 1): 20, ("Spain", 2): 22,
+        ("France", 1): 18, ("France", 2): 20,
+        ("Italy", 1): 20, ("Italy", 2): 20, ("Italy", 3): 20,
+        ("Netherlands", 1): 18, ("Netherlands", 2): 20,
+        ("Portugal", 1): 18, ("Portugal", 2): 18,
+        ("Belgium", 1): 16, ("Belgium", 2): 16,
+        ("Turkey", 1): 20, ("Turkey", 2): 18,
+        ("Scotland", 1): 12, ("Scotland", 2): 10,
+        ("Austria", 1): 12, ("Switzerland", 1): 12, ("Greece", 1): 14,
+        ("Ukraine", 1): 16, ("Russia", 1): 16, ("Denmark", 1): 12,
+        ("Sweden", 1): 16, ("Norway", 1): 16, ("Poland", 1): 18,
+        ("Croatia", 1): 10, ("Serbia", 1): 16, ("Czech Republic", 1): 16,
+        ("Romania", 1): 16,
+    }
+
+    def test_all_leagues_present(self, ctx):
+        from config import EUROPEAN_TEAMS
+
+        assert self.EXPECTED_KEYS <= set(EUROPEAN_TEAMS)
+        assert len(EUROPEAN_TEAMS) == 37
+        for key, size in self.EXPECTED_SIZES.items():
+            assert len(EUROPEAN_TEAMS[key]) == size, key
+
+    def test_league_names_cover_all(self, ctx):
+        from config import EUROPEAN_TEAMS, LEAGUE_NAME_TO_KEY
+
+        for name in ("Bundesliga", "La Liga", "Ligue 1", "Serie A",
+                     "Eredivisie", "Primeira Liga", "Süper Lig",
+                     "Scottish Premiership", "Allsvenskan"):
+            assert name in LEAGUE_NAME_TO_KEY, name
+        assert len(LEAGUE_NAME_TO_KEY) == 37
+
+    def test_team_names_unique(self, ctx):
+        from config import EUROPEAN_TEAMS
+
+        all_names = [n for teams in EUROPEAN_TEAMS.values() for n in teams]
+        assert len(all_names) == len(set(all_names))
+
+    def test_real_club_names(self, ctx):
+        from config import EUROPEAN_TEAMS
+
+        all_names = {n for teams in EUROPEAN_TEAMS.values() for n in teams}
+        for name in ("Real Madrid", "Bayern München", "Paris Saint-Germain",
+                     "Inter", "Ajax", "Benfica", "Galatasaray", "Celtic",
+                     "Manchester City", "Barcelona", "Liverpool"):
+            assert name in all_names, name
+
+    def test_rating_bands_cover_all_leagues(self, ctx):
+        from config import EUROPEAN_TEAMS, LEAGUE_RATING_BANDS
+
+        assert self.EXPECTED_KEYS <= set(LEAGUE_RATING_BANDS)
+        for key in self.EXPECTED_KEYS:
+            floor, ceiling = LEAGUE_RATING_BANDS[key]
+            assert 30 <= floor < ceiling <= 99, key
+        floors = [fl for fl, _ in LEAGUE_RATING_BANDS.values()]
+        assert min(floors) == 47
+
+    def test_generator_stays_inside_band(self, ctx):
+        from procedural import generate_player_stats_v2
+
+        for pos in ("GK", "DEF", "MID", "FWD"):
+            for _ in range(50):
+                stats = generate_player_stats_v2(54, 78, pos, "Europe")
+                primary = (stats["attack"] if pos in ("FWD", "MID")
+                           else stats["defense"])
+                assert 54 <= primary <= 78, (pos, stats)
+                assert 54 <= stats["attack"] <= 78
+                assert 54 <= stats["defense"] <= 78
+
+    def test_global_rating_range_anchors(self, ctx):
+        from config import LEAGUE_RATING_BANDS, SEED_STAR_PLAYERS
+
+        mbappe = next(p for p in SEED_STAR_PLAYERS
+                      if p["name"] == "Kylian Mbappé")
+        assert mbappe["attack"] == 91
+        assert mbappe["club"] == "Real Madrid"
+        assert min(fl for fl, _ in LEAGUE_RATING_BANDS.values()) == 47
+
+    def test_mbappe_seeded(self, ctx):
+        from config import EUROPEAN_TEAMS, SEED_STAR_PLAYERS
+
+        mbappe = next(p for p in SEED_STAR_PLAYERS
+                      if p["name"] == "Kylian Mbappé")
+        assert mbappe is not None
+        assert mbappe["attack"] == 91
+        assert mbappe["club"] in EUROPEAN_TEAMS[("Spain", 1)]
+
+    def test_yamal_seeded(self, ctx):
+        from config import SEED_STAR_PLAYERS
+
+        yamal = next(p for p in SEED_STAR_PLAYERS
+                     if p["name"] == "Lamine Yamal")
+        assert yamal is not None
+        assert yamal["attack"] >= 85
+        assert yamal["age"] <= 20
+
+    def test_star_clubs_exist(self, ctx):
+        from config import EUROPEAN_TEAMS, SEED_STAR_PLAYERS
+
+        all_names = {n for teams in EUROPEAN_TEAMS.values() for n in teams}
+        for star in SEED_STAR_PLAYERS:
+            assert star["club"] in all_names, star
+
+    def test_league_model_has_country_fields(self, ctx):
+        league = League.query.first()
+        assert hasattr(league, "country")
+        assert hasattr(league, "rating_floor")
+        assert hasattr(league, "rating_ceiling")
+        assert hasattr(league, "is_continental")
+
+    def test_schema_columns_present(self, ctx):
+        from sqlalchemy import text as sql_text
+
+        cols = [r[1] for r in db.session.execute(
+            sql_text("PRAGMA table_info(league)"))]
+        for col in ("country", "rating_floor", "rating_ceiling",
+                    "season_start_week", "is_continental"):
+            assert col in cols, col
+
+
+class TestBudgetDistribution:
+    def test_league_budget_gap(self, ctx):
+        from services import calculate_club_budget
+
+        real = calculate_club_budget(("Spain", 1), 95)
+        almeria = calculate_club_budget(("Spain", 1), 58)
+        assert real - almeria >= 100_000_000  # >=100M gap
+
+    def test_premier_league_richer_than_serie_c(self, ctx):
+        from services import calculate_club_budget
+
+        pl_mid = calculate_club_budget(("England", 1), 75)
+        sc_mid = calculate_club_budget(("Italy", 3), 55)
+        assert pl_mid > sc_mid * 10
+
+    def test_eredivisie_richer_than_sweden(self, ctx):
+        from services import calculate_club_budget
+
+        nl = calculate_club_budget(("Netherlands", 1), 70)
+        se = calculate_club_budget(("Sweden", 1), 70)
+        assert nl > se
+
+    def test_budget_deterministic_for_same_inputs(self, ctx, monkeypatch):
+        import random as _r
+
+        from services import calculate_club_budget
+
+        monkeypatch.setattr(_r, "uniform", lambda a, b: 1.0)
+        a = calculate_club_budget(("England", 1), 90)
+        b = calculate_club_budget(("England", 1), 90)
+        assert a == b
+
+
+class TestMarketValueScaling:
+    def test_mbappe_value(self, ctx):
+        from services import calculate_market_value
+
+        v = calculate_market_value(91, 60, 93, 25, 95)
+        assert 170_000_000 <= v <= 210_000_000
+
+    def test_yamal_value(self, ctx):
+        from services import calculate_market_value
+
+        v = calculate_market_value(88, 55, 95, 17, 90)
+        assert 200_000_000 <= v <= 240_000_000
+
+    def test_lower_league_value(self, ctx):
+        from services import calculate_market_value
+
+        v = calculate_market_value(52, 50, 55, 25, 40)
+        assert 200_000 <= v <= 500_000
+
+    def test_star_purchase_premium(self, ctx):
+        from services import get_asking_price
+
+        class _P:
+            pass
+
+        star, mid, low = _P(), _P(), _P()
+        star.market_value, mid.market_value, low.market_value = (
+            180_000_000, 60_000_000, 5_000_000)
+        assert get_asking_price(star) == int(180_000_000 * 1.15)
+        assert get_asking_price(mid) == int(60_000_000 * 1.10)
+        assert get_asking_price(low) == 5_000_000
+
+
+class TestPromotionRelegationPerCountry:
+    def _build_pyramids(self):
+        leagues = {}
+        for country, tiers in (("Germany", (1, 2, 3)), ("England", (1, 2))):
+            for tier in tiers:
+                lg = League(name=f"{country}-T{tier}", tier=tier,
+                            reputation=60, country=country)
+                db.session.add(lg)
+                db.session.flush()
+                leagues[(country, tier)] = lg
+        size = 6
+        for (country, tier), league in leagues.items():
+            for j in range(size):
+                db.session.add(Team(
+                    name=f"{country}-T{tier}-C{j}", morale=70,
+                    budget=500000, is_player_team=False,
+                    league_id=league.id,
+                    points=100 - j * 10, goals_for=50 - j * 5,
+                    goals_against=10,
+                ))
+        db.session.commit()
+        return leagues
+
+    def test_germany_promotes_within_germany(self, ctx):
+        from config import PROMOTION_RELEGATION_SPOTS
+        from simulation import process_promotion_relegation
+
+        leagues = self._build_pyramids()
+        g3 = leagues[("Germany", 3)]
+        g2 = leagues[("Germany", 2)]
+        promoted_ids = {
+            t.id for t in Team.query.filter_by(league_id=g3.id)
+            .order_by(Team.points.desc()).limit(PROMOTION_RELEGATION_SPOTS).all()
+        }
+        process_promotion_relegation(_state())
+        db.session.commit()
+        for team_id in promoted_ids:
+            assert db.session.get(Team, team_id).league_id == g2.id
+        # No German club may land in an English league.
+        english_ids = {leagues[("England", 1)].id,
+                       leagues[("England", 2)].id}
+        for team_id in promoted_ids:
+            assert db.session.get(Team, team_id).league_id not in english_ids
+
+    def test_england_stays_in_england(self, ctx):
+        from config import PROMOTION_RELEGATION_SPOTS
+        from simulation import process_promotion_relegation
+
+        leagues = self._build_pyramids()
+        e1 = leagues[("England", 1)]
+        e2 = leagues[("England", 2)]
+        relegated_ids = {
+            t.id for t in Team.query.filter_by(league_id=e1.id)
+            .order_by(Team.points.asc()).limit(PROMOTION_RELEGATION_SPOTS).all()
+        }
+        process_promotion_relegation(_state())
+        db.session.commit()
+        for team_id in relegated_ids:
+            assert db.session.get(Team, team_id).league_id == e2.id

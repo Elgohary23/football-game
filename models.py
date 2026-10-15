@@ -215,9 +215,21 @@ class League(db.Model):
     name = db.Column(db.String(50), unique=True)
     tier = db.Column(db.Integer)
     reputation = db.Column(db.Integer)
+    country = db.Column(db.String(30), default="England")
+    rating_floor = db.Column(db.Integer, nullable=True)
+    rating_ceiling = db.Column(db.Integer, nullable=True)
+    season_start_week = db.Column(db.Integer, default=1)
+    is_continental = db.Column(db.Boolean, default=False)
     teams = db.relationship('Team', backref='league', lazy=True)
 
     def rounds(self) -> int:
+        squad_size = len(self.teams) if self.teams else 0
+        if squad_size >= 2:
+            # Double round-robin weeks: even squads play (n-1)*2 weeks,
+            # odd squads need a BYE slot so they play n*2 weeks.
+            if squad_size % 2 == 1:
+                return squad_size * 2
+            return (squad_size - 1) * 2
         return TOP_LEAGUE_ROUNDS if self.tier == 1 else LOWER_LEAGUE_ROUNDS
 
 

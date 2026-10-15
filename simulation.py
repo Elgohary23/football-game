@@ -1149,10 +1149,21 @@ def process_promotion_relegation(state: GameState) -> None:
 
     # Plan all moves first: each club moves at most one division per season.
     # moves maps team.id -> (destination league, origin league, direction).
+    # Leagues are grouped by country first: promotion/relegation happens
+    # only between adjacent tiers of the SAME country (a 3. Liga club
+    # promotes to 2. Bundesliga, never to the English Championship).
+    # Leagues without a country (legacy saves / unit-test fixtures) share
+    # one group so the old single-pyramid behaviour is preserved.
     moves: dict[int, tuple] = {}
-    for i in range(len(leagues) - 1):
-        upper_league = leagues[i]
-        lower_league = leagues[i + 1]
+    by_country: dict[str, list] = {}
+    for league in leagues:
+        by_country.setdefault(getattr(league, "country", None) or "", []).append(league)
+    pairs = []
+    for country_leagues in by_country.values():
+        ordered = sorted(country_leagues, key=lambda l: (l.tier or 0, l.id or 0))
+        for i in range(len(ordered) - 1):
+            pairs.append((ordered[i], ordered[i + 1]))
+    for upper_league, lower_league in pairs:
         upper_teams = tables.get(upper_league.id, [])
         lower_teams = tables.get(lower_league.id, [])
         if not upper_teams or not lower_teams:
