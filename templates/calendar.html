@@ -17,7 +17,18 @@
 
     <div class="calendar-main-grid">
         <!-- Calendar Card -->
-        <div class="calendar-card glass-panel">
+        <div class="calendar-card glass-panel" id="calendarCard">
+            <!-- Inline simulation sweep HUD (replaces the old blocking modal) -->
+            <div class="sim-hud" id="simHud" hidden>
+                <div class="sim-hud-row">
+                    <span class="sim-hud-label"><i class="fas fa-fast-forward"></i> جاري المحاكاة...</span>
+                    <span class="sim-hud-date" id="simHudDate">---</span>
+                    <span class="sim-hud-count" id="simHudCount"></span>
+                </div>
+                <div class="sim-hud-bar">
+                    <div class="sim-hud-fill" id="simHudFill" style="width:0%"></div>
+                </div>
+            </div>
             <div class="calendar-nav">
                 <button class="nav-btn" id="prevMonthBtn"><i class="fas fa-chevron-right"></i></button>
                 <h2 class="month-title" id="monthTitleDisplay">يونيو 2026</h2>
@@ -60,18 +71,6 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         <input type="hidden" name="target_date" id="targetDateInput" value=""/>
     </form>
-
-    <!-- Simulation Progress Overlay -->
-    <div class="sim-overlay" id="simOverlay">
-        <div class="sim-modal">
-            <h3>جاري محاكاة الأيام والمباريات...</h3>
-            <div class="progress-bar progress-bar-lg">
-                <div class="progress-fill" id="simProgressFill" style="width:0%"></div>
-            </div>
-            <div class="progress-text" id="simProgressText">0%</div>
-            <p class="sim-note">يرجى الانتظار، يتم الآن محاكاة كافة الأحداث وجدولة التنافس والتعافي الطبيعي بدقة عالية.</p>
-        </div>
-    </div>
 </section>
 
 <style>
@@ -525,6 +524,89 @@
     color: var(--primary-neon);
     margin: 0 auto;
 }
+
+/* Inline simulation sweep HUD */
+.sim-hud {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    background: rgba(233, 69, 96, 0.07);
+    border: 1px solid rgba(233, 69, 96, 0.35);
+    border-radius: 12px;
+    padding: 0.6rem 0.9rem;
+}
+.sim-hud[hidden] { display: none; }
+.sim-hud-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.85rem;
+}
+.sim-hud-label { font-weight: bold; color: #fff; }
+.sim-hud-label i { color: var(--primary-neon); margin-left: 0.3rem; }
+.sim-hud-date { color: var(--primary-neon); font-weight: bold; }
+.sim-hud-count { color: var(--text-muted); font-size: 0.8rem; }
+.sim-hud-bar {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 99px;
+    overflow: hidden;
+}
+.sim-hud-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 99px;
+    background: linear-gradient(90deg, #e94560, #f39c12);
+    box-shadow: 0 0 10px var(--primary-neon-glow);
+    transition: width 0.12s linear;
+}
+
+/* Calendar sweep: outline + light that runs over the days */
+.calendar-card.sim-running .day-cell { pointer-events: none; }
+.calendar-card.sim-running .nav-btn { opacity: 0.4; pointer-events: none; }
+.day-cell.sim-passed {
+    background: rgba(233, 69, 96, 0.10) !important;
+    border-color: rgba(233, 69, 96, 0.35) !important;
+}
+.day-cell.sim-scan {
+    background: rgba(255, 255, 255, 0.14) !important;
+    border: 2px solid #fff !important;
+    box-shadow: 0 0 0 2px var(--primary-neon), 0 0 18px var(--primary-neon-glow), 0 0 32px rgba(233, 69, 96, 0.35);
+    transform: translateY(-2px) scale(1.07);
+    z-index: 3;
+    overflow: hidden;
+    animation: simSweepPulse 0.45s ease-in-out infinite alternate;
+}
+.day-cell.sim-scan::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(115deg, transparent 20%, rgba(255, 255, 255, 0.38) 50%, transparent 80%);
+    animation: simShine 0.6s linear infinite;
+    pointer-events: none;
+}
+.day-cell.sim-scan.has-match::after { opacity: 1; }
+.day-cell.sim-target {
+    border-style: dashed !important;
+    animation: simTargetPulse 0.5s ease-in-out infinite alternate;
+}
+@keyframes simSweepPulse {
+    from { box-shadow: 0 0 0 2px var(--primary-neon), 0 0 10px var(--primary-neon-glow); }
+    to { box-shadow: 0 0 0 2px var(--primary-neon), 0 0 24px var(--primary-neon-glow), 0 0 40px rgba(233, 69, 96, 0.45); }
+}
+@keyframes simShine {
+    from { transform: translateX(-60%); }
+    to { transform: translateX(60%); }
+}
+@keyframes simTargetPulse {
+    from { transform: translateY(-2px) scale(1.07); }
+    to { transform: translateY(-2px) scale(1.12); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .day-cell.sim-scan, .day-cell.sim-scan::before, .day-cell.sim-target { animation: none; }
+    .sim-hud-fill { transition: none; }
+}
 </style>
 {% endblock %}
 
@@ -537,15 +619,32 @@ document.addEventListener('DOMContentLoaded', function() {
     // Elements
     const monthTitleDisplay = document.getElementById('monthTitleDisplay');
     const calendarDaysGrid = document.getElementById('calendarDaysGrid');
+    const calendarCard = document.getElementById('calendarCard');
     const prevMonthBtn = document.getElementById('prevMonthBtn');
     const nextMonthBtn = document.getElementById('nextMonthBtn');
     const selectedDateDisplay = document.getElementById('selectedDateDisplay');
     const detailsContent = document.getElementById('detailsContent');
     const simulateForm = document.getElementById('simulateForm');
     const targetDateInput = document.getElementById('targetDateInput');
-    const simOverlay = document.getElementById('simOverlay');
-    const simProgressFill = document.getElementById('simProgressFill');
-    const simProgressText = document.getElementById('simProgressText');
+    const simHud = document.getElementById('simHud');
+    const simHudDate = document.getElementById('simHudDate');
+    const simHudCount = document.getElementById('simHudCount');
+    const simHudFill = document.getElementById('simHudFill');
+
+    // Sweep state: which dates the outline/light has already passed.
+    const simState = { running: false, scanned: new Set(), current: null };
+
+    function sleep(ms) { return new Promise(function(res) { setTimeout(res, ms); }); }
+    function parseIsoDate(s) {
+        const p = String(s).split('-');
+        return new Date(Date.UTC(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10)));
+    }
+    function toIsoDate(d) {
+        const y = d.getUTCFullYear();
+        const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(d.getUTCDate()).padStart(2, '0');
+        return y + '-' + m + '-' + day;
+    }
 
     // Parse current date (timezone-independent split)
     const dateParts = gameDateStr.split('-');
@@ -626,8 +725,18 @@ document.addEventListener('DOMContentLoaded', function() {
             
             cell.innerHTML = cellContent;
             
+            // Re-apply sweep progress so the outline trail survives
+            // month switches while the simulation runs.
+            if (simState.scanned.has(cellDateStr)) {
+                cell.classList.add('sim-passed');
+            }
+            if (simState.current === cellDateStr) {
+                cell.classList.add('sim-scan');
+            }
+
             // Add click listener
             cell.addEventListener('click', function() {
+                if (simState.running) return;
                 document.querySelectorAll('.day-cell').forEach(c => c.classList.remove('selected'));
                 cell.classList.add('selected');
                 showDayDetails(cellDateStr);
@@ -762,6 +871,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Navigation listeners
     prevMonthBtn.addEventListener('click', function() {
+        if (simState.running) return;
         displayedMonth--;
         if (displayedMonth < 0) {
             displayedMonth = 11;
@@ -771,6 +881,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     nextMonthBtn.addEventListener('click', function() {
+        if (simState.running) return;
         displayedMonth++;
         if (displayedMonth > 11) {
             displayedMonth = 0;
@@ -779,20 +890,87 @@ document.addEventListener('DOMContentLoaded', function() {
         renderCalendar();
     });
 
-    // Window simulation function
-    window.simulateToDate = function(dateStr) {
-        if (simOverlay.classList.contains('active')) return; // double-click guard
+    function paintSweepCell(dateStr) {
+        document.querySelectorAll('.day-cell.sim-scan').forEach(function(el) {
+            el.classList.remove('sim-scan');
+            el.classList.add('sim-passed');
+        });
+        const cell = calendarDaysGrid.querySelector('.day-cell[data-date="' + dateStr + '"]');
+        if (cell) {
+            cell.classList.remove('sim-passed');
+            cell.classList.add('sim-scan');
+            if (cell.scrollIntoView) {
+                cell.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
+        }
+    }
+
+    // Simulation with a calendar sweep: a white outline + light glides
+    // day-by-day from the game date to the target, auto-flipping months,
+    // so progress is visible on the calendar itself.
+    window.simulateToDate = async function(dateStr) {
+        if (simState.running) return; // double-click guard
+        if (!dateStr || dateStr <= gameDateStr) {
+            targetDateInput.value = dateStr || '';
+            simulateForm.submit();
+            return;
+        }
+
+        // Build the day-by-day path (exclusive of today, inclusive of target).
+        const start = parseIsoDate(gameDateStr);
+        const end = parseIsoDate(dateStr);
+        const path = [];
+        const cursor = new Date(start.getTime());
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+        while (cursor.getTime() <= end.getTime() && path.length < 370) {
+            path.push(toIsoDate(cursor));
+            cursor.setUTCDate(cursor.getUTCDate() + 1);
+        }
+        if (!path.length) {
+            targetDateInput.value = dateStr;
+            simulateForm.submit();
+            return;
+        }
+
+        simState.running = true;
+        simState.scanned = new Set();
+        simState.current = null;
+        if (calendarCard) calendarCard.classList.add('sim-running');
+        if (simHud) simHud.hidden = false;
+
+        // Keep the whole sweep around ~2.8s regardless of span.
+        const stepMs = Math.max(8, Math.min(90, Math.round(2800 / path.length)));
+
+        for (let i = 0; i < path.length; i++) {
+            const cur = path[i];
+            simState.current = cur;
+            simState.scanned.add(cur);
+
+            const parts = cur.split('-');
+            const y = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10) - 1;
+            if (y !== displayedYear || m !== displayedMonth) {
+                displayedYear = y;
+                displayedMonth = m;
+                renderCalendar();
+            }
+            paintSweepCell(cur);
+
+            const pct = Math.round(((i + 1) / path.length) * 100);
+            if (simHudFill) simHudFill.style.width = pct + '%';
+            if (simHudDate) simHudDate.textContent = cur;
+            if (simHudCount) simHudCount.textContent = (i + 1) + ' / ' + path.length + ' يوم (' + pct + '%)';
+            if (selectedDateDisplay) selectedDateDisplay.textContent = cur;
+
+            await sleep(stepMs);
+        }
+
+        const targetCell = calendarDaysGrid.querySelector('.day-cell[data-date="' + dateStr + '"]');
+        if (targetCell) targetCell.classList.add('sim-target');
+        if (simHudFill) simHudFill.style.width = '100%';
+        await sleep(320);
+
         targetDateInput.value = dateStr;
-        simOverlay.classList.add('active');
-        
-        let progress = 0;
-        const interval = setInterval(function() {
-            progress += Math.random() * 8 + 3;
-            if (progress > 95) progress = 95;
-            simProgressFill.style.width = progress + '%';
-            simProgressText.textContent = Math.round(progress) + '%';
-        }, 150);
-        
         simulateForm.submit();
     };
 
