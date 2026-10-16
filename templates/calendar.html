@@ -781,6 +781,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Window simulation function
     window.simulateToDate = function(dateStr) {
+        if (simOverlay.classList.contains('active')) return; // double-click guard
         targetDateInput.value = dateStr;
         simOverlay.classList.add('active');
         

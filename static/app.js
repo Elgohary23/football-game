@@ -33,13 +33,20 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Simulation progress overlay - use fetch instead of native submit
+    // Simulation progress overlay - show it then let the form submit
+    // natively (single navigation, preserves Flask flash messages).
+    // NOTE: #simulateForm is owned by calendar.html's simulateToDate(),
+    // so it is skipped here to avoid double handlers / double POSTs.
+    // A fetch()+redirect shim here would double-load the page and also
+    // trips Chrome extension message ports ("message port closed before
+    // a response was received") on navigation - that console error is
+    // extension noise, not an app bug.
     var simForms = document.querySelectorAll('form');
     for (var i = 0; i < simForms.length; i++) {
         var form = simForms[i];
+        if (form.id === 'simulateForm') continue;
         if (form.action && (form.action.indexOf('/advance_') > -1 || form.action.indexOf('/continue') > -1 || form.action.indexOf('/simulate_to_date') > -1)) {
-            form.addEventListener('submit', function(e) {
-                e.preventDefault();
+            form.addEventListener('submit', function() {
                 var overlay = document.getElementById('simOverlay');
                 if (overlay) {
                     overlay.classList.add('active');
@@ -55,10 +62,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         }, 200);
                     }
                 }
-                var formData = new FormData(this);
-                fetch(this.action, { method: 'POST', body: formData })
-                    .then(function(r) { window.location.href = r.url; })
-                    .catch(function() { window.location.href = '/dashboard'; });
+                // No preventDefault: native submit performs the POST.
             });
         }
     }
