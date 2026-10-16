@@ -15,6 +15,7 @@ from datetime import datetime
 from functools import lru_cache
 
 from flask import abort, current_app, session
+from sqlalchemy.exc import OperationalError
 
 from config import (
     ABILITY_FILL_ANY_WEIGHT,
@@ -442,14 +443,23 @@ def get_slot_metadata(slot_id: int) -> dict:
 # Safe query helpers
 # --------------------------------------------------------------------------
 def safe_state() -> GameState:
-    state = GameState.query.first()
+    try:
+        state = GameState.query.first()
+    except OperationalError:
+        # Engine points at a missing/empty/locked file (e.g. a rebuild
+        # script swapped the DB mid-request). Abort cleanly so the 500
+        # handler redirects instead of showing a debugger page.
+        abort(500, description="Database file unavailable")
     if not state:
         abort(500, description="Game state not initialized")
     return state
 
 
 def safe_player_team() -> Team:
-    player_team = Team.query.filter_by(is_player_team=True).first()
+    try:
+        player_team = Team.query.filter_by(is_player_team=True).first()
+    except OperationalError:
+        abort(500, description="Database file unavailable")
     if not player_team:
         abort(500, description="Player team not found")
     return player_team

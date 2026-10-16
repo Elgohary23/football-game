@@ -6,6 +6,7 @@ rules live in ``services`` / ``simulation`` (Tips 1 & 3).
 """
 
 import os
+from config import DB_FILENAME
 import shutil
 import sqlite3
 
@@ -27,7 +28,7 @@ from simulation import get_unread_count
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///db.sqlite3"
+    app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{os.path.join(app.instance_path, DB_FILENAME).replace('\\', '/')}"
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.secret_key = os.environ.get("SECRET_KEY", "football_secret_key_prod")
 
