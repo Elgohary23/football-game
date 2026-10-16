@@ -17,6 +17,10 @@ from functools import lru_cache
 from flask import abort, current_app, session
 
 from config import (
+    ABILITY_FILL_ANY_WEIGHT,
+    ABILITY_FILL_EXACT_WEIGHT,
+    ABILITY_FILL_FITNESS_WEIGHT,
+    ABILITY_FILL_GROUP_WEIGHT,
     AGENT_FEE_RATIO,
     AGENT_FEE_STAR_RATIO,
     AGENT_FEE_STAR_THRESHOLD,
@@ -1200,9 +1204,16 @@ def validate_formation(player_team: Team, positions) -> tuple[bool, str]:
     if not isinstance(positions, dict) or not positions:
         return False, "بيانات غير صالحة"
 
-    try:
-        player_ids = [int(k) for k in positions.keys()]
-    except (TypeError, ValueError):
+    # Numeric keys are players; the reserved FORMATION_LAYOUT_KEY (the chosen
+    # preset formation) may ride along and is never counted as a player.
+    def _as_id(key):
+        try:
+            return int(key)
+        except (TypeError, ValueError):
+            return None
+
+    player_ids = [i for i in (_as_id(k) for k in positions.keys()) if i is not None]
+    if not player_ids:
         return False, "بيانات غير صالحة"
 
     if len(player_ids) > STARTERS_LIMIT:
@@ -1224,9 +1235,110 @@ def validate_formation(player_team: Team, positions) -> tuple[bool, str]:
 def apply_formation(player_team: Team, positions) -> None:
     """Persist formation; the model column is JSON so no manual dumps (Tip 10)."""
     player_team.formation_data = positions
-    ids = {int(k) for k in positions.keys()}
+    ids = set()
+    for key in positions.keys():
+        try:
+            ids.add(int(key))
+        except (TypeError, ValueError):
+            pass  # reserved keys like FORMATION_LAYOUT_KEY are not players
     for p in player_team.players:
         p.is_starting = p.id in ids
+
+
+def slot_compatibility(player_detailed: str, slot_pos: str) -> float:
+    """How well a player fits a preset slot: exact detailed > band > any.
+
+    Goalkeepers only ever fill GK slots (0 otherwise) so the exactly-one-GK
+    rule can never be broken by the by-ability fill. Players carrying a
+    coarse-only position (GK/DEF/MID/FWD, older data) map to themselves.
+    """
+    detail = (player_detailed or "").upper()
+    slot_pos = (slot_pos or "").upper()
+    if detail == slot_pos:
+        return ABILITY_FILL_EXACT_WEIGHT
+    det_coarse = _DETAILED_TO_COARSE.get(detail, detail)
+    slot_coarse = _DETAILED_TO_COARSE.get(slot_pos, slot_pos)
+    if "GK" in (det_coarse, slot_coarse):
+        return 0.0
+    if det_coarse == slot_coarse:
+        return ABILITY_FILL_GROUP_WEIGHT
+    return ABILITY_FILL_ANY_WEIGHT
+
+
+def effective_slot_ability(player) -> float:
+    """Fitness-adjusted current ability used for the by-ability slot fill."""
+    overall = player.overall or 0
+    if not overall:
+        overall = max(player.attack or 0, player.defense or 0)
+    fitness = max(0, min(100, player.fitness if player.fitness is not None else 100))
+    return float(overall) * (
+        (1.0 - ABILITY_FILL_FITNESS_WEIGHT)
+        + ABILITY_FILL_FITNESS_WEIGHT * fitness / 100.0
+    )
+
+
+def assign_players_to_slots(players, slots, *, exclude_ids=None) -> tuple[list, list]:
+    """By-ability assignment of players into a preset formation's slots.
+
+    Every slot is scored as position fit × fitness-weighted ability; injured
+    players and excluded ids are never picked. Slots are processed
+    most-constrained-first so dedicated positions are not swallowed early.
+    A slot whose compatible candidate pool is exhausted stays empty and is
+    reported by index (goalkeepers are never slotted outfield or vice versa).
+
+    Returns (assignments, unfilled_indexes): assignments is a list of
+    {"slot_index", "pos", "x", "y", "player_id"} sorted by slot order.
+    """
+    excluded = set()
+    for i in (exclude_ids or []):
+        try:
+            excluded.add(int(i))
+        except (TypeError, ValueError):
+            pass
+    available = [
+        p for p in (players or [])
+        if (p.injury_days or 0) == 0 and p.id not in excluded
+    ]
+
+    ranked: list[tuple[int, dict, list]] = []
+    for idx, slot in enumerate(slots or []):
+        candidates = [
+            (
+                slot_compatibility(p.detailed_position or p.position, slot["pos"])
+                * effective_slot_ability(p),
+                p.id,
+            )
+            for p in available
+        ]
+        candidates = sorted(
+            (c for c in candidates if c[0] > 0), key=lambda t: t[0], reverse=True
+        )
+        ranked.append((idx, slot, candidates))
+    ranked.sort(key=lambda t: len(t[2]))
+
+    assignments: dict[int, int] = {}
+    used: set = set()
+    unfilled: list[int] = []
+    for idx, _slot, candidates in ranked:
+        choice = next((pid for _score, pid in candidates if pid not in used), None)
+        if choice is None:
+            unfilled.append(idx)
+        else:
+            assignments[idx] = choice
+            used.add(choice)
+
+    filled_slots = slots or []
+    result = [
+        {
+            "slot_index": idx,
+            "pos": filled_slots[idx]["pos"],
+            "x": filled_slots[idx]["x"],
+            "y": filled_slots[idx]["y"],
+            "player_id": pid,
+        }
+        for idx, pid in sorted(assignments.items())
+    ]
+    return result, sorted(unfilled)
 
 
 # --------------------------------------------------------------------------

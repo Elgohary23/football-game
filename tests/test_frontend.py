@@ -477,6 +477,49 @@ class TestFormationDb:
         assert 'value="defensive" selected' in text
 
 
+class TestFormationPresetsUI:
+    def test_layout_select_with_preset_options(self, client):
+        from config import PRESET_FORMATIONS
+
+        text = _html(client, "/formation")
+        assert 'id="formationLayout"' in text
+        for f in PRESET_FORMATIONS[:6]:
+            assert ('value="%s"' % f["key"]) in text, f["key"]
+        for f in PRESET_FORMATIONS:
+            assert f["label"] in text, f["label"]
+        # Grouped into optgroups by backline.
+        for group in ("الدفاع الثلاثي", "الدفاع الرباعي", "الدفاع الخماسي"):
+            assert group in text
+
+    def test_fill_by_ability_controls(self, client):
+        text = _html(client, "/formation")
+        assert 'id="fillByAbilityBtn"' in text
+        assert "/formation/ability-fill" in text
+        assert "تعبئة بالقدرة" in text
+
+    def test_overall_embedded_for_ability_fill(self, client):
+        team = _player_team()
+        p = team.players[0]
+        text = _html(client, "/formation")
+        assert '"overall"' in text          # players JSON carries overall
+        assert str(p.overall) in text
+
+    def test_saved_layout_restored_in_page(self, client):
+        from config import FORMATION_LAYOUT_KEY
+
+        team = _player_team()
+        gk = next(p for p in team.players if p.position == "GK")
+        ids = [gk.id] + [p.id for p in team.players if p.position != "GK"][:10]
+        data = {FORMATION_LAYOUT_KEY: "5-2-3"}
+        data.update({str(i): {"x": 50, "y": 50} for i in ids})
+        team.formation_data = data
+        db.session.commit()
+        text = _html(client, "/formation")
+        assert 'value="5-2-3"' in text
+        assert FORMATION_LAYOUT_KEY in text
+        assert "5-2-3" in text
+
+
 # ======================================================================
 # Calendar — DB-backed (embedded JSON + current date)
 # ======================================================================

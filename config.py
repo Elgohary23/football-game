@@ -138,6 +138,268 @@ ROLE_DEFENSIVE_MULT = {"standard": 1.0, "target_man": 0.9, "poacher": 0.8,
 
 PRESET_TYPES = ("standard", "attacking", "defensive")
 
+# --- Pre-defined pitch layouts (/formation spreads empty slots) ----------
+# Each entry: "key" (persisted inside formation_data under FORMATION_LAYOUT_KEY),
+# Arabic "label" for the dropdown, and 11 slots (1 GK + 10 outfield).
+# Coordinates are pitch percentages: x 0..100 (left→right), y 0..100
+# (top = opponents' goal, bottom = own goal). The engines never read x/y
+# (they use is_starting + roles) — layouts are purely editorial.
+FORMATION_LAYOUT_KEY = "__layout__"  # reserved formation_data key, not a player
+
+PRESET_FORMATIONS = [
+    # --- الدفاع الثلاثي (3) ---
+    {"key": "3-4-3", "label": "٣-٤-٣", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "CB", "x": 28, "y": 72}, {"pos": "CB", "x": 50, "y": 74},
+        {"pos": "CB", "x": 72, "y": 72},
+        {"pos": "LM", "x": 12, "y": 48}, {"pos": "CM", "x": 38, "y": 48},
+        {"pos": "CM", "x": 62, "y": 48}, {"pos": "RM", "x": 88, "y": 48},
+        {"pos": "LW", "x": 14, "y": 16}, {"pos": "ST", "x": 50, "y": 13},
+        {"pos": "RW", "x": 86, "y": 16},
+    ]},
+    {"key": "3-4-2-1", "label": "٣-٤-٢-١", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "CB", "x": 28, "y": 72}, {"pos": "CB", "x": 50, "y": 74},
+        {"pos": "CB", "x": 72, "y": 72},
+        {"pos": "LM", "x": 12, "y": 48}, {"pos": "CM", "x": 38, "y": 48},
+        {"pos": "CM", "x": 62, "y": 48}, {"pos": "RM", "x": 88, "y": 48},
+        {"pos": "CAM", "x": 36, "y": 30}, {"pos": "CAM", "x": 64, "y": 30},
+        {"pos": "ST", "x": 50, "y": 13},
+    ]},
+    {"key": "3-4-1-2", "label": "٣-٤-١-٢", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "CB", "x": 28, "y": 72}, {"pos": "CB", "x": 50, "y": 74},
+        {"pos": "CB", "x": 72, "y": 72},
+        {"pos": "LM", "x": 12, "y": 48}, {"pos": "CM", "x": 38, "y": 48},
+        {"pos": "CM", "x": 62, "y": 48}, {"pos": "RM", "x": 88, "y": 48},
+        {"pos": "CAM", "x": 50, "y": 28},
+        {"pos": "ST", "x": 40, "y": 13}, {"pos": "ST", "x": 60, "y": 13},
+    ]},
+    {"key": "3-5-2", "label": "٣-٥-٢", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "CB", "x": 28, "y": 74}, {"pos": "CB", "x": 50, "y": 76},
+        {"pos": "CB", "x": 72, "y": 74},
+        {"pos": "LWB", "x": 8, "y": 58}, {"pos": "CDM", "x": 50, "y": 52},
+        {"pos": "CM", "x": 34, "y": 40}, {"pos": "CM", "x": 66, "y": 40},
+        {"pos": "RWB", "x": 92, "y": 58},
+        {"pos": "ST", "x": 40, "y": 14}, {"pos": "ST", "x": 60, "y": 14},
+    ]},
+    {"key": "3-5-1-1", "label": "٣-٥-١-١", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "CB", "x": 28, "y": 74}, {"pos": "CB", "x": 50, "y": 76},
+        {"pos": "CB", "x": 72, "y": 74},
+        {"pos": "LWB", "x": 8, "y": 58}, {"pos": "CDM", "x": 50, "y": 52},
+        {"pos": "CM", "x": 34, "y": 40}, {"pos": "CM", "x": 66, "y": 40},
+        {"pos": "RWB", "x": 92, "y": 58},
+        {"pos": "CAM", "x": 50, "y": 26}, {"pos": "ST", "x": 50, "y": 12},
+    ]},
+    {"key": "3-6-1", "label": "٣-٦-١", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "CB", "x": 28, "y": 74}, {"pos": "CB", "x": 50, "y": 76},
+        {"pos": "CB", "x": 72, "y": 74},
+        {"pos": "LWB", "x": 8, "y": 56}, {"pos": "CM", "x": 30, "y": 46},
+        {"pos": "CDM", "x": 50, "y": 54}, {"pos": "CM", "x": 70, "y": 46},
+        {"pos": "RWB", "x": 92, "y": 56}, {"pos": "CAM", "x": 50, "y": 30},
+        {"pos": "ST", "x": 50, "y": 12},
+    ]},
+    {"key": "3-3-3-1", "label": "٣-٣-٣-١", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "CB", "x": 30, "y": 72}, {"pos": "CB", "x": 50, "y": 74},
+        {"pos": "CB", "x": 70, "y": 72},
+        {"pos": "CDM", "x": 50, "y": 56}, {"pos": "CM", "x": 32, "y": 42},
+        {"pos": "CM", "x": 68, "y": 42},
+        {"pos": "LM", "x": 13, "y": 24}, {"pos": "CAM", "x": 50, "y": 22},
+        {"pos": "RM", "x": 87, "y": 24}, {"pos": "ST", "x": 50, "y": 10},
+    ]},
+    {"key": "3-1-4-2", "label": "٣-١-٤-٢", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "CB", "x": 28, "y": 74}, {"pos": "CB", "x": 50, "y": 76},
+        {"pos": "CB", "x": 72, "y": 74},
+        {"pos": "CDM", "x": 50, "y": 58},
+        {"pos": "LM", "x": 14, "y": 40}, {"pos": "CM", "x": 38, "y": 42},
+        {"pos": "CM", "x": 62, "y": 42}, {"pos": "RM", "x": 86, "y": 40},
+        {"pos": "ST", "x": 40, "y": 15}, {"pos": "ST", "x": 60, "y": 15},
+    ]},
+    # --- الدفاع الرباعي (4) ---
+    {"key": "4-4-2", "label": "٤-٤-٢ كلاسيكية", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LB", "x": 15, "y": 70}, {"pos": "CB", "x": 36, "y": 72},
+        {"pos": "CB", "x": 64, "y": 72}, {"pos": "RB", "x": 85, "y": 70},
+        {"pos": "LM", "x": 13, "y": 47}, {"pos": "CM", "x": 38, "y": 47},
+        {"pos": "CM", "x": 62, "y": 47}, {"pos": "RM", "x": 87, "y": 47},
+        {"pos": "ST", "x": 40, "y": 15}, {"pos": "ST", "x": 60, "y": 15},
+    ]},
+    {"key": "4-4-2-diamond", "label": "٤-٤-٢ (الماس)", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LB", "x": 15, "y": 70}, {"pos": "CB", "x": 36, "y": 72},
+        {"pos": "CB", "x": 64, "y": 72}, {"pos": "RB", "x": 85, "y": 70},
+        {"pos": "CDM", "x": 50, "y": 60}, {"pos": "CM", "x": 32, "y": 44},
+        {"pos": "CM", "x": 68, "y": 44}, {"pos": "CAM", "x": 50, "y": 28},
+        {"pos": "ST", "x": 40, "y": 14}, {"pos": "ST", "x": 60, "y": 14},
+    ]},
+    {"key": "4-4-1-1", "label": "٤-٤-١-١", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LB", "x": 15, "y": 70}, {"pos": "CB", "x": 36, "y": 72},
+        {"pos": "CB", "x": 64, "y": 72}, {"pos": "RB", "x": 85, "y": 70},
+        {"pos": "LM", "x": 13, "y": 48}, {"pos": "CM", "x": 38, "y": 48},
+        {"pos": "CM", "x": 62, "y": 48}, {"pos": "RM", "x": 87, "y": 48},
+        {"pos": "CAM", "x": 50, "y": 30}, {"pos": "ST", "x": 50, "y": 13},
+    ]},
+    {"key": "4-1-3-2", "label": "٤-١-٣-٢", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LB", "x": 15, "y": 70}, {"pos": "CB", "x": 36, "y": 72},
+        {"pos": "CB", "x": 64, "y": 72}, {"pos": "RB", "x": 85, "y": 70},
+        {"pos": "CDM", "x": 50, "y": 58},
+        {"pos": "LM", "x": 13, "y": 36}, {"pos": "CAM", "x": 50, "y": 34},
+        {"pos": "RM", "x": 87, "y": 36},
+        {"pos": "ST", "x": 40, "y": 14}, {"pos": "ST", "x": 60, "y": 14},
+    ]},
+    {"key": "4-2-3-1", "label": "٤-٢-٣-١", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LB", "x": 15, "y": 70}, {"pos": "CB", "x": 36, "y": 72},
+        {"pos": "CB", "x": 64, "y": 72}, {"pos": "RB", "x": 85, "y": 70},
+        {"pos": "CDM", "x": 36, "y": 58}, {"pos": "CDM", "x": 64, "y": 58},
+        {"pos": "LM", "x": 14, "y": 32}, {"pos": "CAM", "x": 50, "y": 30},
+        {"pos": "RM", "x": 86, "y": 32}, {"pos": "ST", "x": 50, "y": 13},
+    ]},
+    {"key": "4-2-3-1-wide", "label": "٤-٢-٣-١ (أجنحة عريضة)", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LB", "x": 15, "y": 70}, {"pos": "CB", "x": 36, "y": 72},
+        {"pos": "CB", "x": 64, "y": 72}, {"pos": "RB", "x": 85, "y": 70},
+        {"pos": "CDM", "x": 36, "y": 58}, {"pos": "CDM", "x": 64, "y": 58},
+        {"pos": "LW", "x": 10, "y": 30}, {"pos": "CAM", "x": 50, "y": 32},
+        {"pos": "RW", "x": 90, "y": 30}, {"pos": "ST", "x": 50, "y": 13},
+    ]},
+    {"key": "4-3-3", "label": "٤-٣-٣ متوازنة", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LB", "x": 15, "y": 70}, {"pos": "CB", "x": 36, "y": 72},
+        {"pos": "CB", "x": 64, "y": 72}, {"pos": "RB", "x": 85, "y": 70},
+        {"pos": "CM", "x": 30, "y": 46}, {"pos": "CM", "x": 50, "y": 44},
+        {"pos": "CM", "x": 70, "y": 46},
+        {"pos": "LW", "x": 12, "y": 18}, {"pos": "ST", "x": 50, "y": 14},
+        {"pos": "RW", "x": 88, "y": 18},
+    ]},
+    {"key": "4-3-3-holding", "label": "٤-٣-٣ (ضابط اللعب)", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LB", "x": 15, "y": 70}, {"pos": "CB", "x": 36, "y": 72},
+        {"pos": "CB", "x": 64, "y": 72}, {"pos": "RB", "x": 85, "y": 70},
+        {"pos": "CDM", "x": 50, "y": 54}, {"pos": "CM", "x": 30, "y": 44},
+        {"pos": "CM", "x": 70, "y": 44},
+        {"pos": "LW", "x": 12, "y": 18}, {"pos": "ST", "x": 50, "y": 14},
+        {"pos": "RW", "x": 88, "y": 18},
+    ]},
+    {"key": "4-3-3-attack", "label": "٤-٣-٣ هجومية", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LB", "x": 15, "y": 70}, {"pos": "CB", "x": 36, "y": 72},
+        {"pos": "CB", "x": 64, "y": 72}, {"pos": "RB", "x": 85, "y": 70},
+        {"pos": "CM", "x": 30, "y": 46}, {"pos": "CM", "x": 70, "y": 46},
+        {"pos": "CAM", "x": 50, "y": 36},
+        {"pos": "LW", "x": 12, "y": 18}, {"pos": "ST", "x": 50, "y": 14},
+        {"pos": "RW", "x": 88, "y": 18},
+    ]},
+    {"key": "4-1-4-1", "label": "٤-١-٤-١", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LB", "x": 15, "y": 70}, {"pos": "CB", "x": 36, "y": 72},
+        {"pos": "CB", "x": 64, "y": 72}, {"pos": "RB", "x": 85, "y": 70},
+        {"pos": "CDM", "x": 50, "y": 58},
+        {"pos": "LM", "x": 13, "y": 40}, {"pos": "CM", "x": 38, "y": 42},
+        {"pos": "CM", "x": 62, "y": 42}, {"pos": "RM", "x": 87, "y": 40},
+        {"pos": "ST", "x": 50, "y": 14},
+    ]},
+    {"key": "4-5-1", "label": "٤-٥-١ أوسع", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LB", "x": 15, "y": 70}, {"pos": "CB", "x": 36, "y": 72},
+        {"pos": "CB", "x": 64, "y": 72}, {"pos": "RB", "x": 85, "y": 70},
+        {"pos": "LM", "x": 13, "y": 47}, {"pos": "CM", "x": 32, "y": 47},
+        {"pos": "CM", "x": 50, "y": 45}, {"pos": "CM", "x": 68, "y": 47},
+        {"pos": "RM", "x": 87, "y": 47}, {"pos": "ST", "x": 50, "y": 14},
+    ]},
+    {"key": "4-2-2-2", "label": "٤-٢-٢-٢ (صندوق)", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LB", "x": 15, "y": 70}, {"pos": "CB", "x": 36, "y": 72},
+        {"pos": "CB", "x": 64, "y": 72}, {"pos": "RB", "x": 85, "y": 70},
+        {"pos": "CDM", "x": 36, "y": 58}, {"pos": "CDM", "x": 64, "y": 58},
+        {"pos": "CAM", "x": 36, "y": 36}, {"pos": "CAM", "x": 64, "y": 36},
+        {"pos": "ST", "x": 40, "y": 15}, {"pos": "ST", "x": 60, "y": 15},
+    ]},
+    {"key": "4-3-1-2", "label": "٤-٣-١-٢", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LB", "x": 15, "y": 70}, {"pos": "CB", "x": 36, "y": 72},
+        {"pos": "CB", "x": 64, "y": 72}, {"pos": "RB", "x": 85, "y": 70},
+        {"pos": "CM", "x": 28, "y": 46}, {"pos": "CM", "x": 50, "y": 50},
+        {"pos": "CM", "x": 72, "y": 46}, {"pos": "CAM", "x": 50, "y": 30},
+        {"pos": "ST", "x": 40, "y": 14}, {"pos": "ST", "x": 60, "y": 14},
+    ]},
+    {"key": "4-3-2-1", "label": "٤-٣-٢-١ (شجرة عيد الميلاد)", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LB", "x": 15, "y": 70}, {"pos": "CB", "x": 36, "y": 72},
+        {"pos": "CB", "x": 64, "y": 72}, {"pos": "RB", "x": 85, "y": 70},
+        {"pos": "CM", "x": 30, "y": 50}, {"pos": "CM", "x": 50, "y": 54},
+        {"pos": "CM", "x": 70, "y": 50}, {"pos": "CAM", "x": 36, "y": 32},
+        {"pos": "CAM", "x": 64, "y": 32}, {"pos": "ST", "x": 50, "y": 13},
+    ]},
+    {"key": "4-2-4", "label": "٤-٢-٤", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LB", "x": 15, "y": 70}, {"pos": "CB", "x": 36, "y": 72},
+        {"pos": "CB", "x": 64, "y": 72}, {"pos": "RB", "x": 85, "y": 70},
+        {"pos": "CDM", "x": 36, "y": 58}, {"pos": "CDM", "x": 64, "y": 58},
+        {"pos": "LW", "x": 12, "y": 16}, {"pos": "ST", "x": 38, "y": 14},
+        {"pos": "ST", "x": 62, "y": 14}, {"pos": "RW", "x": 88, "y": 16},
+    ]},
+    {"key": "4-6-0", "label": "٤-٦-٠ (رقم تسع كاذب)", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LB", "x": 15, "y": 70}, {"pos": "CB", "x": 36, "y": 72},
+        {"pos": "CB", "x": 64, "y": 72}, {"pos": "RB", "x": 85, "y": 70},
+        {"pos": "CDM", "x": 36, "y": 60}, {"pos": "CDM", "x": 64, "y": 60},
+        {"pos": "LM", "x": 12, "y": 38}, {"pos": "CM", "x": 36, "y": 42},
+        {"pos": "CAM", "x": 50, "y": 30}, {"pos": "RM", "x": 88, "y": 38},
+    ]},
+    # --- الدفاع الخماسي ---
+    {"key": "5-3-2", "label": "٥-٣-٢", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LWB", "x": 6, "y": 60}, {"pos": "CB", "x": 28, "y": 76},
+        {"pos": "CB", "x": 50, "y": 78}, {"pos": "CB", "x": 72, "y": 76},
+        {"pos": "RWB", "x": 94, "y": 60},
+        {"pos": "CM", "x": 30, "y": 46}, {"pos": "CM", "x": 50, "y": 42},
+        {"pos": "CM", "x": 70, "y": 46},
+        {"pos": "ST", "x": 38, "y": 14}, {"pos": "ST", "x": 62, "y": 14},
+    ]},
+    {"key": "5-4-1", "label": "٥-٤-١", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LWB", "x": 6, "y": 60}, {"pos": "CB", "x": 28, "y": 76},
+        {"pos": "CB", "x": 50, "y": 78}, {"pos": "CB", "x": 72, "y": 76},
+        {"pos": "RWB", "x": 94, "y": 60},
+        {"pos": "LM", "x": 14, "y": 44}, {"pos": "CM", "x": 38, "y": 46},
+        {"pos": "CM", "x": 62, "y": 46}, {"pos": "RM", "x": 86, "y": 44},
+        {"pos": "ST", "x": 50, "y": 14},
+    ]},
+    {"key": "5-2-1-2", "label": "٥-٢-١-٢", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LWB", "x": 6, "y": 60}, {"pos": "CB", "x": 28, "y": 76},
+        {"pos": "CB", "x": 50, "y": 78}, {"pos": "CB", "x": 72, "y": 76},
+        {"pos": "RWB", "x": 94, "y": 60},
+        {"pos": "CM", "x": 36, "y": 50}, {"pos": "CM", "x": 64, "y": 50},
+        {"pos": "CAM", "x": 50, "y": 28},
+        {"pos": "ST", "x": 40, "y": 13}, {"pos": "ST", "x": 60, "y": 13},
+    ]},
+    {"key": "5-2-3", "label": "٥-٢-٣", "slots": [
+        {"pos": "GK", "x": 50, "y": 88},
+        {"pos": "LWB", "x": 6, "y": 60}, {"pos": "CB", "x": 28, "y": 76},
+        {"pos": "CB", "x": 50, "y": 78}, {"pos": "CB", "x": 72, "y": 76},
+        {"pos": "RWB", "x": 94, "y": 60},
+        {"pos": "CM", "x": 36, "y": 52}, {"pos": "CM", "x": 64, "y": 52},
+        {"pos": "LW", "x": 14, "y": 18}, {"pos": "ST", "x": 50, "y": 14},
+        {"pos": "RW", "x": 86, "y": 18},
+    ]},
+]
+
+# --- "Fill by ability" (combining preset slots with the best squad) ------
+ABILITY_FILL_EXACT_WEIGHT = 1.0   # exact detailed-position match (e.g. ST in a ST slot)
+ABILITY_FILL_GROUP_WEIGHT = 0.7   # same positional band (e.g. CM in a CAM slot)
+ABILITY_FILL_ANY_WEIGHT = 0.2     # out of position (never GK ↔ outfield)
+ABILITY_FILL_FITNESS_WEIGHT = 0.6  # ability scales by match readiness
+FORMATION_SLOT_DROP_RADIUS = 15   # pitch-% max distance for snapping a drop to a slot
+
 TACTICAL_FAMILIARITY_START = 100
 TACTICAL_FAMILIARITY_LOSS = 20
 TACTICAL_FAMILIARITY_GAIN = 10

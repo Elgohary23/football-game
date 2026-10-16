@@ -920,3 +920,76 @@ class TestSeasonEndInteraction:
         assert "بدأ الموسم الجديد" in body
         assert f"الموسم: {season0 + 1}" in body
         assert "E2E Home FC" in body  # club still rendered from the new-season DB
+
+
+class TestFormationPresetSlots:
+    """Pre-defined formations spread empty slots + by-ability filling."""
+
+    BASELINE_IDS = [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
+    def _accept_all_dialogs(self, page):
+        def _accept(dialog):
+            dialog.accept()
+
+        page.on("dialog", _accept)
+        return _accept
+
+    def _restore_baseline_xi(self, browser_page):
+        """Impact-minimising restore of the coordinate-less XI used by the
+        earlier TestFormationSaveInteraction / TestFormationDragDrop flows."""
+        return browser_page.evaluate(
+            """async (ids) => {
+                const csrf = document.getElementById('csrfToken').value;
+                const pos = {};
+                ids.forEach(i => { pos[i] = {}; });
+                const r = await fetch('/formation/save', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json',
+                              'X-CSRFToken': csrf},
+                    body: JSON.stringify({positions: pos})
+                });
+                return r.status;
+            }""", self.BASELINE_IDS)
+
+    def test_preset_spreads_empty_slots(self, browser_page):
+        browser_page.goto(BASE_URL + "/formation")
+        h = self._accept_all_dialogs(browser_page)
+        browser_page.select_option("#formationLayout", "4-3-3")
+        # The chosen formation spreads 11 dashed empty slots on the pitch.
+        expect(browser_page.locator("#pitch-grid .pitch-slot")).to_have_count(11)
+        assert browser_page.locator("#pitch-grid .pitch-box").count() == 0
+        expect(browser_page.locator("#formationCount")).to_contain_text("0/11")
+        browser_page.remove_listener("dialog", h)
+
+    def test_ability_fill_populates_all_slots(self, browser_page):
+        browser_page.goto(BASE_URL + "/formation")
+        h = self._accept_all_dialogs(browser_page)
+        browser_page.select_option("#formationLayout", "4-3-3")
+        browser_page.locator("#fillByAbilityBtn").click()
+        browser_page.wait_for_function(
+            "() => document.querySelectorAll('#pitch-grid .pitch-box').length === 11",
+            timeout=15000)
+        browser_page.remove_listener("dialog", h)
+        expect(browser_page.locator("#formationCount")).to_contain_text("11/11")
+        assert browser_page.locator("#pitch-grid .pitch-slot").count() == 0
+        assert browser_page.locator("#saveFormationBtn").is_enabled()
+        self._restore_baseline_xi(browser_page)
+
+    def test_layout_persists_after_save_reload(self, browser_page):
+        browser_page.goto(BASE_URL + "/formation")
+        h = self._accept_all_dialogs(browser_page)
+        browser_page.select_option("#formationLayout", "5-2-3")
+        browser_page.locator("#fillByAbilityBtn").click()
+        browser_page.wait_for_function(
+            "() => document.querySelectorAll('#pitch-grid .pitch-box').length === 11",
+            timeout=15000)
+        with browser_page.expect_navigation():
+            browser_page.locator("#saveFormationBtn").click()
+        browser_page.remove_listener("dialog", h)
+        # After reload the layout key is restored from formation_data.
+        value = browser_page.eval_on_selector(
+            "#formationLayout", "el => el.value")
+        assert value == "5-2-3"
+        expect(browser_page.locator("#pitch-grid .pitch-box")).to_have_count(11)
+        expect(browser_page.locator("#pitch-grid .pitch-slot")).to_have_count(0)
+        self._restore_baseline_xi(browser_page)

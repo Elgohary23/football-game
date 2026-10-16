@@ -7,7 +7,9 @@ from flask import Blueprint, flash, jsonify, redirect, render_template, request
 bp = Blueprint("team", __name__)
 
 from config import (
+    FORMATION_LAYOUT_KEY,
     MAX_FACILITY_LEVEL,
+    PRESET_FORMATIONS,
     PRESET_TYPES,
     TRAINING_COST_PER_LEVEL,
     YOUTH_COST_PER_LEVEL,
@@ -15,6 +17,7 @@ from config import (
 from models import db, Player, PlayerRating, ScoutReport, Staff, Team, TacticPreset
 from services import (
     apply_formation,
+    assign_players_to_slots,
     assign_scout_to_region,
     calculate_team_tier,
     fire_staff_member,
@@ -166,6 +169,7 @@ def formation():
                 "detailed_position": p.detailed_position or p.position,
                 "attack": p.attack,
                 "defense": p.defense,
+                "overall": p.overall,
                 "injury_days": p.injury_days,
                 "fitness": p.fitness,
                 "is_starting": p.is_starting,
@@ -184,6 +188,7 @@ def formation():
         player_team=player_team,
         players=players_data,
         formation_data=json.dumps(formation_data),
+        formations=PRESET_FORMATIONS,
         presets=presets,
     )
 
@@ -197,20 +202,21 @@ def save_formation():
     if not data or "positions" not in data:
         return jsonify({"error": "بيانات غير صالحة"}), 400
 
-    ok, error = validate_formation(player_team, data["positions"])
+    positions = data.get("positions") or {}
+    ok, error = validate_formation(player_team, positions)
     if not ok:
         return jsonify({"error": error}), 400
 
     # Hard rules engine on the candidate XI (foreign cap/suspensions/etc.).
     try:
         from rules_engine import validate_starting_xi as _valid_xi
-        if len(data["positions"] or {}) == 11:
-            ids = set()
-            for k in (data["positions"] or {}).keys():
-                try:
-                    ids.add(int(k))
-                except Exception:
-                    pass
+        ids = set()
+        for k in (positions or {}).keys():
+            try:
+                ids.add(int(k))
+            except Exception:
+                pass  # FORMATION_LAYOUT_KEY and similar reserved keys stay out
+        if len(ids) == 11:
             prev = {p.id: p.is_starting for p in player_team.players}
             for p in player_team.players:
                 p.is_starting = p.id in ids
@@ -222,7 +228,7 @@ def save_formation():
     except Exception:
         pass
 
-    apply_formation(player_team, data["positions"])
+    apply_formation(player_team, positions)
 
     try:
         db.session.commit()
@@ -1174,18 +1180,71 @@ def buyback_exercise(player_id):
     return redirect("/scouting")
 
 
+@bp.route("/formation/ability-fill", methods=["POST"])
+def formation_ability_fill():
+    """Spread by ability: fill the chosen preset layout's empty slots.
+
+    Returns assignments only — nothing is persisted — so the manager reviews
+    the staged XI on the pitch and confirms with 'حفظ التشكيلة' like any
+    manual drag. Empty slots stay empty when no compatible (non-injured)
+    player remains; goalkeepers never fill outfield slots and vice versa.
+    """
+    player_team = safe_player_team()
+    data = request.get_json(silent=True) or {}
+    layout_key = (data.get("layout") or "").strip()
+    fmt = next((f for f in PRESET_FORMATIONS if f["key"] == layout_key), None)
+    if fmt is None:
+        return jsonify({"success": False, "error": "خطة جاهزة غير معروفة!"}), 400
+
+    exclude_ids = []
+    for raw in (data.get("exclude_ids") or []):
+        try:
+            exclude_ids.append(int(raw))
+        except (TypeError, ValueError):
+            pass
+
+    assignments, unfilled = assign_players_to_slots(
+        player_team.players, fmt["slots"], exclude_ids=exclude_ids
+    )
+    return jsonify({
+        "success": True,
+        "layout": fmt["key"],
+        "label": fmt["label"],
+        "assignments": assignments,
+        "unfilled": unfilled,
+    })
+
+
 @bp.route("/formation/auto-pick", methods=["POST"])
 def formation_auto_pick():
-    """Auto-pick button (rules engine): best rules-compliant XI + bench."""
+    """Auto-pick button (rules engine): best rules-compliant XI + bench.
+
+    With a body {"layout": "<preset key>"} the XI is also distributed across
+    that layout's slots by ability, so the saved pitch keeps coordinates and
+    the layout key. Without it the legacy coordinate-less behaviour runs.
+    """
     from rules_engine import auto_pick_xi
-    from services import apply_formation
 
     player_team = safe_player_team()
+    data = request.get_json(silent=True) or {}
+    layout = next(
+        (f for f in PRESET_FORMATIONS if f["key"] == (data.get("layout") or "")),
+        None,
+    )
+
     pick = auto_pick_xi(player_team, "league")
     starters = pick.get("starters") or []
     if len(starters) != 11:
         return jsonify({"success": False, "message": "لا يوجد 11 لاعباً مؤهلاً!"}), 400
-    apply_formation(player_team, {str(p.id): {} for p in starters})
+
+    if layout:
+        placed, _unfilled = assign_players_to_slots(starters, layout["slots"])
+        positions = {FORMATION_LAYOUT_KEY: layout["key"]}
+        for a in placed:
+            positions[str(a["player_id"])] = {"x": a["x"], "y": a["y"]}
+    else:
+        positions = {str(p.id): {} for p in starters}
+    apply_formation(player_team, positions)
     try:
         db.session.commit()
     except Exception:

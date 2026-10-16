@@ -107,6 +107,22 @@
     </div>
 
     <div class="card" id="pitch-container">
+        <div class="pitch-toolbar">
+            <label for="formationLayout"><i class="fas fa-chess-board"></i> الخطة الجاهزة:</label>
+            <select id="formationLayout" class="filter-input">
+                <option value="">— حر (بدون خطة) —</option>
+                {% for prefix, gname in [('3-', 'الدفاع الثلاثي'), ('4-', 'الدفاع الرباعي'), ('5-', 'الدفاع الخماسي')] %}
+                <optgroup label="{{ gname }}">
+                    {% for f in formations if f.key.startswith(prefix) %}
+                    <option value="{{ f.key }}">{{ f.label }}</option>
+                    {% endfor %}
+                </optgroup>
+                {% endfor %}
+            </select>
+            <button class="btn btn-secondary btn-sm" id="fillByAbilityBtn" type="button">
+                <i class="fas fa-wand-magic-sparkles"></i> تعبئة بالقدرة
+            </button>
+        </div>
         <div id="pitch" class="free-pitch">
             <div class="bench-area">
                 <h4><i class="fas fa-chair"></i> دكة الاحتياط</h4>
@@ -123,7 +139,10 @@
     </div>
 
     <p style="color:#777;font-size:0.8rem;margin-top:1rem;text-align:center;">
-        <i class="fas fa-info-circle"></i> اسحب اللاعبين وأفلتهم في أي مكان على الملعب بحرية تامة. يمكنك السحب من دكة الاحتياط أو من قائمة اللاعبين.
+        <i class="fas fa-info-circle"></i>
+        اختر خطة جاهزة لانتشار مراكزها فارغة على الملعب، ثم اسحب اللاعبين إليها أو اضغط على أي لاعب لتعبئة أول مركز متاح له.
+        زر «تعبئة بالقدرة» يملأ المراكز الشاغرة بأفضل اللاعبين المتاحين حسب قدرتهم ولياقتهم.
+        في الوضع الحر يمكنك السحب والإفلات في أي مكان بحرية تامة.
     </p>
 </section>
 
@@ -213,6 +232,50 @@
 .pitch-box .pb-name { font-size: 0.75rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }
 .pitch-box .pb-pos { font-size: 0.65rem; color: #aaa; }
 .pitch-box.dragover { outline: 2px dashed #fff; outline-offset: 2px; }
+/* Pre-defined formation slots (empty until a player is dropped in) */
+.pitch-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.7rem;
+}
+.pitch-toolbar label { color: #ccc; font-size: 0.85rem; white-space: nowrap; }
+.pitch-toolbar select#formationLayout { max-width: 240px; }
+.pitch-slot {
+    position: absolute;
+    width: 75px;
+    height: 55px;
+    background: rgba(255,255,255,0.05);
+    border: 2px dashed rgba(255,255,255,0.55);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    font-size: 0.7rem;
+    font-weight: bold;
+    color: #f0f0f0;
+    z-index: 5;
+    transform: translate(-50%, -50%);
+    transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.15s ease;
+    user-select: none;
+    touch-action: none;
+}
+.pitch-slot .sb-hint { font-size: 0.55rem; color: #9aa; font-weight: normal; }
+.pitch-slot:hover { background: rgba(255,255,255,0.12); }
+.pitch-slot.dragover {
+    background: rgba(255,255,255,0.22);
+    box-shadow: 0 0 14px rgba(255,255,255,0.45);
+}
+.pitch-slot.GK { border-color: rgba(255,152,0,0.85); }
+.pitch-slot.DEF { border-color: rgba(52,152,219,0.9); }
+.pitch-slot.MID { border-color: rgba(46,204,113,0.9); }
+.pitch-slot.FWD { border-color: rgba(233,69,96,0.9); }
+@media (max-width: 600px) {
+    .pitch-slot { width: 30px !important; height: 30px !important; font-size: 0.5rem !important; }
+}
 .bench-player {
     padding: 0.4rem 0.7rem;
     background: rgba(20,20,40,0.6);
@@ -267,44 +330,69 @@
 document.addEventListener('DOMContentLoaded', function() {
     const players = {{ players|tojson }};
     const formationData = {{ formation_data|safe }};
+    const PRESET_FORMATIONS = {{ formations|tojson }};
+    const LAYOUT_KEY = '__layout__';   // reserved formation_data key (not a player)
+    const DROP_RADIUS = 15;            // pitch-% snap distance to a slot
     const csrfToken = document.getElementById('csrfToken').value;
 
     const pitchGrid = document.getElementById('pitch-grid');
     const bench = document.getElementById('bench');
     const playerPool = document.getElementById('playerPool');
     const countSpan = document.getElementById('formationCount');
+    const layoutSelect = document.getElementById('formationLayout');
 
-    let positions = {};
+    let slots = [];           // empty slot defs of the chosen preset formation
+    let activeLayoutKey = ''; // persisted into formation_data on save
+    let positions = {};       // "playerId" -> {x, y}
     let placedIds = new Set();
 
-    // Load saved formation or default positions
-    if (formationData && Object.keys(formationData).length > 0) {
+    // Restore saved layout key + placements
+    if (formationData && typeof formationData === 'object') {
+        activeLayoutKey = formationData[LAYOUT_KEY] || '';
         Object.keys(formationData).forEach(pid => {
+            if (pid === LAYOUT_KEY) return;
             const pos = formationData[pid];
             const pl = players.find(p => p.id === parseInt(pid));
-            if (pl) {
-                positions[pid] = pos;
-                placedIds.add(parseInt(pid));
-            }
+            if (pl) { positions[pid] = pos; placedIds.add(parseInt(pid)); }
         });
     }
-
-    // Initial population of player pool
-    players.forEach(p => {
-        if (!placedIds.has(p.id)) {
-            const el = createPoolPlayer(p);
-            playerPool.appendChild(el);
+    if (activeLayoutKey) {
+        const saved = presetByKey(activeLayoutKey);
+        if (saved) {
+            slots = saved.slots.slice();
+            layoutSelect.value = activeLayoutKey;
+        } else {
+            activeLayoutKey = '';
         }
-    });
+    }
 
-    // Populate bench and pitch from saved positions
-    renderAll();
+    function presetByKey(key) {
+        return PRESET_FORMATIONS.find(f => f.key === key) || null;
+    }
+
+    const DETAIL_TO_COARSE = {
+        GK: 'GK', DEF: 'DEF', MID: 'MID', FWD: 'FWD',
+        CB: 'DEF', LB: 'DEF', RB: 'DEF', LWB: 'DEF', RWB: 'DEF',
+        CDM: 'MID', CM: 'MID', CAM: 'MID', LM: 'MID', RM: 'MID',
+        LW: 'FWD', RW: 'FWD', CF: 'FWD', ST: 'FWD'
+    };
+    function coarseOf(pos) { return DETAIL_TO_COARSE[pos] || pos; }
+    // Mirrors services.slot_compatibility: exact detail > same band > out.
+    function slotCompat(player, slotPos) {
+        const det = (player.detailed_position || player.position || '').toUpperCase();
+        if (det === slotPos) return 1.0;
+        const cp = coarseOf(det), cs = coarseOf(slotPos);
+        if (cp === 'GK' || cs === 'GK') return 0.0;
+        if (cp === cs) return 0.7;
+        return 0.2;
+    }
 
     function createPoolPlayer(player) {
         const div = document.createElement('div');
         div.className = 'pool-player';
         div.draggable = true;
         div.dataset.id = player.id;
+        div.title = 'اضغط لتعبئة أول مركز متاح، أو اسحب إلى المركز الذي تريده';
         div.innerHTML = `<span class="pos-tag ${player.position}">${player.detailed_position || player.position}</span> ${player.name}`;
         div.addEventListener('dragstart', (e) => {
             e.dataTransfer.setData('text/plain', player.id.toString());
@@ -313,6 +401,8 @@ document.addEventListener('DOMContentLoaded', function() {
         div.addEventListener('dragend', () => {
             div.classList.remove('dragging');
         });
+        // Click = place into the first empty slot he fits (layout mode only)
+        div.addEventListener('click', () => tryPlaceFromPool(player));
         return div;
     }
 
@@ -321,6 +411,7 @@ document.addEventListener('DOMContentLoaded', function() {
         div.className = 'bench-player';
         div.draggable = true;
         div.dataset.id = player.id;
+        div.title = 'اضغط لتعبئة أول مركز متاح، أو اسحب إلى المركز الذي تريده';
         div.innerHTML = `<span class="pos-tag ${player.position}">${player.detailed_position || player.position}</span> ${player.name}`;
         div.addEventListener('dragstart', (e) => {
             e.dataTransfer.setData('text/plain', player.id.toString());
@@ -329,6 +420,7 @@ document.addEventListener('DOMContentLoaded', function() {
         div.addEventListener('dragend', () => {
             div.classList.remove('dragging');
         });
+        div.addEventListener('click', () => tryPlaceFromPool(player));
         return div;
     }
 
@@ -359,6 +451,26 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         return box;
+    }
+
+    function createSlotBox(slot) {
+        const div = document.createElement('div');
+        div.className = 'pitch-slot ' + coarseOf(slot.pos);
+        div.innerHTML = `<span class="pb-pos">${slot.pos}</span><span class="sb-hint">فارغ</span>`;
+        div.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            div.classList.add('dragover');
+        });
+        div.addEventListener('dragleave', () => div.classList.remove('dragover'));
+        div.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            div.classList.remove('dragover');
+            const playerId = parseInt(e.dataTransfer.getData('text/plain'));
+            if (!isNaN(playerId)) placePlayerAt(playerId, slots.indexOf(slot));
+        });
+        return div;
     }
 
     function roleOptions(selected) {
@@ -396,13 +508,70 @@ document.addEventListener('DOMContentLoaded', function() {
         }).catch(function() {});
     });
 
+    function findSlotForPlayer(pid) {
+        const pos = positions[pid];
+        if (!pos) return -1;
+        return slots.findIndex(s => s.x === pos.x && s.y === pos.y);
+    }
+
+    function slotOwner(idx) {
+        const target = slots[idx];
+        if (!target) return null;
+        for (const pid of Object.keys(positions)) {
+            if (positions[pid].x === target.x && positions[pid].y === target.y) return pid;
+        }
+        return null;
+    }
+
+    function placePlayerAt(playerId, slotIdx) {
+        // Slot drop: empty → place; occupied → swap (or bench the occupant
+        // when the newcomer comes from the pool/bench).
+        const pid = playerId.toString();
+        const slot = slots[slotIdx];
+        if (!slot) return;
+        if (findSlotForPlayer(pid) === slotIdx) return;
+        const ownerPid = slotOwner(slotIdx);
+        if (ownerPid) {
+            const fromIdx = findSlotForPlayer(pid);
+            if (fromIdx >= 0) {
+                positions[ownerPid] = { x: slots[fromIdx].x, y: slots[fromIdx].y };
+            } else {
+                delete positions[ownerPid];
+            }
+        }
+        positions[pid] = { x: slot.x, y: slot.y };
+        renderAll();
+    }
+
+    // Click on a pool/bench player (layout mode): first empty slot he fits.
+    function tryPlaceFromPool(player) {
+        if (!slots.length) return;             // free mode: drag only
+        if (placedIds.has(player.id)) return;  // already staged on the pitch
+        const used = new Set(Object.keys(positions).map(pid => findSlotForPlayer(pid)));
+        let target = -1;
+        for (let i = 0; i < slots.length; i++) {
+            if (used.has(i)) continue;
+            if (target === -1) target = i;
+            if (slotCompat(player, slots[i].pos) > 0) { target = i; break; }
+        }
+        if (target === -1) { alert('لا توجد مراكز شاغرة في الملعب!'); return; }
+        placePlayerAt(player.id, target);
+    }
+
     function removeFromPitch(playerId) {
         const pid = playerId.toString();
         const player = players.find(p => p.id === playerId);
         if (!player) return;
         delete positions[pid];
-        placedIds.delete(playerId);
         renderAll();
+    }
+
+    function appendBox(pl, pos) {
+        placedIds.add(pl.id);
+        const box = createPitchBox(pl);
+        box.style.left = (pos.x * pitchGrid.clientWidth / 100) + 'px';
+        box.style.top = (pos.y * pitchGrid.clientHeight / 100) + 'px';
+        pitchGrid.appendChild(box);
     }
 
     function renderAll() {
@@ -411,36 +580,37 @@ document.addEventListener('DOMContentLoaded', function() {
         playerPool.innerHTML = '';
         placedIds.clear();
 
-        // Re-add all positioned players to pitch
-        Object.keys(positions).forEach(pid => {
-            const pl = players.find(p => p.id === parseInt(pid));
-            if (pl) {
-                placedIds.add(pl.id);
-                const box = createPitchBox(pl);
+        const slotKeys = slots.map(s => s.x + ':' + s.y);
+        if (slots.length) {
+            slots.forEach((slot, idx) => {
+                const ownerPid = slotOwner(idx);
+                const owner = ownerPid ? players.find(p => p.id === parseInt(ownerPid)) : null;
+                if (owner) {
+                    appendBox(owner, slot);
+                } else {
+                    pitchGrid.appendChild(createSlotBox(slot));
+                }
+            });
+            // Staged players whose coordinates fall outside this layout stay editable.
+            Object.keys(positions).forEach(pid => {
                 const pos = positions[pid];
-                const x = pos.x * pitchGrid.clientWidth / 100;
-                const y = pos.y * pitchGrid.clientHeight / 100;
-                box.style.left = x + 'px';
-                box.style.top = y + 'px';
-                pitchGrid.appendChild(box);
-            }
-        });
+                if (slotKeys.includes(pos.x + ':' + pos.y)) return;
+                const pl = players.find(p => p.id === parseInt(pid));
+                if (pl) appendBox(pl, pos);
+            });
+        } else {
+            Object.keys(positions).forEach(pid => {
+                const pl = players.find(p => p.id === parseInt(pid));
+                if (pl) appendBox(pl, positions[pid]);
+            });
+        }
 
-        // Fill bench with remaining players
+        // Fill bench and player pool with everyone not staged
         players.forEach(p => {
-            if (!placedIds.has(p.id)) {
-                const el = createBenchPlayer(p);
-                bench.appendChild(el);
-            }
+            if (!placedIds.has(p.id)) bench.appendChild(createBenchPlayer(p));
         });
-
-        // Rebuild the player pool (it was cleared above together with the
-        // pitch/bench). Without this the "اللاعبون" list stays empty and
-        // players can only be dragged from the bench.
         players.forEach(p => {
-            if (!placedIds.has(p.id)) {
-                playerPool.appendChild(createPoolPlayer(p));
-            }
+            if (!placedIds.has(p.id)) playerPool.appendChild(createPoolPlayer(p));
         });
 
         updateCount();
@@ -459,68 +629,108 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Drop handling
-    function setupDropTargets() {
-        pitchGrid.addEventListener('dragover', (e) => e.preventDefault());
-        pitchGrid.addEventListener('drop', (e) => {
-            e.preventDefault();
-            const playerId = parseInt(e.dataTransfer.getData('text/plain'));
-            if (isNaN(playerId)) return;
-
-            const player = players.find(p => p.id === playerId);
-            if (!player) return;
-
-            // Check if already on pitch
-            if (placedIds.has(playerId)) return;
-
-            const rect = pitchGrid.getBoundingClientRect();
-            let x = (e.clientX - rect.left) / rect.width * 100;
-            let y = (e.clientY - rect.top) / rect.height * 100;
-            x = Math.max(5, Math.min(95, x));
-            y = Math.max(5, Math.min(95, y));
-
-            positions[playerId.toString()] = { x: Math.round(x), y: Math.round(y) };
-            renderAll();
-        });
-
-        bench.addEventListener('dragover', (e) => e.preventDefault());
-        bench.addEventListener('drop', (e) => {
-            e.preventDefault();
-            const playerId = parseInt(e.dataTransfer.getData('text/plain'));
-            if (isNaN(playerId)) return;
-            removeFromPitch(playerId);
-        });
-
-        playerPool.addEventListener('dragover', (e) => e.preventDefault());
-        playerPool.addEventListener('drop', (e) => {
-            e.preventDefault();
-            const playerId = parseInt(e.dataTransfer.getData('text/plain'));
-            if (isNaN(playerId)) return;
-            removeFromPitch(playerId);
-        });
-    }
-
-    // Move existing pitch box to new location (drag within pitch)
+    // Single delegated pitch drop: slot-aware when a preset layout is
+    // active (snap to nearest slot; occupied → swap), free coordinates
+    // otherwise (original behaviour).
     pitchGrid.addEventListener('dragover', (e) => e.preventDefault());
-    pitchGrid.addEventListener('drop', (e) => {
+    pitchGrid.addEventListener('drop', function(e) {
         e.preventDefault();
         const playerId = parseInt(e.dataTransfer.getData('text/plain'));
         if (isNaN(playerId)) return;
+        const player = players.find(p => p.id === playerId);
+        if (!player) return;
 
-        // If player already on pitch, move them
-        const pid = playerId.toString();
-        if (positions[pid]) {
+        if (slots.length) {
             const rect = pitchGrid.getBoundingClientRect();
-            let x = (e.clientX - rect.left) / rect.width * 100;
-            let y = (e.clientY - rect.top) / rect.height * 100;
-            positions[pid] = { x: Math.max(5, Math.min(95, Math.round(x))), y: Math.max(5, Math.min(95, Math.round(y))) };
-            renderAll();
+            const x = (e.clientX - rect.left) / rect.width * 100;
+            const y = (e.clientY - rect.top) / rect.height * 100;
+            let best = -1, bestD = Infinity;
+            slots.forEach((s, i) => {
+                const d = Math.pow(s.x - x, 2) + Math.pow(s.y - y, 2);
+                if (d < bestD) { bestD = d; best = i; }
+            });
+            if (best >= 0 && bestD <= DROP_RADIUS * DROP_RADIUS &&
+                findSlotForPlayer(playerId) !== best) {
+                placePlayerAt(playerId, best);
+            }
+            return;
         }
+
+        // Free mode: place or reposition anywhere.
+        const rect = pitchGrid.getBoundingClientRect();
+        let x = Math.max(5, Math.min(95, (e.clientX - rect.left) / rect.width * 100));
+        let y = Math.max(5, Math.min(95, (e.clientY - rect.top) / rect.height * 100));
+        positions[playerId.toString()] = { x: Math.round(x), y: Math.round(y) };
+        renderAll();
     });
 
-    setupDropTargets();
+    bench.addEventListener('dragover', (e) => e.preventDefault());
+    bench.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const playerId = parseInt(e.dataTransfer.getData('text/plain'));
+        if (!isNaN(playerId)) removeFromPitch(playerId);
+    });
 
-    // Save formation
+    playerPool.addEventListener('dragover', (e) => e.preventDefault());
+    playerPool.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const playerId = parseInt(e.dataTransfer.getData('text/plain'));
+        if (!isNaN(playerId)) removeFromPitch(playerId);
+    });
+
+    // Layout select: spread the chosen preset's empty slots on the pitch.
+    layoutSelect.addEventListener('change', function() {
+        const fmt = presetByKey(layoutSelect.value);
+        if (Object.keys(positions).length > 0 &&
+            !confirm('اختيار خطة جديدة سيمسح التشكيلة الحالية من الملعب. هل تريد المتابعة؟')) {
+            layoutSelect.value = activeLayoutKey || '';
+            return;
+        }
+        activeLayoutKey = layoutSelect.value;
+        slots = fmt ? fmt.slots.slice() : [];
+        positions = {};
+        renderAll();
+    });
+
+    // Fill by ability: best available players into the empty slots (staged
+    // only — confirm with 'حفظ التشكيلة').
+    var fillBtn = document.getElementById('fillByAbilityBtn');
+    if (fillBtn) {
+        fillBtn.addEventListener('click', function() {
+            if (!slots.length) {
+                alert('اختر خطة جاهزة أولاً ليتم تعبئة مراكزها!');
+                return;
+            }
+            fillBtn.disabled = true;
+            fetch('/formation/ability-fill', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                body: JSON.stringify({
+                    layout: activeLayoutKey,
+                    exclude_ids: Object.keys(positions).map(Number)
+                })
+            })
+            .then(r => r.json())
+            .then(d => {
+                fillBtn.disabled = false;
+                if (!d.success) { alert(d.error || 'تعذر التعبئة'); return; }
+                d.assignments.forEach(a => {
+                    positions[a.player_id.toString()] = { x: a.x, y: a.y };
+                });
+                renderAll();
+                if (d.unfilled && d.unfilled.length) {
+                    alert('لم يتم ملء ' + d.unfilled.length +
+                          ' مركز — لا يوجد لاعبون مؤهلون متاحون (تحقق من الإصابات).');
+                }
+            })
+            .catch(() => {
+                fillBtn.disabled = false;
+                alert('خطأ في الاتصال بالخادم');
+            });
+        });
+    }
+
+    // Save formation (the active layout key rides along as "__layout__")
     document.getElementById('saveFormationBtn').addEventListener('click', function() {
         if (Object.keys(positions).length !== 11) {
             alert('يجب اختيار 11 لاعباً بالضبط في الملعب!');
@@ -534,13 +744,15 @@ document.addEventListener('DOMContentLoaded', function() {
             alert('يجب أن يكون هناك حارس مرمى (GK) واحد على الأقل في التشكيل الأساسي!');
             return;
         }
+        const payload = Object.assign({}, positions);
+        if (activeLayoutKey) payload[LAYOUT_KEY] = activeLayoutKey;
         fetch('/formation/save', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': csrfToken
             },
-            body: JSON.stringify({positions: positions})
+            body: JSON.stringify({positions: payload})
         })
         .then(r => r.json())
         .then(data => {
@@ -554,18 +766,23 @@ document.addEventListener('DOMContentLoaded', function() {
         .catch(err => alert('خطأ في الاتصال بالخادم'));
     });
 
-    // Reset
+    // Reset: empty the pitch (chosen slots stay spread while one is active)
     document.getElementById('resetFormationBtn').addEventListener('click', function() {
         positions = {};
-        placedIds.clear();
         renderAll();
     });
 
     // Auto-pick (rules engine): best rules-compliant XI, then reload.
+    // With a preset layout active, the XI is spread across its slots by ability.
     var autoBtn = document.getElementById('autoPickBtn');
     if (autoBtn) {
         autoBtn.addEventListener('click', function() {
-            fetch('/formation/auto-pick', {method: 'POST', headers: {'X-CSRFToken': csrfToken}})
+            const opts = {method: 'POST', headers: {'X-CSRFToken': csrfToken}};
+            if (activeLayoutKey) {
+                opts.headers['Content-Type'] = 'application/json';
+                opts.body = JSON.stringify({layout: activeLayoutKey});
+            }
+            fetch('/formation/auto-pick', opts)
             .then(r => r.json())
             .then(data => {
                 if (data.success) { location.reload(); }
@@ -577,16 +794,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Make pitch boxes draggable for repositioning
     pitchGrid.addEventListener('dragstart', (e) => {
-        if (e.target.classList.contains('pitch-box')) {
+        if (e.target.classList && e.target.classList.contains('pitch-box')) {
             e.dataTransfer.setData('text/plain', e.target.dataset.id);
             e.target.classList.add('dragging');
         }
     });
     pitchGrid.addEventListener('dragend', (e) => {
-        if (e.target.classList.contains('pitch-box')) {
+        if (e.target.classList && e.target.classList.contains('pitch-box')) {
             e.target.classList.remove('dragging');
         }
     });
+
+    // Initial render: restore saved placements (and preset slots), populate
+    // bench + pool, and set the count. Runs once when the page loads.
+    renderAll();
 });
 </script>
 {% endblock %}

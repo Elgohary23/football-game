@@ -1082,3 +1082,159 @@ class TestSquadRosterPositions:
         assert sum(1 for p in players if p.is_starting
                    and p.detailed_position == "GK") == 1
         assert len([p for p in players if p.is_starting]) == 11
+
+
+# ======================================================================
+# Pre-defined formations + by-ability slot fill
+# ======================================================================
+class TestPresetFormations:
+    def test_library_shape(self, ctx):
+        from config import PRESET_FORMATIONS
+
+        assert len(PRESET_FORMATIONS) >= 25
+        keys = [f["key"] for f in PRESET_FORMATIONS]
+        assert len(keys) == len(set(keys))
+        for f in PRESET_FORMATIONS:
+            assert len(f["slots"]) == 11, f["key"]
+            assert sum(1 for s in f["slots"] if s["pos"] == "GK") == 1, f["key"]
+            for s in f["slots"]:
+                assert 1 <= s["x"] <= 99 and 5 <= s["y"] <= 95, (f["key"], s)
+
+    def test_validate_formation_ignores_layout_key(self, ctx):
+        from config import FORMATION_LAYOUT_KEY
+        from services import validate_formation
+
+        team = _player_team()
+        gk = next(p for p in team.players if p.position == "GK")
+        ids = [gk.id] + [p.id for p in team.players if p.position != "GK"][:10]
+        payload = {FORMATION_LAYOUT_KEY: "4-4-2"}
+        payload.update({str(i): {} for i in ids})
+        ok, _ = validate_formation(team, payload)
+        assert ok is True
+        # Layout-only payload has no players at all → invalid.
+        ok, _ = validate_formation(team, {FORMATION_LAYOUT_KEY: "4-4-2"})
+        assert ok is False
+
+    def test_apply_formation_with_layout_syncs_players_only(self, ctx):
+        from config import FORMATION_LAYOUT_KEY
+        from services import apply_formation
+
+        team = _player_team()
+        ids = [p.id for p in team.players[:5]]
+        payload = {FORMATION_LAYOUT_KEY: "3-5-2"}
+        payload.update({str(i): {} for i in ids})
+        apply_formation(team, payload)
+        assert sum(1 for p in team.players if p.is_starting) == 5
+
+    def test_assign_players_to_slots_positions_and_gk(self, ctx):
+        from config import PRESET_FORMATIONS
+        from services import assign_players_to_slots
+
+        team = _player_team()
+        fmt = next(f for f in PRESET_FORMATIONS if f["key"] == "4-4-2")
+        assignments, unfilled = assign_players_to_slots(team.players, fmt["slots"])
+        assert unfilled == []
+        assert len(assignments) == 11
+        pids = [a["player_id"] for a in assignments]
+        assert len(set(pids)) == 11
+        gk_slot = next(a for a in assignments if a["pos"] == "GK")
+        player = next(p for p in team.players if p.id == gk_slot["player_id"])
+        assert player.position == "GK"
+
+    def test_assign_skips_injured_and_excluded(self, ctx):
+        from config import PRESET_FORMATIONS
+        from services import assign_players_to_slots
+
+        team = _player_team()
+        gks = [p for p in team.players if p.position == "GK"]
+        gks[0].injury_days = 5
+        db.session.commit()
+        fmt = next(f for f in PRESET_FORMATIONS if f["key"] == "4-4-2")
+        assignments, unfilled = assign_players_to_slots(
+            team.players, fmt["slots"], exclude_ids=[gks[1].id]
+        )
+        pids = {a["player_id"] for a in assignments}
+        assert gks[0].id not in pids      # injured keepers are never picked
+        assert gks[1].id not in pids      # excluded players are never picked
+        # No available goalkeeper → the GK slot stays empty and reported.
+        assert unfilled == [
+            i for i, s in enumerate(fmt["slots"]) if s["pos"] == "GK"
+        ]
+        # Exactly one outfield player per outfield slot.
+        assert len(assignments) == 10
+
+    def test_assign_never_puts_gk_outfield_or_outfield_in_gk(self, ctx):
+        from config import PRESET_FORMATIONS
+        from services import assign_players_to_slots
+
+        team = _player_team()
+        gk = next(p for p in team.players if p.position == "GK")
+        outfield = [p for p in team.players if p.position != "GK"]
+        fmt = next(f for f in PRESET_FORMATIONS if f["key"] == "4-3-3")
+        assignments, _unfilled = assign_players_to_slots(outfield, fmt["slots"])
+        pids = {a["player_id"] for a in assignments}
+        assert gk.id not in pids
+        gk_slot = next((a for a in assignments if a["pos"] == "GK"), None)
+        assert gk_slot is None  # outfield pool has no compatible candidate
+
+    def test_ability_fill_endpoint(self, client):
+        team = _player_team()
+        gk = next(p for p in team.players if p.position == "GK")
+        r = client.post(
+            "/formation/ability-fill",
+            json={"layout": "4-4-2", "exclude_ids": [gk.id]},
+        )
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body["success"] is True
+        assert body["layout"] == "4-4-2"
+        pids = {a["player_id"] for a in body["assignments"]}
+        assert gk.id not in pids
+
+    def test_ability_fill_endpoint_unknown_layout(self, client):
+        r = client.post("/formation/ability-fill", json={"layout": "0-0-0"})
+        assert r.status_code == 400
+        assert r.get_json()["success"] is False
+
+    def test_save_formation_with_layout(self, client):
+        from config import FORMATION_LAYOUT_KEY
+
+        team = _player_team()
+        gk = next(p for p in team.players if p.position == "GK")
+        ids = [gk.id] + [p.id for p in team.players if p.position != "GK"][:10]
+        payload = {FORMATION_LAYOUT_KEY: "4-3-3"}
+        payload.update({str(i): {"x": 50, "y": 50} for i in ids})
+        r = client.post("/formation/save", json={"positions": payload})
+        assert r.status_code == 200
+        assert r.get_json()["success"] is True
+        fd = _player_team().formation_data
+        assert fd[FORMATION_LAYOUT_KEY] == "4-3-3"
+        assert len([k for k in fd if k != FORMATION_LAYOUT_KEY]) == 11
+        assert sum(1 for p in team.players if p.is_starting) == 11
+
+    def test_save_formation_rejects_layout_only(self, client):
+        from config import FORMATION_LAYOUT_KEY
+
+        r = client.post(
+            "/formation/save",
+            json={"positions": {FORMATION_LAYOUT_KEY: "4-4-2"}},
+        )
+        assert r.status_code == 400
+
+    def test_auto_pick_with_layout_saves_slots(self, client):
+        from config import FORMATION_LAYOUT_KEY
+
+        r = client.post("/formation/auto-pick", json={"layout": "4-3-3"})
+        assert r.status_code == 200
+        team = _player_team()
+        fd = team.formation_data
+        assert fd[FORMATION_LAYOUT_KEY] == "4-3-3"
+        player_keys = [k for k in fd if k != FORMATION_LAYOUT_KEY]
+        assert len(player_keys) == 11
+        xs = [fd[k].get("x") for k in player_keys]
+        assert all(isinstance(x, (int, float)) for x in xs)
+        assert sum(1 for p in team.players if p.is_starting) == 11
+        gk = next(p for p in team.players if p.position == "GK")
+        assert gk.is_starting
+        gk_entry = fd[str(gk.id)]
+        assert gk_entry == {"x": 50, "y": 88}  # the GK slot coordinates

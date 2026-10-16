@@ -1,0 +1,34 @@
+You are a senior software engineer debugging a calendar/day-based simulation. I will provide my code below. It has two bugs:
+
+Bug 1: Simulation resets to the beginning
+An error occurs during the simulation, and when it happens, the simulation loses all progress and restarts from day 1.
+
+Bug 2: Days run too fast and pile up at the last day
+All days execute very quickly, then the simulation gets stuck at the last day performing an unusually large number of calculations.
+
+Your tasks
+Step 1 — Diagnose
+Analyze my code and identify the root cause of each bug. Specifically check for:
+
+State initialization (variables, lists, counters) placed INSIDE the main loop or INSIDE an except block, causing state to be wiped on every error/iteration.
+A retry/restart loop that calls a reset/re-init function inside except.
+Exception handlers that swallow the original error without logging it (no traceback), making the real failure invisible.
+Any inner while loop inside the per-day processing whose condition never becomes false (no counter increment, no list draining) → infinite loop stuck on one day.
+Event/schedule processing that uses >= (or similar) date comparison, causing all future events to fire at once instead of one per day.
+Days being advanced faster than intended with no time-based throttle.
+Step 2 — Fix
+Refactor the code following these rules:
+
+Separate initialization from stepping: all state setup happens ONCE (constructor or before the loop), never inside the day loop or except block.
+Use a step-per-day architecture: a step() method that processes exactly ONE day per call, with no nested unbounded loops.
+In exception handling: log the FULL original error with traceback (e.g., logging.exception(...) or traceback.print_exc()), then either skip that day safely or stop gracefully — NEVER reset the simulation state.
+Advance the day counter unconditionally after each step (guard against non-advancing loops), and mark the simulation as finished when the total number of days is reached.
+Process scheduled events so exactly the events for the CURRENT day run, not all pending ones at once.
+Add an optional time-based throttle (e.g., one day per N milliseconds) so day advancement speed is controllable.
+Step 3 — Deliver
+Provide:
+
+A short list of the exact problems you found, referencing the relevant lines/sections of my code.
+The complete fixed code (not fragments), with comments marking each fix as # FIX 1, # FIX 2, etc.
+A brief explanation of how each fix maps to each bug.
+A quick way to verify the fix (what behavior I should observe when running it).
