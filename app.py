@@ -9,7 +9,7 @@ import os
 import shutil
 import sqlite3
 
-from flask import Flask, flash, jsonify, redirect, request
+from flask import Flask, current_app, flash, jsonify, redirect, request
 from flask_wtf import CSRFProtect
 
 from models import db, GameState, Team
@@ -106,8 +106,27 @@ def create_app() -> Flask:
 
     @app.errorhandler(500)
     def server_error(e):
+        # Persist the real traceback: the browser console only shows a bare
+        # 500, so without this the cause is invisible after the fact.
+        try:
+            current_app.logger.exception(
+                "Internal server error on %s", request.path
+            )
+        except Exception:
+            pass
         if request.path == "/load":
             return "حدث خطأ جسيم في الخادم. يرجى المحاولة لاحقاً.", 500
+        # fetch() callers (formation saves, toggles, live state...) expect
+        # JSON — an HTML redirect breaks response.json(). Same JSON-vs-
+        # redirect split as the 404/405 handlers above.
+        wants_json = (
+            (request.path or "").startswith(_JSON_PREFIXES)
+            or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+            or request.accept_mimetypes.best == "application/json"
+            or "application/json" in (request.headers.get("Accept") or "")
+        )
+        if wants_json:
+            return jsonify({"error": "حدث خطأ في الخادم."}), 500
         flash("حدث خطأ في الخادم. تم إعادتك لصفحة الحفظ.")
         return redirect("/load")
 

@@ -481,12 +481,17 @@ def save_role():
     role = request.form.get("role", "standard")
     if role not in PLAYER_ROLES:
         role = "standard"
+    # Missing/foreign ids previously stored a garbage "None" key in
+    # formation_data — reject them instead of polluting the XI.
+    player = db.session.get(Player, player_id) if player_id else None
+    if not player or player.team_id != player_team.id:
+        return jsonify({"success": False, "message": "اللاعب غير موجود في فريقك!"}), 404
+    pid = str(player.id)
     fd = player_team.formation_data
     if not isinstance(fd, dict):
         fd = {}
     else:
         fd = dict(fd)
-    pid = str(player_id)
     entry = fd.get(pid)
     if isinstance(entry, dict):
         entry["role"] = role
