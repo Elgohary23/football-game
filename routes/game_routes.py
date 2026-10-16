@@ -265,6 +265,11 @@ def standings():
     team_rank = get_team_rank(league_id, player_team)
 
     leagues = League.query.order_by(League.tier).all()
+    try:
+        from config import WORLD_SIM_CONTINENTAL_SPOTS
+        continental_spots = int(WORLD_SIM_CONTINENTAL_SPOTS)
+    except Exception:
+        continental_spots = 4
 
     return render_template(
         "standings.html",
@@ -275,6 +280,7 @@ def standings():
         league=league,
         leagues=leagues,
         selected_league_id=league_id,
+        continental_spots=continental_spots,
     )
 
 
@@ -845,11 +851,17 @@ def season_end():
 
 @bp.route("/world", methods=["GET", "POST"])
 def world_overview():
-    """World simulation overview + محاكاة العالم button (Feature C.6)."""
-    from sim_levels import simulate_world_week
+    """World simulation hub: one connected week per player week + summary."""
+    import json
+    from sim_levels import _live_active, _player_week_pending, simulate_world_week
 
     state = safe_state()
     player_team = safe_player_team()
+    try:
+        from services import _ensure_schema_columns
+        _ensure_schema_columns()
+    except Exception:
+        pass
     result = None
     if request.method == "POST":
         result = simulate_world_week(state)
@@ -857,16 +869,96 @@ def world_overview():
             db.session.commit()
         except Exception:
             db.session.rollback()
-        flash(f"تمت محاكاة العالم: {result.get('played', 0)} مباراة")
+        if result.get("skipped"):
+            flash(result.get("reason") or "تعذر محاكاة العالم!")
+        else:
+            flash(f"تمت محاكاة العالم: {result.get('played', 0)} مباراة — "
+                  f"تقدم التاريخ إلى {state.current_date}")
         return redirect("/world")
+    try:
+        last = int(getattr(state, "world_sim_last_week", 0) or 0)
+    except Exception:
+        last = 0
+    try:
+        pending = _player_week_pending(state)
+    except Exception:
+        pending = False
+    try:
+        live = _live_active()
+    except Exception:
+        live = False
+    can_sim = (not pending) and (not live) and \
+        (int(state.current_week or 1) > last)
+    summary = None
+    try:
+        raw = getattr(state, "world_last_summary", None)
+        if raw:
+            summary = json.loads(raw)
+    except Exception:
+        summary = None
     leagues = League.query.order_by(League.tier).all()
     leaders = []
+    title_races: list = []
+    relegations: list = []
+    continental: list = []
+    form_table: list = []
+    top_scorers: list = []
     try:
         from services import get_league_table
+        from config import WORLD_SIM_CONTINENTAL_SPOTS
         for lg in leagues[:8]:
             rows = get_league_table(lg.id)
             leaders.append({"league": lg, "top": rows[:3]})
+            title_races.append({"league": lg, "top": rows[:5]})
+            relegations.append({"league": lg, "bottom": rows[-3:] if len(rows) >= 3 else rows})
+            continental.append({"league": lg,
+                                "spots": rows[:WORLD_SIM_CONTINENTAL_SPOTS]})
+        try:
+            from models import Match as _M, Player as _P
+            recent = (_M.query.filter_by(played=True)
+                      .order_by(_M.id.desc()).limit(20).all())
+            form_counts: dict = {}
+            for m in recent:
+                try:
+                    hs, aws = int(m.home_score or 0), int(m.away_score or 0)
+                    for tid, gf, ga in ((m.home_team_id, hs, aws),
+                                        (m.away_team_id, aws, hs)):
+                        e = form_counts.setdefault(tid, [])
+                        if len(e) < 5:
+                            e.append("W" if gf > ga else ("D" if gf == ga else "L"))
+                except Exception:
+                    continue
+            for lg in leagues[:4]:
+                rows = get_league_table(lg.id)
+                for r in rows[:5]:
+                    try:
+                        from models import Team as _T
+                        t = db.session.get(_T, r.id)
+                        form_table.append({"league": lg.name, "team": r.name,
+                                           "form": "".join(form_counts.get(r.id, ["-"] * 5)[:5]),
+                                           "points": r.points})
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        try:
+            from models import Player as _P, Team as _T
+            scorers = (_P.query.filter(_P.team_id.isnot(None))
+                       .order_by(_P.goals.desc()).limit(10).all())
+            for p in scorers:
+                try:
+                    t = db.session.get(_T, p.team_id)
+                    top_scorers.append({"name": p.name, "goals": int(p.goals or 0),
+                                        "team": t.name if t else "—"})
+                except Exception:
+                    continue
+        except Exception:
+            pass
     except Exception:
         pass
     return render_template("world.html", state=state, player_team=player_team,
-                           leaders=leaders, result=result)
+                           leaders=leaders, result=result, summary=summary,
+                           can_sim=can_sim, pending=pending, live=live,
+                           title_races=title_races, relegations=relegations,
+                           continental=continental, form_table=form_table,
+                           top_scorers=top_scorers)

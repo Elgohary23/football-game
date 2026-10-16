@@ -106,7 +106,7 @@ REPUTATION_TOLERANCE = 10
 OLD_DATA_KEEP_PLAYED_MATCHES = 150
 
 # --- Schema migration guard ---
-TEMPLATE_SCHEMA_VERSION = 11  # bump to force a template.db rebuild (structured detailed-position squads + valid XIs)
+TEMPLATE_SCHEMA_VERSION = 12  # bump to force a template.db rebuild (world-sim: GameState.world_sim_last_week + world_last_summary)
 
 # --- Advanced tactics (FM features) ---
 PRESSING_STYLES = ("low", "normal", "high")
@@ -1577,6 +1577,18 @@ L2_BUDGET_MS = 3
 L3_BUDGET_MS = 0.3
 WORLD_WEEK_BUDGET_S = 5
 WORLD_COMMIT_CHUNK = 200
+
+# --- World simulation hub (fix.txt): single source of truth ---
+# Probability per world week that an AI-to-AI transfer fires. The forced
+# fallback every 4th week guarantees measurable frequency in seeded tests.
+WORLD_SIM_TRANSFER_CHANCE = 0.35
+WORLD_SIM_SACK_CHANCE = 0.08
+WORLD_SIM_UPSET_REP_GAP = 10
+WORLD_SIM_BOARD_DRIFT_MIN = 1
+WORLD_SIM_BOARD_DRIFT_MAX = 3
+WORLD_SIM_BOARD_PROMISE_TOP = 4  # rank <= this counts as "good" for confidence
+WORLD_SIM_MAX_INBOX = 3
+WORLD_SIM_CONTINENTAL_SPOTS = 4  # domestic leagues: top-N badge + standings legend
 
 # --- Deeper sim: competent-but-beatable AI (Feature D) ---
 AI_DIFFICULTIES = ("سهل", "عادي", "صعب")

@@ -270,6 +270,9 @@ def _ensure_schema_columns() -> None:
         # GameState window override
         ("game_state", "transfer_window_override", "VARCHAR(10)"),
         ("game_state", "ai_difficulty", "VARCHAR(10) DEFAULT 'عادي'"),
+        # World simulation hub (fix.txt): cooldown guard + persisted summary
+        ("game_state", "world_sim_last_week", "INTEGER DEFAULT 0"),
+        ("game_state", "world_last_summary", "TEXT"),
         # European expansion: per-country pyramids + rating bands
         ("league", "country", "VARCHAR(30) DEFAULT 'England'"),
         ("league", "rating_floor", "INTEGER"),
@@ -2486,6 +2489,92 @@ def auto_transfer_list_offers(state: GameState) -> int:
                 type="transfer", created_day=day, urgent=True,
             ))
     return made
+
+
+def emit_world_week_messages(state: GameState, summary: dict) -> list[Message]:
+    """Convert a world-sim summary into 1-3 Arabic inbox messages (type="world").
+
+    Sections: rival/upset alerts, AI-transfer rumours (scouted players get a
+    special call-out), board-confidence nudges. Always emits at least one
+    message so the world feels alive, at most WORLD_SIM_MAX_INBOX.
+    """
+    from config import WORLD_SIM_MAX_INBOX
+    from models import ScoutReport
+
+    try:
+        day = int(getattr(state, "current_day", 1) or 1)
+    except Exception:
+        day = 1
+    msgs: list[Message] = []
+
+    def _add(title, content, urgent=False):
+        if len(msgs) >= WORLD_SIM_MAX_INBOX:
+            return
+        m = Message(title=title, content=content, type="world",
+                    created_day=day, urgent=bool(urgent))
+        db.session.add(m)
+        msgs.append(m)
+
+    upsets = (summary or {}).get("upsets") or []
+    transfers = (summary or {}).get("ai_transfers") or []
+    sacked = (summary or {}).get("managers_sacked") or []
+    drift = int((summary or {}).get("board_drift") or 0)
+    played = int((summary or {}).get("played") or 0)
+
+    if upsets:
+        top = upsets[0]
+        try:
+            _add("مفاجآت الجولة في العالم",
+                 f"مفاجأة كبرى: {top.get('winner')} يهزم {top.get('loser')} "
+                 f"بنتيجة {top.get('score')} — صراع اللقب يشتعل!",
+                 urgent=False)
+        except Exception:
+            pass
+    if transfers:
+        first = transfers[0]
+        try:
+            pname = first.get("player") or "لاعب"
+            scouted = False
+            try:
+                pt = Team.query.filter_by(is_player_team=True).first()
+                if pt is not None:
+                    pl = Player.query.filter_by(name=pname).first()
+                    if pl is not None:
+                        rep = ScoutReport.query.filter_by(
+                            team_id=pt.id, player_id=pl.id).first()
+                        scouted = rep is not None and (rep.knowledge_level or 0) > 0
+            except Exception:
+                scouted = False
+            note = " — لاعب كنت تكشفه! راقب السوق" if scouted else ""
+            _add("حركة انتقالات في العالم",
+                 f"انتقال: {pname} من {first.get('from')} إلى {first.get('to')} "
+                 f"مقابل {first.get('amount', 0):,}${note}")
+        except Exception:
+            pass
+    if sacked:
+        try:
+            _add("إقالة مدرب في العالم",
+                 f"أقيل مدرب {sacked[0].get('team')} بعد النتائج المخيبة "
+                 f"({sacked[0].get('reason', 'سوء النتائج')})")
+        except Exception:
+            pass
+    if drift:
+        try:
+            direction = "يرتفع" if drift > 0 else "ينخفض"
+            _add("ثقة المجلس تهتز",
+                 f"ثقة المجلس {direction} ({drift:+d}) — منافسوك يحققون نتائج "
+                 f"تضغط عليك. حافظ على مركزك!",
+                 urgent=abs(drift) >= 2)
+        except Exception:
+            pass
+    if not msgs:
+        try:
+            _add("أخبار العالم",
+                 f"جولة هادئة في العالم: لُعبت {played} مباراة دون مفاجآت كبرى. "
+                 f"الكشافون يواصلون العمل.")
+        except Exception:
+            pass
+    return msgs
 
 
 def maybe_rival_bid(state: GameState) -> int:

@@ -1,34 +1,106 @@
-You are a senior software engineer debugging a calendar/day-based simulation. I will provide my code below. It has two bugs:
+# Comprehensive Prompt: Fixing the Disconnected World Simulation Feature
 
-Bug 1: Simulation resets to the beginning
-An error occurs during the simulation, and when it happens, the simulation loses all progress and restarts from day 1.
+## Context & Problem Statement
 
-Bug 2: Days run too fast and pile up at the last day
-All days execute very quickly, then the simulation gets stuck at the last day performing an unusually large number of calculations.
+The `/world` route (`routes/game_routes.py`, `world_overview()`) and its template (`templates/world.html`) currently provide a "World Simulation" button that calls `simulate_world_week(state)` from `sim_levels.py`. While the function technically runs and produces a result count, **the simulation has no meaningful, perceptible impact on the player's experience**. The page merely displays a static list of top-3 teams per league, and the button — once pressed — silently advances AI matches without feeding any consequences back into the player's save.
 
-Your tasks
-Step 1 — Diagnose
-Analyze my code and identify the root cause of each bug. Specifically check for:
+The user correctly identifies this as "implemented but with no effect on UX." The feature is technically alive but functionally dead from the player's perspective.
 
-State initialization (variables, lists, counters) placed INSIDE the main loop or INSIDE an except block, causing state to be wiped on every error/iteration.
-A retry/restart loop that calls a reset/re-init function inside except.
-Exception handlers that swallow the original error without logging it (no traceback), making the real failure invisible.
-Any inner while loop inside the per-day processing whose condition never becomes false (no counter increment, no list draining) → infinite loop stuck on one day.
-Event/schedule processing that uses >= (or similar) date comparison, causing all future events to fire at once instead of one per day.
-Days being advanced faster than intended with no time-based throttle.
-Step 2 — Fix
-Refactor the code following these rules:
+## Root Cause Analysis
 
-Separate initialization from stepping: all state setup happens ONCE (constructor or before the loop), never inside the day loop or except block.
-Use a step-per-day architecture: a step() method that processes exactly ONE day per call, with no nested unbounded loops.
-In exception handling: log the FULL original error with traceback (e.g., logging.exception(...) or traceback.print_exc()), then either skip that day safely or stop gracefully — NEVER reset the simulation state.
-Advance the day counter unconditionally after each step (guard against non-advancing loops), and mark the simulation as finished when the total number of days is reached.
-Process scheduled events so exactly the events for the CURRENT day run, not all pending ones at once.
-Add an optional time-based throttle (e.g., one day per N milliseconds) so day advancement speed is controllable.
-Step 3 — Deliver
-Provide:
+After reviewing the code, the disconnect stems from several layered issues:
 
-A short list of the exact problems you found, referencing the relevant lines/sections of my code.
-The complete fixed code (not fragments), with comments marking each fix as # FIX 1, # FIX 2, etc.
-A brief explanation of how each fix maps to each bug.
-A quick way to verify the fix (what behavior I should observe when running it).
+1. **No Feedback Loop**: `simulate_world_week()` returns a dict with `played` count, but nothing surfaces *what* happened — no scored goals, no injuries, no transfers, no form shifts, no morale ripples. The flash message is a bare number.
+
+2. **No Calendar Coupling**: The world sim runs independently of the player's `current_date` / `current_week`. It does not advance the player's clock, so the player never "feels" time passing in the wider football world.
+
+3. **No Cross-League Consequences**: AI-vs-AI results update league tables internally, but the player has no reason to look — there are no relegation battles affecting transfer targets, no continental qualification implications, no rival form indicators, no news/inbox messages triggered by world events.
+
+4. **No Transfer Market Ripple**: The world sim does not generate AI-to-AI transfers, loan moves, or price shifts. The transfer market stays frozen between player actions, which breaks immersion and makes scouting stale.
+
+5. **No Player-Adjacent Effects**: World simulation does not influence the player's board confidence ("your rivals are winning"), youth intake timing, scouting report freshness, or media narrative.
+
+6. **Static UI**: `world.html` shows the same three-team podium regardless of state. No "this week's shocks," no " managers sacked," no "title race heating up" — nothing that turns data into story.
+
+7. **No Throttle or Idempotency**: The button can be spammed. There's no "one world sim per in-game week" coupling, so a player can race the world forward 50 weeks in 50 clicks with no game-state guard.
+
+8. **No Integration with Existing Systems**: Cup competitions (`cup_services`), transfer offers (`services.auto_transfer_list_offers`), youth generation (`simulation.generate_youth_players`), and philosophy shifts (`services.roll_season_philosophy_shifts`) all exist but are never invoked from the world-sim path.
+
+## Desired End State
+
+The `/world` page should become a **living hub** where each click advances the football world by one in-game week and produces visible, consequential ripples that the player can act on. Specifically:
+
+- Each world-sim click advances `state.current_date` by 7 days and `state.current_week` by 1, **only if the player's own week has already been resolved** (no bypassing the player's fixture).
+- The page renders a **"World Week Summary"** card listing: top scorers across all leagues this week, biggest upsets, managers sacked, title-race movers, and any AI-to-AI transfers involving players the user has scouted.
+- The player's inbox receives **1–3 generated messages per world week** (rival results, transfer rumours, board confidence nudges, scout tips) so the wider world feels alive.
+- AI-to-AI transfers fire with a small probability per world week, refreshing the transfer market and shifting `market_value` bands.
+- Continental qualification spots in each league's standings get a visual badge, giving the player a reason to monitor other leagues.
+- A **cooldown guard** prevents more than one world-sim per in-game week (the button is disabled until the player advances their own week).
+- The leaders panel becomes a **multi-tab view**: "Title Races," "Relegation Battles," "Top Scorers," "Form (last 5)," "Continental Spots" — each backed by a real query.
+- Board confidence drifts slightly toward the player's league position relative to expectations, so a hot streak elsewhere genuinely pressures the player.
+
+## Implementation Plan
+
+### Phase 1 — Couple world sim to the player's calendar
+- In `sim_levels.simulate_world_week(state)`, advance `state.current_date` by 7 days and `state.current_week` by 1, but **reject** the call (return `{"skipped": True, "reason": "..."}`) if the player's current week's fixture is still unplayed.
+- Add a `world_sim_last_week` field to `GameState` to enforce one-sim-per-week.
+- Surface the rejection as a flash on `/world`.
+
+### Phase 2 — Enrich the world sim payload
+- Extend `simulate_world_week()` to return a structured summary: `{"played": N, "top_scorers_this_week": [...], "upsets": [...], "managers_sacked": [...], "ai_transfers": [...], "continental_movers": [...]}`.
+- Inside the sim, after AI matches run, invoke `services.auto_transfer_list_offers(state)` with a reduced probability, `simulation.generate_youth_players()` for any league whose youth-intake week has arrived, and `services.roll_season_philosophy_shifts(state)` only at season boundaries.
+
+### Phase 3 — Generate inbox messages from world events
+- Add `services.emit_world_week_messages(state, summary)` that converts the summary into 1–3 `Message` rows: rival-result alerts, transfer rumours for scouted players, and a board-confidence nudge when the player's title rivals gain/lose ground.
+- Tag each message `type="world"` so the inbox can filter and style them.
+
+### Phase 4 — Rebuild `world.html` as a multi-tab dashboard
+- Replace the static leaders list with a tabbed panel: **Title Races**, **Relegation**, **Top Scorers (global)**, **Form (last 5)**, **Continental Spots**, **This Week's Shocks**.
+- Each tab is backed by a real query against the post-sim DB state.
+- Add a **"World Week Summary"** card above the tabs that shows the latest sim's structured output, with icons and colour-coded upsets.
+
+### Phase 5 — Add a cooldown guard + button state
+- In `world_overview()`, compute `can_sim = (state.current_week > state.world_sim_last_week) and player_fixture_played`.
+- Pass `can_sim` to the template; disable the button and show "حل أسبوعك أولاً" when `can_sim` is False.
+- On successful POST, set `state.world_sim_last_week = state.current_week`.
+
+### Phase 6 — Board confidence coupling
+- In `simulate_world_week()`, after AI matches, recompute the player's expected league position vs actual and nudge `state.board_confidence` by ±1–3 points per week. Emit an inbox message when the drift crosses a threshold.
+
+### Phase 7 — Continental qualification badges in `standings.html`
+- Add a CSS class and legend entry for continental spots (currently only "Champions League 1–4" and "Relegation" exist). Pull the actual qualification counts from `cup_services` so the visual matches the simulation.
+
+### Phase 8 — Tests
+- Extend `tests/test_deeper_sim.py::TestSimLevels` with: world sim advances calendar, rejects when player fixture is unplayed, generates inbox messages, fires AI transfers with seed-deterministic probability, and updates board confidence within bounds.
+- Extend `tests/test_frontend.py` with: `/world` renders all tabs, button is disabled when `can_sim` is False, and a successful sim produces a visible summary card.
+- Extend `tests/test_e2e_playwright.py` with: clicking the world-sim button when allowed advances the calendar by 7 days and shows new inbox messages on `/messages`.
+
+## Acceptance Criteria
+
+1. Pressing "محاكاة العالم" advances `state.current_date` by exactly 7 days and `state.current_week` by 1, **only** when the player's current-week fixture is resolved.
+2. The `/world` page shows a "World Week Summary" card with at least 3 distinct sections (upsets, scorers, transfers) populated from the latest sim.
+3. After each world sim, the player's inbox gains 1–3 new `type="world"` messages reflecting real events from the sim.
+4. AI-to-AI transfers occur with measurable frequency (at least 1 per 4 world weeks on average in a seeded test).
+5. Board confidence drifts by ±1–3 per world week based on relative league position, with a threshold-triggered inbox message.
+6. The world-sim button is disabled with a clear Arabic hint when the player's week is unresolved.
+7. All existing tests still pass; the new tests cover every acceptance criterion above.
+8. No regression in the live-match flow — world sim must never trigger while a live match is active (`match.live_active`).
+
+## Constraints
+
+- Keep all flashes and UI strings in Arabic, matching the rest of the app.
+- Do not introduce new dependencies; use existing Flask/SQLAlchemy/Jinja primitives.
+- Preserve the existing `simulate_world_week()` return contract for backward compatibility (add fields, do not remove).
+- All new DB columns must be added via a schema migration in `services.init_template()` with a version bump in `app_meta`.
+- Respect the project's script-persistence rule: any non-trivial generation script must be saved under `scripts/` before execution.
+
+## Deliverables
+
+1. Updated `sim_levels.py` with the enriched `simulate_world_week()`.
+2. New `services.emit_world_week_messages()`.
+3. Migrated `GameState` schema with `world_sim_last_week`.
+4. Rewritten `templates/world.html` with tabs and summary card.
+5. Updated `routes/game_routes.py::world_overview()` with cooldown guard and enriched context.
+6. Patched `templates/standings.html` with continental badges.
+7. New + updated tests across `test_deeper_sim.py`, `test_frontend.py`, `test_e2e_playwright.py`.
+8. A short `scripts/migrate_world_sim.py` that back-fills `world_sim_last_week = 0` on existing saves.

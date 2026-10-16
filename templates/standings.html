@@ -55,7 +55,8 @@
                     {% for team in league_table %}
                     {% set played = team.wins + team.losses + team.draws %}
                     {% set gd = team.goals_for - team.goals_against %}
-                    <tr class="{{ 'row-highlight' if team.id == player_team.id else '' }} {{ 'top-tier' if loop.index <= 4 else 'bottom-tier' if loop.index > (league_table|length - 3) else '' }}">
+                    {% set spots = continental_spots | default(4) %}
+                    <tr class="{{ 'row-highlight' if team.id == player_team.id else '' }} {{ 'top-tier' if loop.index <= 4 else 'bottom-tier' if loop.index > (league_table|length - 3) else '' }} {{ 'continental-spot' if loop.index <= spots else '' }}">
                         <td style="text-align: center; font-weight: bold;">
                             {% if loop.index == 1 %}
                                 <i class="fas fa-crown" style="color: #f1c40f; font-size: 0.85rem;" title="المتصدر"></i> 1
@@ -67,6 +68,9 @@
                             {{ team.name }}
                             {% if team.id == player_team.id %}
                                 <span class="badge" style="background: #e94560; color: #fff; margin-right: 6px; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px;">فريقك</span>
+                            {% endif %}
+                            {% if loop.index <= (continental_spots | default(4)) %}
+                                <span class="badge continental-badge" style="background: #f1c40f; color: #111; margin-right: 6px; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px;">🏆 قاري</span>
                             {% endif %}
                         </td>
                         <td>{{ played }}</td>
@@ -91,6 +95,10 @@
         <div style="display: flex; align-items: center; gap: 6px;">
             <span style="width: 12px; height: 12px; background: #2ecc71; border-radius: 3px; display: inline-block;"></span>
             <span>مؤهل لدوري الأبطال (1-4)</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="width: 12px; height: 12px; background: #f1c40f; border-radius: 3px; display: inline-block;"></span>
+            <span>مقعد قاري (أول {{ continental_spots | default(4) }})</span>
         </div>
         <div style="display: flex; align-items: center; gap: 6px;">
             <span style="width: 12px; height: 12px; background: #e74c3c; border-radius: 3px; display: inline-block;"></span>
@@ -120,6 +128,9 @@
 }
 .standings-table tbody tr.top-tier td:first-child {
     border-right: 3px solid #2ecc71;
+}
+.standings-table tbody tr.continental-spot td:first-child {
+    border-left: 3px solid #f1c40f;
 }
 .standings-table tbody tr.bottom-tier td:first-child {
     border-right: 3px solid #e74c3c;

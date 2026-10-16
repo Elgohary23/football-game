@@ -2275,3 +2275,43 @@ class TestEuropeanPages:
         text = _html(client, "/standings")
         for name, _, _ in leagues:
             assert name in text, name
+
+
+# ======================================================================
+# World simulation hub — DB-backed (fix.txt acceptance 2 + 6 + 7)
+# ======================================================================
+class TestWorldHubDb:
+    def test_world_renders_all_tabs(self, client):
+        text = _html(client, "/world")
+        for tab in ("صراع اللقب", "الهبوط", "الهدافون", "الفورمة",
+                    "المقاعد القارية", "مفاجآت الأسبوع"):
+            assert tab in text, tab
+
+    def test_world_button_disabled_until_week_resolved(self, client):
+        # Fresh seed: the manager's week-1 fixture is unplayed -> cooldown.
+        text = _html(client, "/world")
+        assert "disabled" in text
+        assert "حل أسبوعك أولاً" in text
+
+    def test_world_sim_produces_summary_card(self, client):
+        from simulation import simulate_match
+        m = Match.query.filter_by(played=False).first()
+        simulate_match(m, mode="quick")
+        db.session.commit()
+        r = client.post("/world", follow_redirects=True)
+        assert r.status_code == 200
+        text = r.get_data(as_text=True)
+        assert "ملخص أسبوع العالم" in text
+        for section in ("الهدافون هذا الأسبوع", "مفاجآت الجولة",
+                        "انتقالات الذكاء الاصطناعي"):
+            assert section in text, section
+
+    def test_world_post_rejected_when_pending(self, client):
+        r = client.post("/world", follow_redirects=True)
+        assert r.status_code == 200
+        assert "حل أسبوعك أولاً" in r.get_data(as_text=True)
+
+    def test_standings_continental_badge(self, client):
+        text = _html(client, "/standings")
+        assert "قاري" in text
+        assert "مقعد قاري" in text

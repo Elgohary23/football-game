@@ -373,6 +373,9 @@ class GameState(db.Model):
     transfer_window_override = db.Column(db.String(10), nullable=True)
     # --- Deeper sim (Feature D): difficulty scales AI skill/delays only ---
     ai_difficulty = db.Column(db.String(10), default="عادي")
+    # --- World simulation hub (fix.txt): cooldown + last summary ---
+    world_sim_last_week = db.Column(db.Integer, default=0)
+    world_last_summary = db.Column(db.Text, nullable=True)
 
 
 class Match(db.Model):

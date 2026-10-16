@@ -201,6 +201,121 @@ class TestSimLevels:
         r = client.post("/world")
         assert r.status_code in (200, 302)
 
+    def test_world_sim_rejects_when_player_fixture_unplayed(self, ctx):
+        from sim_levels import simulate_world_week
+        state = GameState.query.first()
+        pending = Match.query.filter_by(week=state.current_week,
+                                        played=False).all()
+        assert any((m.home_team and m.home_team.is_player_team)
+                   or (m.away_team and m.away_team.is_player_team)
+                   for m in pending)
+        res = simulate_world_week(state)
+        assert res.get("skipped") is True
+        assert state.current_week == 1
+
+    def test_world_sim_advances_calendar_only_when_resolved(self, ctx):
+        import random
+        from sim_levels import simulate_world_week
+        from simulation import simulate_match
+        state = GameState.query.first()
+        m = Match.query.filter_by(week=state.current_week,
+                                  played=False).first()
+        simulate_match(m, mode="quick")
+        db.session.commit()
+        date0, week0 = state.current_date, state.current_week
+        random.seed(7)
+        res = simulate_world_week(state)
+        assert not res.get("skipped")
+        assert res.get("played", 0) >= 0
+        assert "top_scorers_this_week" in res and "upsets" in res
+        assert "ai_transfers" in res and "managers_sacked" in res
+        assert "continental_movers" in res
+        from datetime import datetime, timedelta
+        base = datetime.strptime(date0, "%Y-%m-%d").date()
+        assert state.current_date == (base + timedelta(days=7)).isoformat()
+        assert state.current_week == week0 + 1
+        assert int(state.world_sim_last_week or 0) == state.current_week
+        # Cooldown: same week again is rejected.
+        res2 = simulate_world_week(state)
+        assert res2.get("skipped") is True
+
+    def test_world_sim_never_runs_during_live(self, ctx):
+        from sim_levels import simulate_world_week
+        from simulation import simulate_match
+        state = GameState.query.first()
+        m = Match.query.filter_by(played=False).first()
+        simulate_match(m, mode="quick")
+        db.session.commit()
+        live = Match(home_team_id=m.home_team_id, away_team_id=m.away_team_id,
+                     week=99, played=False, live_active=True)
+        db.session.add(live)
+        db.session.commit()
+        state.current_week = 99
+        state.world_sim_last_week = 98
+        db.session.commit()
+        res = simulate_world_week(state)
+        assert res.get("skipped") is True
+        db.session.delete(live)
+        db.session.commit()
+
+    def test_world_sim_inbox_and_board(self, ctx):
+        import random
+        from models import Message
+        from sim_levels import simulate_world_week
+        from simulation import simulate_match
+        state = GameState.query.first()
+        m = Match.query.filter_by(played=False).first()
+        simulate_match(m, mode="quick")
+        db.session.commit()
+        # Force a drift scenario: player bottom of the table.
+        pt = _player_team()
+        pt.points, pt.wins = 0, 0
+        opp = _opponent()
+        opp.points, opp.wins = 9, 3
+        conf0 = int(state.board_confidence or 60)
+        n0 = Message.query.filter_by(type="world").count()
+        random.seed(11)
+        res = simulate_world_week(state)
+        assert not res.get("skipped")
+        assert Message.query.filter_by(type="world").count() > n0
+        assert Message.query.filter_by(type="world").count() - n0 <= 3
+        assert 0 <= int(state.board_confidence or 0) <= 100
+        assert abs(int(state.board_confidence or 0) - conf0) <= 3
+
+    def test_world_sim_ai_transfer_frequency(self, ctx):
+        import random
+        from models import League, Player
+        from sim_levels import simulate_world_week
+        from simulation import simulate_match
+        state = GameState.query.first()
+        m = Match.query.filter_by(played=False).first()
+        simulate_match(m, mode="quick")
+        db.session.commit()
+        league = League.query.first()
+        for name in ("WAI2", "WAI3"):
+            t = Team(name=name, morale=70, budget=5000000, reputation=55,
+                     is_player_team=False, league_id=league.id)
+            db.session.add(t)
+            db.session.flush()
+            for i in range(15):
+                db.session.add(Player(
+                    name="%s P%d" % (name, i), position="MID",
+                    detailed_position="CM", attack=60, defense=60,
+                    overall=60, potential=70, age=24, height=180, weight=75,
+                    market_value=100000, team_id=t.id, is_starting=(i < 11)))
+        db.session.commit()
+        total = 0
+        for w in range(4, 12):
+            state.current_week = w
+            state.world_sim_last_week = w - 1
+            for mm in Match.query.filter_by(week=w, played=False).all():
+                mm.played = True
+            db.session.commit()
+            rr = simulate_world_week(state, rng=random.Random(2000 + w))
+            assert not rr.get("skipped")
+            total += len(rr.get("ai_transfers") or [])
+        assert total >= 2  # >=1 per 4 weeks on average
+
     def test_auto_pick_endpoint(self, client):
         r = client.post("/formation/auto-pick")
         assert r.status_code in (200, 400)
