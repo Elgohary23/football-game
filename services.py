@@ -3134,7 +3134,10 @@ def _build_template_database() -> None:
                     traits=generate_player_traits(),
                     sharpness=random.randint(60, 100),
                     morale=random.randint(50, 80),
-                    **{k: v for k, v in dattrs.items() if hasattr(Player, k)},
+                    **{k: v for k, v in dattrs.items()
+                        if hasattr(Player, k) and k not in (
+                            "stamina", "technique", "speed",
+                            "sharpness", "morale")},
                 )
                 # Derive position-weighted overall + attack/defense splits.
                 try:
