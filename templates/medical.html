@@ -14,7 +14,7 @@
                     <div class="ic-info">
                         <div class="ic-name">{{ p.name }}</div>
                         <div style="font-size:0.75rem;color:#888;">
-                            <span class="pos-tag {{ p.position }}" style="font-size:0.6rem;">{{ p.position }}</span>
+                            <span class="pos-tag {{ p.position }}" style="font-size:0.6rem;">{{ p.detailed_position or p.position }}</span>
                             {{ p.attack }}/{{ p.defense }}
                         </div>
                     </div>

@@ -163,7 +163,7 @@
                         {% for rating in report.home_ratings %}
                         <tr>
                             <td style="text-align:right;font-weight:bold;">{{ rating.player.name }}</td>
-                            <td><span class="pos-tag {{ rating.player.position }}">{{ rating.player.position }}</span></td>
+                            <td><span class="pos-tag {{ rating.player.position }}">{{ rating.player.detailed_position or rating.player.position }}</span></td>
                             <td style="color:{{ '#2ecc71' if rating.rating >= 7 else '#f39c12' if rating.rating >= 6 else '#e74c3c' }};font-weight:bold;">{{ rating.rating }}</td>
                             <td>{{ rating.goals }}</td>
                             <td>{{ rating.assists }}</td>
@@ -194,7 +194,7 @@
                         {% for rating in report.away_ratings %}
                         <tr>
                             <td style="text-align:right;font-weight:bold;">{{ rating.player.name }}</td>
-                            <td><span class="pos-tag {{ rating.player.position }}">{{ rating.player.position }}</span></td>
+                            <td><span class="pos-tag {{ rating.player.position }}">{{ rating.player.detailed_position or rating.player.position }}</span></td>
                             <td style="color:{{ '#2ecc71' if rating.rating >= 7 else '#f39c12' if rating.rating >= 6 else '#e74c3c' }};font-weight:bold;">{{ rating.rating }}</td>
                             <td>{{ rating.goals }}</td>
                             <td>{{ rating.assists }}</td>

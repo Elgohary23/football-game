@@ -56,6 +56,9 @@ from config import (
     PHILOSOPHY_TACTIC,
     PHILOSOPHY_TRAINING_FOCUS,
     POSITION_OVERALL_WEIGHTS,
+    SQUAD_CORE_DETAILED_POSITIONS,
+    SQUAD_EXTRA_POSITION_WEIGHTS,
+    SQUAD_STARTING_XI,
     MARKET_VALUE_MIN,
     MARKET_VALUE_MAX,
     MAX_FACILITY_LEVEL,
@@ -2960,6 +2963,71 @@ def _pick_detailed_position(coarse: str) -> str:
     return random.choice(pool)
 
 
+_DETAILED_TO_COARSE = {
+    "GK": "GK",
+    "CB": "DEF", "LB": "DEF", "RB": "DEF", "LWB": "DEF", "RWB": "DEF",
+    "CDM": "MID", "CM": "MID", "CAM": "MID", "LM": "MID", "RM": "MID",
+    "LW": "FWD", "RW": "FWD", "CF": "FWD", "ST": "FWD",
+}
+
+
+def coarse_position_of_detailed(det: str) -> str:
+    """Inverse of _pick_detailed_position for roster-driven generation."""
+    return _DETAILED_TO_COARSE.get(det, "MID")
+
+
+def build_squad_roster(squad_size: int) -> list:
+    """Detailed-position roster for a generated squad.
+
+    Starts from SQUAD_CORE_DETAILED_POSITIONS (guarantees a full backline:
+    LB, CB, CB, RB plus wing-back covers — and exactly 2 GKs) and fills any
+    remaining slots from the weighted SQUAD_EXTRA_POSITION_WEIGHTS pool.
+    """
+    roster = list(SQUAD_CORE_DETAILED_POSITIONS)
+    remaining = squad_size - len(roster)
+    if remaining > 0:
+        roster += random.choices(
+            list(SQUAD_EXTRA_POSITION_WEIGHTS.keys()),
+            weights=list(SQUAD_EXTRA_POSITION_WEIGHTS.values()),
+            k=remaining,
+        )
+    return roster
+
+
+def apply_starting_xi(players: list) -> None:
+    """Mark one starter per SQUAD_STARTING_XI role: best potential wins.
+
+    Produces a classic 4-4-2 (exactly one GK, a LB/CB/CB/RB backline)
+    instead of legacy "first 11 after shuffling", which fielded two
+    goalkeepers or none. XI slots are consumed in order: a pre-flagged
+    starter fills its role's slot without re-flagging another player, and
+    roles without any matching player stay unfilled (never happens with
+    the 18-man core roster).
+    """
+    if not players:
+        return
+    flagged: dict = {}
+    for p in players:
+        if p.is_starting:
+            det = (p.detailed_position or "")
+            flagged[det] = flagged.get(det, 0) + 1
+    filled: dict = {}
+    for role in SQUAD_STARTING_XI:
+        filled[role] = filled.get(role, 0)
+        if flagged.get(role, 0) > filled[role]:
+            filled[role] += 1
+            continue
+        candidates = [
+            p for p in players
+            if not p.is_starting
+            and (p.detailed_position or "") == role
+        ]
+        if not candidates:
+            continue
+        max(candidates, key=lambda p: p.potential or 0).is_starting = True
+        filled[role] += 1
+
+
 def _roll_detailed_attrs(floor: int, ceiling: int) -> dict:
     keys: set = set()
     try:
@@ -2979,7 +3047,16 @@ def _roll_detailed_attrs(floor: int, ceiling: int) -> dict:
 
 
 def _seed_star_players() -> None:
-    """Override one generated squad member per entry in SEED_STAR_PLAYERS."""
+    """Override one generated squad member per entry in SEED_STAR_PLAYERS.
+
+    Star swaps are like-for-like: the victim prefers XI starters of the same
+    coarse group, and same detailed role where possible, so the squad keeps
+    a complete backline (a CB star takes a CB, Hakimi takes the RB, ...
+    never the club's only LB/RB)."""
+
+    def _primary(p):
+        return p.attack if p.position in ("FWD", "MID") else p.defense
+
     seeded_ids: set = set()
     for star in SEED_STAR_PLAYERS:
         team = Team.query.filter_by(name=star.get("club")).first()
@@ -2990,22 +3067,47 @@ def _seed_star_players() -> None:
         squad = Player.query.filter_by(team_id=team.id).all()
         if not squad:
             continue
-        same_pos = [p for p in squad if p.position == star.get("position")]
+        target = star.get("detailed") or _pick_detailed_position(
+            star.get("position", "MID"))
+        coarse = star.get("position", "MID")
+        # A privilege of the back four: never strand a squad without LB/RB.
+        scarce = {"LB", "RB"} if coarse == "DEF" else set()
+        same_pos = [p for p in squad if p.position == coarse]
 
-        def _primary(p):
-            return p.attack if p.position in ("FWD", "MID") else p.defense
+        def _tier_list():
+            tiers = [
+                [p for p in same_pos if p.is_starting],
+                [p for p in same_pos],
+                [p for p in squad],
+            ]
+            safe = [t for t in tiers
+                    if [p for p in t
+                        if (p.detailed_position or "") not in scarce]]
+            return safe or tiers
 
-        pool = [p for p in (same_pos or squad) if p.id not in seeded_ids]
-        if not pool:
+        def _pools(tier):
+            free = [p for p in tier if p.id not in seeded_ids]
+            matching = [p for p in free
+                        if p.is_starting and (p.detailed_position or "") == target]
+            started = [p for p in free if p.is_starting]
+            return [matching, started, free]
+
+        victim = None
+        for tier in _tier_list():
+            for pool in _pools(tier):
+                if pool:
+                    victim = max(pool, key=_primary)
+                    break
+            if victim:
+                break
+        if victim is None:
             logger.warning("No free squad slot for %s at %s",
                            star.get("name"), star.get("club"))
             continue
-        starters = [p for p in pool if p.is_starting] or pool
-        victim = max(starters, key=_primary)
         seeded_ids.add(victim.id)
         victim.name = star["name"]
-        victim.position = star["position"]
-        victim.detailed_position = _pick_detailed_position(star.get("position", "MID"))
+        victim.position = coarse
+        victim.detailed_position = target
         victim.attack = star["attack"]
         victim.defense = star["defense"]
         victim.potential = star["potential"]
@@ -3101,22 +3203,26 @@ def _build_template_database() -> None:
             db.session.flush()
 
             squad_size = random.randint(18, 24)
-            positions = ["GK"] * 2 + ["DEF"] * 4 + ["MID"] * 4 + ["FWD"] * 2
-            remaining = squad_size - len(positions)
-            positions += random.choices(["GK", "DEF", "MID", "FWD"], weights=[1, 3, 3, 2], k=remaining)
-            random.shuffle(positions)
-            for j, pos in enumerate(positions):
+            # Structured detailed roster: the 18-man core guarantees every
+            # club a full backline (LB, CB, CB, RB + wing-back covers), two
+            # GKs and a realistic spread; extras are drawn weighted from the
+            # detailed pool. Legacy code rolled coarse positions then canned
+            # randomised detailed tags, which left a third of the world
+            # without any LB or RB (some clubs fielded 6 GKs).
+            positions = build_squad_roster(squad_size)
+            drafted = []
+            for j, det in enumerate(positions):
+                pos = coarse_position_of_detailed(det)
                 region = random.choice(["Europe", "Middle_East", "South_America"])
                 stats = generate_player_stats_v2(floor, ceiling, pos, region)
                 value = calculate_market_value(
                     stats["attack"], stats["defense"], stats["potential"],
                     stats["age"], reputation)
-                detailed = _pick_detailed_position(pos)
                 dattrs = _roll_detailed_attrs(floor, ceiling)
                 player = Player(
                     name=generate_player_name(region),
                     position=pos,
-                    detailed_position=detailed,
+                    detailed_position=det,
                     attack=stats["attack"],
                     defense=stats["defense"],
                     potential=stats["potential"],
@@ -3127,7 +3233,7 @@ def _build_template_database() -> None:
                     region=region,
                     market_value=value,
                     team_id=team.id,
-                    is_starting=(j < 11),
+                    is_starting=False,
                     stamina=random.randint(60, 100),
                     technique=random.randint(30, 90),
                     speed=random.randint(30, 90),
@@ -3145,6 +3251,11 @@ def _build_template_database() -> None:
                 except Exception:
                     player.overall = max(player.attack or 50, player.defense or 50)
                 db.session.add(player)
+                drafted.append(player)
+            # Pick a real XI: the best available player per role
+            # (exactly one GK, a LB/CB/CB/RB backline). Legacy logic
+            # marked "first 11 after shuffling" and keeper around two GKs.
+            apply_starting_xi(drafted)
         db.session.commit()
 
     _seed_star_players()

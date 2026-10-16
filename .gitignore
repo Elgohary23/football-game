@@ -9,6 +9,7 @@ ENV/
 instance/
 *.db
 *.sqlite3
+*.sqlite3.bak-*
 .vscode/
 .idea/
 *.log

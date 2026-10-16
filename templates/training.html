@@ -54,7 +54,7 @@
                 {% for p in players %}
                 <tr class="{{ 'row-starter' if p.is_starting }}">
                     <td style="text-align:right;font-weight:bold;color:#e0e0e0;">{{ p.name }}</td>
-                    <td><span class="pos-tag {{ p.position }}">{{ p.position }}</span></td>
+                    <td><span class="pos-tag {{ p.position }}">{{ p.detailed_position or p.position }}</span></td>
                     <td>{{ p.age }}</td>
                     <td>{{ p.attack }}</td>
                     <td>{{ p.defense }}</td>

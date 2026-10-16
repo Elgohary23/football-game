@@ -974,3 +974,111 @@ class TestCupCompetitions:
         text = client.get("/calendar").get_data(as_text=True)
         assert "comp_color" in text
         assert "competition" in text
+
+
+# ------------------------------------------------ squad roster positions
+class TestSquadRosterPositions:
+    """Regression: squads are generated from a structured detailed-position
+    roster so the backline always has LB/CB/RB, GK is capped at 2, and the
+    flagged XI is a valid 4-4-2. The old dice roll left 213/644 squads with
+    no LB (some with 6 GKs) and land 11-after-shuffle XIs with two GKs."""
+
+    def test_config_xi_shape(self, ctx):
+        from config import SQUAD_STARTING_XI
+        assert len(SQUAD_STARTING_XI) == 11
+        assert SQUAD_STARTING_XI.count("GK") == 1
+        assert {"LB", "RB"} <= set(SQUAD_STARTING_XI)
+        assert SQUAD_STARTING_XI.count("CB") == 2
+
+    def test_roster_backline_complete_all_sizes(self, ctx):
+        from services import build_squad_roster
+        valid = {"GK", "CB", "LB", "RB", "LWB", "RWB",
+                 "CDM", "CM", "CAM", "LM", "RM",
+                 "LW", "RW", "ST", "CF"}
+        for size in range(18, 25):
+            roster = build_squad_roster(size)
+            assert len(roster) == size, size
+            assert roster.count("GK") == 2, size
+            assert roster.count("LB") >= 1, size
+            assert roster.count("RB") >= 1, size
+            assert roster.count("CB") >= 2, size
+            for det in roster:
+                assert det in valid, (size, det)
+
+    def test_roster_maps_to_coarse_groups(self, ctx):
+        from services import build_squad_roster, coarse_position_of_detailed
+        roster = build_squad_roster(18)
+        groups = [coarse_position_of_detailed(det) for det in roster]
+        assert groups.count("GK") == 2
+        assert groups.count("DEF") == 6
+        assert groups.count("MID") == 6
+        assert groups.count("FWD") == 4
+
+    def test_apply_starting_xi_valid_shape(self, ctx):
+        from services import build_squad_roster, apply_starting_xi
+        roster = build_squad_roster(18)
+        players = [
+            Player(name=f"t{j}", position="MID", detailed_position=det,
+                   attack=50, defense=50, overall=50, potential=j, age=24)
+            for j, det in enumerate(roster)
+        ]
+        apply_starting_xi(players)
+        starters = [p for p in players if p.is_starting]
+        assert len(starters) == 11
+        dets = [p.detailed_position for p in starters]
+        assert dets.count("GK") == 1
+        assert dets.count("LB") == 1
+        assert dets.count("RB") == 1
+        assert dets.count("CB") == 2
+        # Wing-backs and playmakers come off the bench: the XI is a 4-4-2.
+        assert dets.count("LWB") == 0 and dets.count("CAM") == 0
+        assert {"LM", "RM"} <= set(dets)
+
+    def test_apply_starting_xi_best_per_duplicate_role(self, ctx):
+        from services import build_squad_roster, apply_starting_xi
+        roster = build_squad_roster(18)
+        players = [
+            Player(name=f"t{j}", position="MID", detailed_position=det,
+                   attack=50, defense=50, overall=50, potential=j, age=24)
+            for j, det in enumerate(roster)
+        ]
+        apply_starting_xi(players)
+        cm_starters = [p for p in players
+                       if p.is_starting and p.detailed_position == "CM"]
+        cm_all = [players[j].potential for j, det in enumerate(roster)
+                  if det == "CM"]
+        assert len(cm_starters) == 2
+        # Best per role: the two starters are the highest-potential CMs.
+        assert {p.potential for p in cm_starters} == set(
+            sorted(cm_all, reverse=True)[:2])
+        st_starters = [p for p in players
+                       if p.is_starting and p.detailed_position == "ST"]
+        assert len(st_starters) == 2
+
+    def test_apply_starting_xi_missing_role_is_safe(self, ctx):
+        from services import apply_starting_xi
+        players = [
+            Player(name="only-gk", position="GK", detailed_position="GK",
+                   attack=40, defense=70, overall=60, potential=80, age=24),
+            Player(name="only-cb", position="DEF", detailed_position="CB",
+                   attack=45, defense=75, overall=65, potential=70, age=24),
+        ]
+        apply_starting_xi(players)
+        started = [p.name for p in players if p.is_starting]
+        assert started == ["only-gk", "only-cb"]
+
+    def test_apply_starting_xi_respects_existing_flag(self, ctx):
+        from services import build_squad_roster, apply_starting_xi
+        roster = build_squad_roster(18)
+        players = [
+            Player(name=f"t{j}", position="MID", detailed_position=det,
+                   attack=50, defense=50, overall=50, potential=j, age=24,
+                   is_starting=(j == 0))
+            for j, det in enumerate(roster)
+        ]
+        apply_starting_xi(players)
+        # The one pre-flagged GK stays a starter (exactly one GK in the XI).
+        assert players[0].is_starting
+        assert sum(1 for p in players if p.is_starting
+                   and p.detailed_position == "GK") == 1
+        assert len([p for p in players if p.is_starting]) == 11

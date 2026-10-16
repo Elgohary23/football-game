@@ -11,7 +11,7 @@
                 <select name="player_a" class="filter-input">
                     <option value="">— اختر —</option>
                     {% for p in players %}
-                    <option value="{{ p.id }}" {% if a_id == p.id %}selected{% endif %}>{{ p.name }} ({{ p.position }})</option>
+                    <option value="{{ p.id }}" {% if a_id == p.id %}selected{% endif %}>{{ p.name }} ({{ p.detailed_position or p.position }})</option>
                     {% endfor %}
                 </select>
             </div>
@@ -20,7 +20,7 @@
                 <select name="player_b" class="filter-input">
                     <option value="">— اختر —</option>
                     {% for p in players %}
-                    <option value="{{ p.id }}" {% if b_id == p.id %}selected{% endif %}>{{ p.name }} ({{ p.position }})</option>
+                    <option value="{{ p.id }}" {% if b_id == p.id %}selected{% endif %}>{{ p.name }} ({{ p.detailed_position or p.position }})</option>
                     {% endfor %}
                 </select>
             </div>

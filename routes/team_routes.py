@@ -163,6 +163,7 @@ def formation():
                 "id": p.id,
                 "name": p.name,
                 "position": p.position,
+                "detailed_position": p.detailed_position or p.position,
                 "attack": p.attack,
                 "defense": p.defense,
                 "injury_days": p.injury_days,

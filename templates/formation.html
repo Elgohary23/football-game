@@ -305,7 +305,7 @@ document.addEventListener('DOMContentLoaded', function() {
         div.className = 'pool-player';
         div.draggable = true;
         div.dataset.id = player.id;
-        div.innerHTML = `<span class="pos-tag ${player.position}">${player.position}</span> ${player.name}`;
+        div.innerHTML = `<span class="pos-tag ${player.position}">${player.detailed_position || player.position}</span> ${player.name}`;
         div.addEventListener('dragstart', (e) => {
             e.dataTransfer.setData('text/plain', player.id.toString());
             div.classList.add('dragging');
@@ -321,7 +321,7 @@ document.addEventListener('DOMContentLoaded', function() {
         div.className = 'bench-player';
         div.draggable = true;
         div.dataset.id = player.id;
-        div.innerHTML = `<span class="pos-tag ${player.position}">${player.position}</span> ${player.name}`;
+        div.innerHTML = `<span class="pos-tag ${player.position}">${player.detailed_position || player.position}</span> ${player.name}`;
         div.addEventListener('dragstart', (e) => {
             e.dataTransfer.setData('text/plain', player.id.toString());
             div.classList.add('dragging');
@@ -340,7 +340,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const isInjured = player.injury_days > 0;
         const name = player.name.split(' ').slice(-1)[0];
         const savedRole = formationData[player.id] && formationData[player.id].role || 'standard';
-        box.innerHTML = `<span class="pb-name" title="${player.name}">${isInjured ? '🔴 ' : ''}${name}</span><span class="pb-pos">${player.position}</span><select class="role-select" data-role-player="${player.id}">${roleOptions(savedRole)}</select>`;
+        box.innerHTML = `<span class="pb-name" title="${player.name}">${isInjured ? '🔴 ' : ''}${name}</span><span class="pb-pos">${player.detailed_position || player.position}</span><select class="role-select" data-role-player="${player.id}">${roleOptions(savedRole)}</select>`;
         box.title = `${player.name} - ${player.attack}/${player.defense}`;
 
         box.addEventListener('dragstart', (e) => {

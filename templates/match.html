@@ -47,7 +47,7 @@
             <h3>{{ match.home_team.name }}</h3>
             {% for p in home_starters[:11] %}
             <div class="match-player-row">
-                <span class="mp-name"><span class="pos-tag {{ p.position }}" style="font-size:0.6rem;">{{ p.position }}</span> {{ p.name }}</span>
+                <span class="mp-name"><span class="pos-tag {{ p.position }}" style="font-size:0.6rem;">{{ p.detailed_position or p.position }}</span> {{ p.name }}</span>
                 <span class="mp-rating">{{ p.attack }}/{{ p.defense }}</span>
             </div>
             {% endfor %}
@@ -125,7 +125,7 @@
             <h3>{{ match.away_team.name }}</h3>
             {% for p in away_starters[:11] %}
             <div class="match-player-row">
-                <span class="mp-name"><span class="pos-tag {{ p.position }}" style="font-size:0.6rem;">{{ p.position }}</span> {{ p.name }}</span>
+                <span class="mp-name"><span class="pos-tag {{ p.position }}" style="font-size:0.6rem;">{{ p.detailed_position or p.position }}</span> {{ p.name }}</span>
                 <span class="mp-rating">{{ p.attack }}/{{ p.defense }}</span>
             </div>
             {% endfor %}

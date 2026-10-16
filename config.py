@@ -106,7 +106,7 @@ REPUTATION_TOLERANCE = 10
 OLD_DATA_KEEP_PLAYED_MATCHES = 150
 
 # --- Schema migration guard ---
-TEMPLATE_SCHEMA_VERSION = 10  # bump to force a template.db rebuild (deeper_sim: rules+tactics+AI)
+TEMPLATE_SCHEMA_VERSION = 11  # bump to force a template.db rebuild (structured detailed-position squads + valid XIs)
 
 # --- Advanced tactics (FM features) ---
 PRESSING_STYLES = ("low", "normal", "high")
@@ -509,86 +509,90 @@ CLUB_REPUTATIONS = {
 
 # Seeded world-class players (procedural generation covers everyone else).
 # Each entry overrides one generated squad member at the named club.
+# Famous squad members to pin on specific clubs after world generation.
+# "detailed" is the player's signature detailed position — star swaps are
+# like-for-like (Kane takes an ST slot, Hakimi the RB) so the backline's
+# LB/CB/RB coverage is never disturbed.
 SEED_STAR_PLAYERS = [
-    {"name": "Kylian Mbappé", "position": "FWD", "attack": 91, "defense": 45,
+    {"name": "Kylian Mbappé", "position": "FWD", "detailed": "ST", "attack": 91, "defense": 45,
      "potential": 93, "age": 25, "region": "Europe", "club": "Real Madrid"},
-    {"name": "Erling Haaland", "position": "FWD", "attack": 90, "defense": 42,
+    {"name": "Erling Haaland", "position": "FWD", "detailed": "ST", "attack": 90, "defense": 42,
      "potential": 92, "age": 24, "region": "Europe", "club": "Manchester City"},
-    {"name": "Jude Bellingham", "position": "MID", "attack": 88, "defense": 74,
+    {"name": "Jude Bellingham", "position": "MID", "detailed": "CM", "attack": 88, "defense": 74,
      "potential": 92, "age": 21, "region": "Europe", "club": "Real Madrid"},
-    {"name": "Vinícius Júnior", "position": "FWD", "attack": 89, "defense": 40,
+    {"name": "Vinícius Júnior", "position": "FWD", "detailed": "LW", "attack": 89, "defense": 40,
      "potential": 91, "age": 24, "region": "South_America", "club": "Real Madrid"},
-    {"name": "Lamine Yamal", "position": "FWD", "attack": 88, "defense": 38,
+    {"name": "Lamine Yamal", "position": "FWD", "detailed": "RW", "attack": 88, "defense": 38,
      "potential": 95, "age": 17, "region": "Europe", "club": "Barcelona"},
-    {"name": "Rodri", "position": "MID", "attack": 82, "defense": 88,
+    {"name": "Rodri", "position": "MID", "detailed": "CDM", "attack": 82, "defense": 88,
      "potential": 89, "age": 28, "region": "Europe", "club": "Manchester City"},
-    {"name": "Mohamed Salah", "position": "FWD", "attack": 89, "defense": 45,
+    {"name": "Mohamed Salah", "position": "FWD", "detailed": "RW", "attack": 89, "defense": 45,
      "potential": 90, "age": 32, "region": "Middle_East", "club": "Liverpool"},
-    {"name": "Harry Kane", "position": "FWD", "attack": 89, "defense": 48,
+    {"name": "Harry Kane", "position": "FWD", "detailed": "ST", "attack": 89, "defense": 48,
      "potential": 90, "age": 31, "region": "Europe", "club": "Bayern München"},
-    {"name": "Kevin De Bruyne", "position": "MID", "attack": 87, "defense": 60,
+    {"name": "Kevin De Bruyne", "position": "MID", "detailed": "CAM", "attack": 87, "defense": 60,
      "potential": 88, "age": 33, "region": "Europe", "club": "Manchester City"},
-    {"name": "Virgil van Dijk", "position": "DEF", "attack": 55, "defense": 89,
+    {"name": "Virgil van Dijk", "position": "DEF", "detailed": "CB", "attack": 55, "defense": 89,
      "potential": 90, "age": 33, "region": "Europe", "club": "Liverpool"},
-    {"name": "Robert Lewandowski", "position": "FWD", "attack": 88, "defense": 44,
+    {"name": "Robert Lewandowski", "position": "FWD", "detailed": "ST", "attack": 88, "defense": 44,
      "potential": 89, "age": 36, "region": "Europe", "club": "Barcelona"},
-    {"name": "Jamal Musiala", "position": "MID", "attack": 87, "defense": 55,
+    {"name": "Jamal Musiala", "position": "MID", "detailed": "CAM", "attack": 87, "defense": 55,
      "potential": 93, "age": 21, "region": "Europe", "club": "Bayern München"},
-    {"name": "Florian Wirtz", "position": "MID", "attack": 86, "defense": 52,
+    {"name": "Florian Wirtz", "position": "MID", "detailed": "CAM", "attack": 86, "defense": 52,
      "potential": 92, "age": 21, "region": "Europe", "club": "Bayer Leverkusen"},
-    {"name": "Bukayo Saka", "position": "FWD", "attack": 86, "defense": 50,
+    {"name": "Bukayo Saka", "position": "FWD", "detailed": "RW", "attack": 86, "defense": 50,
      "potential": 90, "age": 23, "region": "Europe", "club": "Arsenal"},
-    {"name": "Phil Foden", "position": "MID", "attack": 85, "defense": 52,
+    {"name": "Phil Foden", "position": "MID", "detailed": "CM", "attack": 85, "defense": 52,
      "potential": 89, "age": 24, "region": "Europe", "club": "Manchester City"},
-    {"name": "Cole Palmer", "position": "FWD", "attack": 85, "defense": 45,
+    {"name": "Cole Palmer", "position": "FWD", "detailed": "CF", "attack": 85, "defense": 45,
      "potential": 90, "age": 22, "region": "Europe", "club": "Chelsea"},
-    {"name": "Declan Rice", "position": "MID", "attack": 78, "defense": 85,
+    {"name": "Declan Rice", "position": "MID", "detailed": "CDM", "attack": 78, "defense": 85,
      "potential": 88, "age": 25, "region": "Europe", "club": "Arsenal"},
-    {"name": "Martin Ødegaard", "position": "MID", "attack": 85, "defense": 58,
+    {"name": "Martin Ødegaard", "position": "MID", "detailed": "CAM", "attack": 85, "defense": 58,
      "potential": 89, "age": 25, "region": "Europe", "club": "Arsenal"},
-    {"name": "Antoine Griezmann", "position": "FWD", "attack": 86, "defense": 55,
+    {"name": "Antoine Griezmann", "position": "FWD", "detailed": "CF", "attack": 86, "defense": 55,
      "potential": 87, "age": 33, "region": "Europe", "club": "Atlético Madrid"},
-    {"name": "Federico Valverde", "position": "MID", "attack": 83, "defense": 78,
+    {"name": "Federico Valverde", "position": "MID", "detailed": "CM", "attack": 83, "defense": 78,
      "potential": 89, "age": 26, "region": "South_America", "club": "Real Madrid"},
-    {"name": "Thibaut Courtois", "position": "GK", "attack": 40, "defense": 89,
+    {"name": "Thibaut Courtois", "position": "GK", "detailed": "GK", "attack": 40, "defense": 89,
      "potential": 90, "age": 32, "region": "Europe", "club": "Real Madrid"},
-    {"name": "Alisson Becker", "position": "GK", "attack": 38, "defense": 88,
+    {"name": "Alisson Becker", "position": "GK", "detailed": "GK", "attack": 38, "defense": 88,
      "potential": 89, "age": 32, "region": "South_America", "club": "Liverpool"},
-    {"name": "Gianluigi Donnarumma", "position": "GK", "attack": 38, "defense": 87,
+    {"name": "Gianluigi Donnarumma", "position": "GK", "detailed": "GK", "attack": 38, "defense": 87,
      "potential": 90, "age": 25, "region": "Europe", "club": "Paris Saint-Germain"},
-    {"name": "Antonio Rüdiger", "position": "DEF", "attack": 50, "defense": 86,
+    {"name": "Antonio Rüdiger", "position": "DEF", "detailed": "CB", "attack": 50, "defense": 86,
      "potential": 87, "age": 31, "region": "Europe", "club": "Real Madrid"},
-    {"name": "William Saliba", "position": "DEF", "attack": 52, "defense": 86,
+    {"name": "William Saliba", "position": "DEF", "detailed": "CB", "attack": 52, "defense": 86,
      "potential": 90, "age": 23, "region": "Europe", "club": "Arsenal"},
-    {"name": "Rúben Dias", "position": "DEF", "attack": 50, "defense": 87,
+    {"name": "Rúben Dias", "position": "DEF", "detailed": "CB", "attack": 50, "defense": 87,
      "potential": 88, "age": 27, "region": "Europe", "club": "Manchester City"},
-    {"name": "Achraf Hakimi", "position": "DEF", "attack": 78, "defense": 82,
+    {"name": "Achraf Hakimi", "position": "DEF", "detailed": "RB", "attack": 78, "defense": 82,
      "potential": 86, "age": 25, "region": "Middle_East", "club": "Paris Saint-Germain"},
-    {"name": "Ousmane Dembélé", "position": "FWD", "attack": 86, "defense": 48,
+    {"name": "Ousmane Dembélé", "position": "FWD", "detailed": "RW", "attack": 86, "defense": 48,
      "potential": 88, "age": 27, "region": "Europe", "club": "Paris Saint-Germain"},
-    {"name": "Lautaro Martínez", "position": "FWD", "attack": 87, "defense": 50,
+    {"name": "Lautaro Martínez", "position": "FWD", "detailed": "ST", "attack": 87, "defense": 50,
      "potential": 89, "age": 27, "region": "South_America", "club": "Inter"},
-    {"name": "Nicolò Barella", "position": "MID", "attack": 80, "defense": 83,
+    {"name": "Nicolò Barella", "position": "MID", "detailed": "CM", "attack": 80, "defense": 83,
      "potential": 87, "age": 27, "region": "Europe", "club": "Inter"},
-    {"name": "Rafael Leão", "position": "FWD", "attack": 85, "defense": 42,
+    {"name": "Rafael Leão", "position": "FWD", "detailed": "LW", "attack": 85, "defense": 42,
      "potential": 89, "age": 25, "region": "Europe", "club": "AC Milan"},
-    {"name": "Mike Maignan", "position": "GK", "attack": 40, "defense": 86,
+    {"name": "Mike Maignan", "position": "GK", "detailed": "GK", "attack": 40, "defense": 86,
      "potential": 88, "age": 29, "region": "Europe", "club": "AC Milan"},
-    {"name": "Khvicha Kvaratskhelia", "position": "FWD", "attack": 85, "defense": 50,
+    {"name": "Khvicha Kvaratskhelia", "position": "FWD", "detailed": "LW", "attack": 85, "defense": 50,
      "potential": 89, "age": 23, "region": "Europe", "club": "Napoli"},
-    {"name": "Victor Osimhen", "position": "FWD", "attack": 86, "defense": 45,
+    {"name": "Victor Osimhen", "position": "FWD", "detailed": "ST", "attack": 86, "defense": 45,
      "potential": 88, "age": 25, "region": "Middle_East", "club": "Napoli"},
-    {"name": "Dušan Vlahović", "position": "FWD", "attack": 84, "defense": 42,
+    {"name": "Dušan Vlahović", "position": "FWD", "detailed": "ST", "attack": 84, "defense": 42,
      "potential": 87, "age": 24, "region": "Europe", "club": "Juventus"},
-    {"name": "Alex Grimaldo", "position": "DEF", "attack": 76, "defense": 80,
+    {"name": "Alex Grimaldo", "position": "DEF", "detailed": "LB", "attack": 76, "defense": 80,
      "potential": 84, "age": 29, "region": "Europe", "club": "Bayer Leverkusen"},
-    {"name": "Xavi Simons", "position": "MID", "attack": 82, "defense": 55,
+    {"name": "Xavi Simons", "position": "MID", "detailed": "CAM", "attack": 82, "defense": 55,
      "potential": 89, "age": 21, "region": "Europe", "club": "RB Leipzig"},
-    {"name": "Serhou Guirassy", "position": "FWD", "attack": 84, "defense": 40,
+    {"name": "Serhou Guirassy", "position": "FWD", "detailed": "ST", "attack": 84, "defense": 40,
      "potential": 85, "age": 28, "region": "Europe", "club": "Borussia Dortmund"},
-    {"name": "Antoine Mac Allister", "position": "MID", "attack": 80, "defense": 78,
+    {"name": "Alexis Mac Allister", "position": "MID", "detailed": "CM", "attack": 80, "defense": 78,
      "potential": 85, "age": 25, "region": "South_America", "club": "Liverpool"},
-    {"name": "Ryan Gravenberch", "position": "MID", "attack": 78, "defense": 80,
+    {"name": "Ryan Gravenberch", "position": "MID", "detailed": "CDM", "attack": 78, "defense": 80,
      "potential": 87, "age": 22, "region": "Europe", "club": "Liverpool"},
 ]
 
@@ -1076,6 +1080,36 @@ DEFENSE_ATTRS = frozenset({
     "gk_kicking", "gk_positioning", "gk_reflexes", "gk_one_on_ones",
     "gk_communication",
 })
+
+# --- Squad generation: detailed-position roster (single source of truth) ---
+# Every generated squad starts from this 18-man core so each club always has
+# a complete backline (LB, CB, CB, RB + wing-backs), exactly 2 GKs, and a
+# realistic midfield/attack spread. Extras beyond squad-size 18 are drawn
+# from SQUAD_EXTRA_POSITION_WEIGHTS instead of coarse dice — the old
+# per-coarse dice produced squads with 6 GKs or backlines lacking an
+# LB/RB entirely (verified: 213/644 squads had no LB at all).
+SQUAD_CORE_DETAILED_POSITIONS = [
+    "GK", "GK",
+    "LB", "CB", "CB", "RB", "LWB", "RWB",
+    "CDM", "CM", "CM", "CAM", "LM", "RM",
+    "LW", "RW", "ST", "ST",
+]
+# Extras (squad size 19-24) draw from this weighted pool; GK is excluded so
+# a squad never grows beyond its two core keepers.
+SQUAD_EXTRA_POSITION_WEIGHTS = {
+    "CB": 2.0, "LB": 1.0, "RB": 1.0, "LWB": 0.5, "RWB": 0.5,
+    "CDM": 1.0, "CM": 2.0, "CAM": 1.0, "LM": 1.0, "RM": 1.0,
+    "LW": 1.0, "RW": 1.0, "ST": 1.5, "CF": 1.0,
+}
+# Default starting XI (4-4-2): exactly one GK and a LB/CB/CB/RB backline.
+# Starters are picked as the best available player for each role — never
+# "first 11 after shuffling" (which fielded two GKs or none).
+SQUAD_STARTING_XI = [
+    "GK", "LB", "CB", "CB", "RB",
+    "LM", "CM", "CM", "RM",
+    "ST", "ST",
+]
+
 
 # --- Tier-bounded philosophies (single source of truth) ---
 # Allowed philosophies per reputation band. The philosophy assignment

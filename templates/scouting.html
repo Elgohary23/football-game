@@ -116,7 +116,7 @@
                 {% for p in free_agents %}
                 <tr>
                     <td style="text-align:right;font-weight:bold;">{{ p.name }}</td>
-                    <td><span class="pos-tag {{ p.position }}">{{ p.position }}</span></td>
+                    <td><span class="pos-tag {{ p.position }}">{{ p.detailed_position or p.position }}</span></td>
                     <td>{{ p.age }}</td>
                     <td>{{ ratings.get(p.id, p.attack) }}</td>
                     <td>{{ ratings.get(p.id, p.defense) }}</td>
@@ -170,7 +170,7 @@
                         {% if p.transfer_listed %}<span style="background:#f39c12;color:#fff;font-size:0.65rem;padding:0.05rem 0.4rem;border-radius:8px;">للبيع</span>{% endif %}
                         {% if p.transfer_requested %}<span style="background:#e94560;color:#fff;font-size:0.65rem;padding:0.05rem 0.4rem;border-radius:8px;">طلب رحيل</span>{% endif %}
                     </td>
-                    <td><span class="pos-tag {{ p.position }}">{{ p.position }}</span></td>
+                    <td><span class="pos-tag {{ p.position }}">{{ p.detailed_position or p.position }}</span></td>
                     <td>{{ p.age }}</td>
                     <td>
                         <span title="تقييم الكشافة">{{ ratings.get(p.id, p.attack) }}</span>

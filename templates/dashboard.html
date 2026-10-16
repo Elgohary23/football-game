@@ -252,7 +252,7 @@
             <tbody>
                 {% for player in players %}
                 <tr class="{{ 'row-starter' if player.is_starting else '' }} {{ 'row-injured' if player.injury_days > 0 }}">
-                    <td><span class="pos-tag {{ player.position }}">{{ player.position }}</span></td>
+                    <td><span class="pos-tag {{ player.position }}">{{ player.detailed_position or player.position }}</span></td>
                     <td style="text-align:right;"><a href="#" class="player-name-link" data-id="{{ player.id }}" style="color:#e0e0e0;text-decoration:none;font-weight:bold;">{{ player.name }}</a></td>
                     <td>{{ player.age }}</td>
                     <td>{{ player.attack }}</td>
@@ -309,7 +309,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 .then(({ ok, body }) => {
                     if (!ok || body.error) return;
                     const data = body;
-                    modalName.textContent = data.name + ' (' + data.position + ')';
+                    modalName.textContent = data.name + ' (' + (data.detailed_position || data.position) + ')';
                     modalStats.innerHTML = `
                         <div class="modal-stat"><span class="modal-stat-label">العمر</span><span class="modal-stat-value">${data.age}</span></div>
                         <div class="modal-stat"><span class="modal-stat-label">الطول</span><span class="modal-stat-value">${data.height} سم</span></div>
