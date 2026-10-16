@@ -3,7 +3,7 @@
 import json
 from datetime import datetime
 
-from flask import Blueprint, flash, redirect, render_template, request, session
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, session
 
 bp = Blueprint("main", __name__)
 
@@ -711,26 +711,37 @@ def advance_week():
 @bp.route("/simulate_to_date", methods=["POST"])
 def simulate_to_date():
     state = safe_state()
+    # fetch() callers (calendar sweep) want JSON so the hover can land on
+    # the final day exactly when the server finishes; classic form posts
+    # keep the flash + redirect behaviour.
+    wants_json = (
+        request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or "application/json" in (request.headers.get("Accept") or "")
+    )
+
+    def _fail(msg, redirect_to):
+        if wants_json:
+            flash(msg)
+            return jsonify({"ok": False, "message": msg, "redirect": redirect_to}), 400
+        flash(msg)
+        return redirect(redirect_to)
+
     if state.season_over:
-        flash("الموسم انتهى!")
-        return redirect("/dashboard")
+        return _fail("الموسم انتهى!", "/dashboard")
 
     target_date_str = request.form.get("target_date")
     if not target_date_str:
-        flash("تاريخ غير صالح!")
-        return redirect("/calendar")
+        return _fail("تاريخ غير صالح!", "/calendar")
 
     try:
         target_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
         current_date = datetime.strptime(state.current_date, "%Y-%m-%d").date()
         days_to_sim = (target_date - current_date).days
     except Exception:
-        flash("تاريخ غير صالح!")
-        return redirect("/calendar")
+        return _fail("تاريخ غير صالح!", "/calendar")
 
     if days_to_sim <= 0:
-        flash("يرجى اختيار تاريخ في المستقبل!")
-        return redirect("/calendar")
+        return _fail("يرجى اختيار تاريخ في المستقبل!", "/calendar")
 
     # Cap the fast-forward so a date past the season end can't spin the
     # calendar into uncharted weeks with weird results.
@@ -761,11 +772,23 @@ def simulate_to_date():
         db.session.commit()
     except Exception:
         db.session.rollback()
-        flash("حدث خطأ في المحاكاة!")
-        return redirect("/calendar")
+        return _fail("حدث خطأ في المحاكاة!", "/calendar")
 
     note = " (تم تحديد المحاكاة بسنة واحدة كحد أقصى)" if capped else ""
-    flash(f"تمت المحاكاة! وصلت لتاريخ {state.current_date}، لعبت {matches_played} مباريات{note}")
+    msg = f"تمت المحاكاة! وصلت لتاريخ {state.current_date}، لعبت {matches_played} مباريات{note}"
+    if wants_json:
+        flash(msg)
+        return jsonify(
+            {
+                "ok": True,
+                "message": msg,
+                "redirect": "/dashboard",
+                "current_date": state.current_date,
+                "matches_played": matches_played,
+                "capped": capped,
+            }
+        )
+    flash(msg)
     return redirect("/dashboard")
 
 

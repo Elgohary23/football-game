@@ -21,7 +21,7 @@
             <!-- Inline simulation sweep HUD (replaces the old blocking modal) -->
             <div class="sim-hud" id="simHud" hidden>
                 <div class="sim-hud-row">
-                    <span class="sim-hud-label"><i class="fas fa-fast-forward"></i> جاري المحاكاة...</span>
+                    <span class="sim-hud-label" id="simHudLabel"><i class="fas fa-fast-forward"></i> جاري المحاكاة...</span>
                     <span class="sim-hud-date" id="simHudDate">---</span>
                     <span class="sim-hud-count" id="simHudCount"></span>
                 </div>
@@ -630,6 +630,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const simHudDate = document.getElementById('simHudDate');
     const simHudCount = document.getElementById('simHudCount');
     const simHudFill = document.getElementById('simHudFill');
+    const simHudLabel = document.getElementById('simHudLabel');
 
     // Sweep state: which dates the outline/light has already passed.
     const simState = { running: false, scanned: new Set(), current: null };
@@ -905,9 +906,47 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Simulation with a calendar sweep: a white outline + light glides
-    // day-by-day from the game date to the target, auto-flipping months,
-    // so progress is visible on the calendar itself.
+    function showSweepDay(idx, path) {
+        const cur = path[idx];
+        simState.current = cur;
+        simState.scanned.add(cur);
+
+        const parts = cur.split('-');
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        if (y !== displayedYear || m !== displayedMonth) {
+            displayedYear = y;
+            displayedMonth = m;
+            renderCalendar();
+        }
+        paintSweepCell(cur);
+
+        const pct = Math.round(((idx + 1) / path.length) * 100);
+        if (simHudFill) simHudFill.style.width = pct + '%';
+        if (simHudDate) simHudDate.textContent = cur;
+        if (simHudCount) simHudCount.textContent = (idx + 1) + ' / ' + path.length + ' يوم (' + pct + '%)';
+        if (selectedDateDisplay) selectedDateDisplay.textContent = cur;
+    }
+
+    function resetSweep(errorMsg) {
+        simState.running = false;
+        simState.scanned = new Set();
+        simState.current = null;
+        if (calendarCard) calendarCard.classList.remove('sim-running');
+        if (errorMsg) {
+            if (simHudLabel) simHudLabel.textContent = errorMsg;
+            if (simHudCount) simHudCount.textContent = '';
+            setTimeout(function() { if (simHud) simHud.hidden = true; renderCalendar(); }, 2500);
+        } else if (simHud) {
+            simHud.hidden = true;
+        }
+        renderCalendar();
+    }
+
+    // Server-synced calendar sweep: the POST runs on the server immediately
+    // via fetch while the outline/light glides day-by-day. The sweep is
+    // paced asymptotically so it only lands on the final day when the
+    // server actually finishes (slow sweep, synced arrival).
     window.simulateToDate = async function(dateStr) {
         if (simState.running) return; // double-click guard
         if (!dateStr || dateStr <= gameDateStr) {
@@ -937,41 +976,89 @@ document.addEventListener('DOMContentLoaded', function() {
         simState.current = null;
         if (calendarCard) calendarCard.classList.add('sim-running');
         if (simHud) simHud.hidden = false;
+        if (simHudLabel) simHudLabel.innerHTML = '<i class="fas fa-fast-forward"></i> جاري المحاكاة على الخادم...';
+        if (simHudFill) simHudFill.style.width = '0%';
 
-        // Keep the whole sweep around ~2.8s regardless of span.
-        const stepMs = Math.max(8, Math.min(90, Math.round(2800 / path.length)));
-
-        for (let i = 0; i < path.length; i++) {
-            const cur = path[i];
-            simState.current = cur;
-            simState.scanned.add(cur);
-
-            const parts = cur.split('-');
-            const y = parseInt(parts[0], 10);
-            const m = parseInt(parts[1], 10) - 1;
-            if (y !== displayedYear || m !== displayedMonth) {
-                displayedYear = y;
-                displayedMonth = m;
-                renderCalendar();
+        // Fire the real simulation at once; the sweep below runs in parallel
+        // and is paced to arrive exactly when this resolves.
+        targetDateInput.value = dateStr;
+        const formData = new FormData(simulateForm);
+        formData.set('target_date', dateStr);
+        let serverResult = null;
+        let serverDone = false;
+        let serverError = null;
+        const serverPromise = fetch(simulateForm.action, {
+            method: 'POST',
+            body: formData,
+            credentials: 'same-origin',
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+        }).then(function(r) {
+            return r.json().then(function(data) {
+                if (!r.ok || !data || data.ok === false) {
+                    throw new Error((data && data.message) || ('HTTP ' + r.status));
+                }
+                return data;
+            });
+        }).then(function(data) {
+            serverResult = data;
+            serverDone = true;
+        }).catch(function(err) {
+            // Network/CSRF failure: fall back to a native submit so the
+            // classic flash + redirect path still completes the sim.
+            if (!err || !err.message) {
+                targetDateInput.value = dateStr;
+                simulateForm.submit();
+                return new Promise(function() {});
             }
-            paintSweepCell(cur);
+            serverError = err;
+            serverDone = true;
+        });
 
-            const pct = Math.round(((i + 1) / path.length) * 100);
-            if (simHudFill) simHudFill.style.width = pct + '%';
-            if (simHudDate) simHudDate.textContent = cur;
-            if (simHudCount) simHudCount.textContent = (i + 1) + ' / ' + path.length + ' يوم (' + pct + '%)';
-            if (selectedDateDisplay) selectedDateDisplay.textContent = cur;
+        // Slow eased approach while the server works: fast at first, then
+        // ever slower, never touching the final day until the server is done.
+        const expectedMs = Math.min(12000, Math.max(3500, path.length * 160));
+        const tau = Math.max(900, Math.min(4200, expectedMs / 3));
+        const holdIdx = path.length >= 3 ? path.length - 2 : path.length - 1;
+        const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        let shown = -1;
+        const now = function() {
+            return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        };
+        while (!serverDone) {
+            const elapsed = now() - t0;
+            const p = 1 - Math.exp(-elapsed / tau);
+            const idx = Math.min(holdIdx, Math.floor(p * path.length));
+            while (shown < idx) {
+                shown += 1;
+                showSweepDay(shown, path);
+                await sleep(70);
+                if (serverDone) break;
+            }
+            await sleep(60);
+        }
+        await serverPromise;
 
-            await sleep(stepMs);
+        if (serverError) {
+            resetSweep(serverError.message || 'تعذرت المحاكاة');
+            return;
+        }
+
+        // Server finished: glide the last day(s) into the target, then go.
+        if (simHudLabel) simHudLabel.innerHTML = '<i class="fas fa-check"></i> اكتملت المحاكاة';
+        const remaining = (path.length - 1) - shown;
+        const finishStep = remaining <= 0 ? 0 : Math.max(60, Math.min(160, Math.round(900 / remaining)));
+        while (shown < path.length - 1) {
+            shown += 1;
+            showSweepDay(shown, path);
+            await sleep(finishStep);
         }
 
         const targetCell = calendarDaysGrid.querySelector('.day-cell[data-date="' + dateStr + '"]');
         if (targetCell) targetCell.classList.add('sim-target');
         if (simHudFill) simHudFill.style.width = '100%';
-        await sleep(320);
+        await sleep(420);
 
-        targetDateInput.value = dateStr;
-        simulateForm.submit();
+        window.location.href = (serverResult && serverResult.redirect) || '/dashboard';
     };
 
     // Initial render
