@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}مركز الانتقالات{% endblock %}
+{% block content %}
+<section class="dashboard">
+    <h1 class="page-title"><i class="fas fa-exchange-alt"></i> مركز الانتقالات</h1>
+    <div class="help-box"><i class="fas fa-info-circle"></i> كل صفقاتك في مكان واحد: الأهداف، الوارد، الصادر، الإعارات، القائمة المختصرة (المعروضون للبيع)، مع كل البنود — التقسيط، إعادة الشراء، البيع المستقبلي، حق الأولوية، مكافآت الأداء، المبادلة.</div>
+
+    <div data-tabs>
+        <div class="tabs" role="tablist">
+            <button class="tab-btn active" data-tab="incoming">الوارد ({{ incoming|length }})</button>
+            <button class="tab-btn" data-tab="outgoing">الصادر ({{ outgoing|length }})</button>
+            <button class="tab-btn" data-tab="loans">الإعارات ({{ loans|length }})</button>
+            <button class="tab-btn" data-tab="shortlist">القائمة المختصرة ({{ listed|length }})</button>
+            <button class="tab-btn" data-tab="requests">طلبات الرحيل ({{ requested|length }})</button>
+        </div>
+
+        <div class="tab-pane active" data-pane="incoming">
+            <div class="card">
+                <div class="card-header"><h3>عروض واردة نحو ناديك</h3></div>
+                {% if incoming %}
+                <div class="table-container"><table>
+                    <thead><tr><th>اللاعب</th><th>من</th><th>المبلغ</th><th>الجولة</th><th>البنود</th><th>الحالة</th></tr></thead>
+                    <tbody>
+                        {% for o in incoming %}
+                        <tr>
+                            <td style="text-align:right;">{{ o.player.name if o.player else ('#' ~ o.player_id) }}</td>
+                            <td style="font-size:0.8rem;">{{ o.from_team.name if o.from_team else '—' }}</td>
+                            <td class="money-text">${{ "{:,}".format(o.counter_amount if o.status == 'counter' and o.counter_amount else o.amount) }}</td>
+                            <td>{{ o.offer_round or 1 }}</td>
+                            <td style="font-size:0.72rem;color:#888;">
+                                {% if o.is_loan %}إعارة {{ o.loan_days }} يوم{% if o.buy_option %} + شراء ${{ "{:,}".format(o.buy_option) }}{% endif %}{% endif %}
+                                {% if o.installments and o.installments > 1 %}{{ o.installments }} أقساط {% endif %}
+                                {% if o.buy_back_price %}+ إعادة شراء {% endif %}
+                                {% if o.first_refusal %}+ أولوية {% endif %}
+                                {% if o.performance_bonus %}+ مكافأة {% endif %}
+                                {% if o.is_precontract %}عقد مسبق{% endif %}
+                            </td>
+                            <td>{{ o.status }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table></div>
+                {% else %}
+                <div class="empty-state">لا عروض واردة — راقب <a href="{{ url_for('inbox.messages') }}" style="color:#e94560;">الرسائل</a> للرد على العروض المعلقة</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="tab-pane" data-pane="outgoing">
+            <div class="card">
+                <div class="card-header"><h3>عروضك الصادرة</h3></div>
+                {% if outgoing %}
+                <div class="table-container"><table>
+                    <thead><tr><th>اللاعب</th><th>إلى</th><th>المبلغ</th><th>الجولة</th><th>الحالة</th></tr></thead>
+                    <tbody>
+                        {% for o in outgoing %}
+                        <tr>
+                            <td style="text-align:right;">{{ o.player.name if o.player else ('#' ~ o.player_id) }}</td>
+                            <td style="font-size:0.8rem;">{{ o.to_team.name if o.to_team else '—' }}</td>
+                            <td class="money-text">${{ "{:,}".format(o.counter_amount if o.status == 'counter' and o.counter_amount else o.amount) }}</td>
+                            <td>{{ o.offer_round or 1 }}</td>
+                            <td>{{ o.status }}{% if o.is_loan %} (إعارة){% endif %}{% if o.is_precontract %} (مسبق){% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table></div>
+                {% else %}
+                <div class="empty-state">لم ترسل أي عروض بعد — ابدأ من <a href="{{ url_for('team.scouting') }}" style="color:#e94560;">سوق الانتقالات</a></div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="tab-pane" data-pane="loans">
+            <div class="card">
+                <div class="card-header"><h3>اللاعبون المعارون</h3></div>
+                {% if loans %}
+                <div class="table-container"><table>
+                    <thead><tr><th>اللاعب</th><th>المركز</th><th>الرسوم</th><th>بند الشراء</th><th>إجراء</th></tr></thead>
+                    <tbody>
+                        {% for p in loans %}
+                        <tr>
+                            <td style="text-align:right;">{{ p.name }}</td>
+                            <td><span class="pos-tag {{ p.position }}">{{ p.detailed_position or p.position }}</span></td>
+                            <td class="money-text">${{ "{:,}".format(p.loan_fee or 0) }}</td>
+                            <td>{% if p.loan_buy_option %}${{ "{:,}".format(p.loan_buy_option) }}{% else %}—{% endif %}</td>
+                            <td>
+                                {% if p.loan_buy_option %}
+                                <form action="/loan/{{ p.id }}/buy" method="POST" style="display:inline;">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                    <button class="btn btn-sm btn-success">تفعيل الشراء</button>
+                                </form>
+                                {% else %}<span style="color:#888;font-size:0.75rem;">بدون بند شراء</span>{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table></div>
+                {% else %}
+                <div class="empty-state">لا إعارات نشطة — اطلب إعارة من صفحة أي لاعب في السوق (رسوم + نسبة أجر + بند شراء)</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="tab-pane" data-pane="shortlist">
+            <div class="card">
+                <div class="card-header"><h3>القائمة المختصرة — معروضون للبيع</h3></div>
+                {% if listed %}
+                <div class="table-container"><table>
+                    <thead><tr><th>اللاعب</th><th>القيمة</th><th>إجراء</th></tr></thead>
+                    <tbody>
+                        {% for p in listed %}
+                        <tr>
+                            <td style="text-align:right;">{{ p.name }} <span class="pill badge-gold">للبيع</span></td>
+                            <td class="money-text">${{ "{:,}".format(p.market_value) }}</td>
+                            <td><form action="/player/{{ p.id }}/unlist" method="POST" style="display:inline;"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/><button class="btn btn-sm btn-danger">سحب</button></form></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table></div>
+                {% else %}
+                <div class="empty-state">قائمتك فارغة — اعرض لاعباً للبيع من <a href="{{ url_for('team.squad') }}" style="color:#e94560;">التشكيلة</a></div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="tab-pane" data-pane="requests">
+            <div class="card">
+                <div class="card-header"><h3>طلبات الرحيل</h3></div>
+                {% if requested %}
+                <div class="table-container"><table>
+                    <thead><tr><th>اللاعب</th><th>القيمة</th><th>إجراء</th></tr></thead>
+                    <tbody>
+                        {% for p in requested %}
+                        <tr>
+                            <td style="text-align:right;">{{ p.name }} <span class="pill" style="background:#e94560;color:#fff;">طلب رحيل</span></td>
+                            <td class="money-text">${{ "{:,}".format(p.market_value) }}</td>
+                            <td><form action="/player/{{ p.id }}/withdraw_request" method="POST" style="display:inline;"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/><button class="btn btn-sm btn-success">سحب الطلب</button></form></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table></div>
+                {% else %}
+                <div class="empty-state">لا طلبات رحيل — غرفة الملابس مستقرة</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-file-contract"></i> دليل البنود المتاحة في كل صفقة</h3></div>
+        <div class="role-grid">
+            <div class="role-card"><h4>التقسيط</h4><p>حتى 4 دفعات — دفعة أولى + أقساط كل 180 يوم.</p></div>
+            <div class="role-card"><h4>إعادة الشراء</h4><p>استعد لاعبك بسعر ثابت (بحد أقصى 3× سعر البيع).</p></div>
+            <div class="role-card"><h4>البيع المستقبلي</h4><p>نسبة حتى 30% من أي بيع لاحق.</p></div>
+            <div class="role-card"><h4>حق الأولوية</h4><p>تُبلغ أولاً عند بيع اللاعب مجدداً.</p></div>
+            <div class="role-card"><h4>مكافأة الأداء</h4><p>مبلغ إضافي عند بلوغ هدف تهديفي.</p></div>
+            <div class="role-card"><h4>المبادلة</h4><p>لاعب من فريقك + مبلغ نقدي للفارق.</p></div>
+            <div class="role-card"><h4>العقد المسبق</h4><p>وقّع مجاناً مع من تبقى ≤180 يوماً على عقده.</p></div>
+            <div class="role-card"><h4>كسر العقد</h4><p>ادفع الشرط الجزائي واحصل عليه فوراً.</p></div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+{% block scripts %}{% endblock %}

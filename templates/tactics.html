@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}مركز التكتيك{% endblock %}
+{% block content %}
+<section class="dashboard">
+    <h1 class="page-title"><i class="fas fa-sliders-h"></i> مركز التكتيك</h1>
+    <div class="help-box"><i class="fas fa-info-circle"></i> العقلية والاستحواذ والتحولات والضغط والكرات الثابتة — تُحفظ عبر <code>/tactics/save</code> وتؤثر على محرك المباريات. تغيير الخطة يصفّر الألفة التكتيكية مؤقتاً.</div>
+
+    <div class="card" style="margin-bottom:1rem;">
+        <div class="meter">
+            <div class="meter-label"><span><i class="fas fa-flask"></i> الألفة التكتيكية</span><span>{{ player_team.tactical_familiarity or 100 }}%</span></div>
+            <div class="meter-track"><div class="meter-fill" style="width:{{ player_team.tactical_familiarity or 100 }}%;background:#2ecc71"></div></div>
+        </div>
+        <div class="meter">
+            <div class="meter-label"><span><i class="fas fa-users"></i> كيمياء الفريق</span><span>{{ player_team.chemistry or 0 }}%</span></div>
+            <div class="meter-track"><div class="meter-fill" style="width:{{ player_team.chemistry or 0 }}%;background:#3498db"></div></div>
+        </div>
+        <div class="kv"><span class="k">أسلوب الضغط الحالي</span><span class="v">{{ player_team.pressing_style }}</span></div>
+        <div class="kv"><span class="k">أسلوب المباراة الحالي</span><span class="v">{{ player_team.match_tactic }}</span></div>
+    </div>
+
+    <div data-tabs>
+        <div class="tabs" role="tablist">
+            <button class="tab-btn active" data-tab="mentality">العقلية</button>
+            <button class="tab-btn" data-tab="possession">أثناء الاستحواذ</button>
+            <button class="tab-btn" data-tab="transitions">التحولات</button>
+            <button class="tab-btn" data-tab="out">خارج الاستحواذ</button>
+            <button class="tab-btn" data-tab="setpieces">الكرات الثابتة</button>
+        </div>
+
+        <div class="tab-pane active" data-pane="mentality">
+            <div class="card">
+                <div class="card-header"><h3>العقلية (1-5)</h3></div>
+                <div class="tabs" id="mentalityBtns">
+                    {% for v, label in [(1, 'دفاعي جداً'), (2, 'دفاعي'), (3, 'متوازن'), (4, 'هجومي'), (5, 'هجومي جداً')] %}
+                    <button class="tab-btn mentality-btn {{ 'active' if (tactics_data.mentality or 3) == v else '' }}" data-m="{{ v }}">{{ label }}</button>
+                    {% endfor %}
+                </div>
+                <p style="color:#888;font-size:0.8rem;">العقلية تتحكم في ميل الفريق للمخاطرة الهجومية مقابل الصلابة الدفاعية.</p>
+            </div>
+        </div>
+
+        <div class="tab-pane" data-pane="possession">
+            <div class="card">
+                <div class="card-header"><h3>أثناء الاستحواذ</h3></div>
+                <div class="tactics-grid">
+                    <div><label>مباشرة التمرير</label><select id="tp_directness" class="filter-input"><option>قصير</option><option>متوازن</option><option>مباشر</option></select></div>
+                    <div><label>الإيقاع</label><select id="tp_tempo" class="filter-input"><option>بطيء</option><option>متوازن</option><option>سريع</option></select></div>
+                    <div><label>العرض</label><select id="tp_width" class="filter-input"><option>ضيق</option><option>متوازن</option><option>واسع</option></select></div>
+                    <div><label>العرضيات</label><select id="tp_crossing" class="filter-input"><option>قليلة</option><option>متوازنة</option><option>مكثفة</option></select></div>
+                    <div><label>الإبداع</label><select id="tp_creativity" class="filter-input"><option>منضبط</option><option>متوازن</option><option>حر</option></select></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-pane" data-pane="transitions">
+            <div class="card">
+                <div class="card-header"><h3>التحولات</h3></div>
+                <div class="tactics-grid">
+                    <div><label>الضغط المضاد</label><select id="tp_counter_press" class="filter-input"><option>تراجع</option><option>متوازن</option><option>ضغط مضاد</option></select></div>
+                    <div><label>الهجمة المرتدة</label><select id="tp_counter" class="filter-input"><option>إبطاء</option><option>متوازن</option><option>مرتدات سريعة</option></select></div>
+                    <div><label>توزيع الحارس</label><select id="tp_gk_dist" class="filter-input"><option>قصير</option><option>متوازن</option><option>طويل</option></select></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-pane" data-pane="out">
+            <div class="card">
+                <div class="card-header"><h3>خارج الاستحواذ</h3></div>
+                <div class="tactics-grid">
+                    <div><label>حدة الضغط</label><select id="tp_pressing" class="filter-input"><option>منخفض</option><option>متوازن</option><option>مكثف</option></select></div>
+                    <div><label>الخط الدفاعي</label><select id="tp_dline" class="filter-input"><option>منخفض</option><option>متوازن</option><option>مرتفع</option></select></div>
+                    <div><label>خط الالتحام</label><select id="tp_loe" class="filter-input"><option>منخفض</option><option>متوازن</option><option>مرتفع</option></select></div>
+                </div>
+                <form action="/formation/tactics" method="POST" class="tactics-grid" style="margin-top:0.8rem;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <div><label>ضغط الخصم (المحرك)</label>
+                        <select name="pressing_style" class="filter-input">
+                            {% for style in ['low', 'normal', 'high'] %}
+                            <option value="{{ style }}" {% if player_team.pressing_style == style %}selected{% endif %}>{{ {'low': 'منخفض', 'normal': 'متوازن', 'high': 'ضغط مرتفع'}[style] }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div><label>أسلوب المباراة (المحرك)</label>
+                        <select name="match_tactic" class="filter-input">
+                            {% for tactic in ['balanced', 'attack', 'defensive', 'time_wasting'] %}
+                            <option value="{{ tactic }}" {% if player_team.match_tactic == tactic %}selected{% endif %}>{{ {'balanced': 'متوازن', 'attack': 'هجومي', 'defensive': 'دفاعي', 'time_wasting': 'إضاعة الوقت'}[tactic] }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button class="btn btn-primary">حفظ تعليمات المحرك</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="tab-pane" data-pane="setpieces">
+            <div class="card">
+                <div class="card-header"><h3>الكرات الثابتة</h3></div>
+                <div class="tactics-grid">
+                    <div><label>الركنيات</label><select id="tp_corners" class="filter-input"><option>منطقة قريبة</option><option>مختلطة</option><option>منطقة بعيدة</option></select></div>
+                    <div><label>الركلات الحرة</label><select id="tp_freekicks" class="filter-input"><option>تسديد مباشر</option><option>مختلطة</option><option>عرضية</option></select></div>
+                    <div><label>رميات التماس</label><select id="tp_throwins" class="filter-input"><option>قصيرة</option><option>مختلطة</option><option>طويلة</option></select></div>
+                </div>
+                <p style="color:#888;font-size:0.8rem;margin-top:0.6rem;">منفذو الكرات الثابتة يُضبطون من <a href="{{ url_for('team.formation') }}" style="color:#e94560;">صفحة التشكيلة</a> (ركلات الجزاء / الحرة).</p>
+                <div class="kv"><span class="k">منفذ الجزاء</span><span class="v">{{ player_team.penalty_taker_id or 'تلقائي' }}</span></div>
+                <div class="kv"><span class="k">منفذ الحرة</span><span class="v">{{ player_team.freekick_taker_id or 'تلقائي' }}</span></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-chalkboard-teacher"></i> معاينة تكتيكية</h3><span id="tacticsMsg" style="font-size:0.8rem;color:#2ecc71;"></span></div>
+        <div class="meter"><div class="meter-label"><span>التوازن الهجومي/الدفاعي</span><span id="tacticsBalanceLabel">متوازن</span></div>
+        <div class="meter-track"><div class="meter-fill" id="tacticsBalance" style="width:50%;background:linear-gradient(90deg,#3498db,#e94560)"></div></div></div>
+        <button class="btn btn-primary" id="saveFullTactics"><i class="fas fa-save"></i> حفظ الخطة الكاملة</button>
+        <a href="{{ url_for('team.formation') }}" class="btn btn-secondary">لوحة التشكيلة</a>
+    </div>
+</section>
+<input type="hidden" id="csrfToken" value="{{ csrf_token() }}">
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let mentality = {{ tactics_data.mentality or 3 }};
+    const msg = document.getElementById('tacticsMsg');
+    const bal = document.getElementById('tacticsBalance');
+    const balLabel = document.getElementById('tacticsBalanceLabel');
+    function refreshBalance() {
+        const pct = mentality * 20;
+        if (bal) bal.style.width = pct + '%';
+        const labels = {1: 'دفاعي جداً', 2: 'دفاعي', 3: 'متوازن', 4: 'هجومي', 5: 'هجومي جداً'};
+        if (balLabel) balLabel.textContent = labels[mentality] || 'متوازن';
+    }
+    document.querySelectorAll('.mentality-btn').forEach(function(b) {
+        b.addEventListener('click', function() {
+            document.querySelectorAll('.mentality-btn').forEach(function(x) { x.classList.remove('active'); });
+            b.classList.add('active');
+            mentality = parseInt(b.dataset.m, 10) || 3;
+            refreshBalance();
+        });
+    });
+    refreshBalance();
+    const btn = document.getElementById('saveFullTactics');
+    if (btn) btn.addEventListener('click', function() {
+        const csrf = document.getElementById('csrfToken').value;
+        function val(id) { const el = document.getElementById(id); return el ? el.value : ''; }
+        fetch('/tactics/save', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf},
+            body: JSON.stringify({
+                mentality: mentality,
+                in_possession: {directness: val('tp_directness'), tempo: val('tp_tempo'), width: val('tp_width'), crossing: val('tp_crossing'), creativity: val('tp_creativity')},
+                transitions: {counter_press: val('tp_counter_press'), counter: val('tp_counter'), gk_distribution: val('tp_gk_dist')},
+                out_of_possession: {pressing: val('tp_pressing'), defensive_line: val('tp_dline'), line_of_engagement: val('tp_loe')},
+                set_pieces: {corners: val('tp_corners'), free_kicks: val('tp_freekicks'), throw_ins: val('tp_throwins')}
+            })
+        }).then(r => r.json()).then(function(d) {
+            if (msg) msg.textContent = d.success ? 'تم الحفظ! الألفة: ' + (d.familiarity || '') + '%' : (d.message || 'فشل الحفظ');
+        }).catch(function() { if (msg) msg.textContent = 'خطأ في الاتصال'; });
+    });
+});
+</script>
+{% endblock %}

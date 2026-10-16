@@ -61,6 +61,33 @@
         </form>
     </div>
 
+    <div class="widget-grid" style="margin-bottom:1rem;">
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-flask"></i> كيمياء وألفة الفريق</h3>
+            <div class="meter">
+                <div class="meter-label"><span>كيمياء الفريق</span><span>{{ player_team.chemistry or 0 }}%</span></div>
+                <div class="meter-track"><div class="meter-fill" style="width:{{ player_team.chemistry or 0 }}%;background:#3498db"></div></div>
+            </div>
+            <div class="meter">
+                <div class="meter-label"><span>الألفة التكتيكية</span><span>{{ player_team.tactical_familiarity or 100 }}%</span></div>
+                <div class="meter-track"><div class="meter-fill" style="width:{{ player_team.tactical_familiarity or 100 }}%;background:#2ecc71"></div></div>
+            </div>
+            <p style="color:#888;font-size:0.75rem;">تغيير الخطة أو الأدوار يُنقص الألفة مؤقتاً — حافظ على الاستقرار قبل المباريات الكبرى. <a href="{{ url_for('main.tactics_center') }}" style="color:#e94560;">مركز التكتيك الكامل ←</a></p>
+        </div>
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-user-tag"></i> دليل الأدوار وملاءمتها</h3>
+            <div class="role-grid">
+                <div class="role-card"><h4>المهاجم القناص</h4><p>ينهى الهجمات داخل الصندوق — الأفضل لإنهاء عالٍ وسرعة.</p><span class="suit">التأثير: ×1.8 تهديف</span></div>
+                <div class="role-card"><h4>المهاجم المتقدم</h4><p>يتحرك خلف الدفاع ويصنع لنفسه — توازن تهديف/صناعة.</p><span class="suit">التأثير: هجوم شامل</span></div>
+                <div class="role-card"><h4>المهاجم الهدف</h4><p>محطة لعب هوائية — الأفضل للقوة والطول.</p><span class="suit">التأثير: ×2.0 تهديف رأسي</span></div>
+                <div class="role-card"><h4>صانع اللعب</h4><p>عقل الفريق — الأفضل لرؤية وتمريرات.</p><span class="suit">التأثير: ×2.2 صناعة</span></div>
+                <div class="role-card"><h4>كسّار الكرات</h4><p>يسترد الكرة بشراسة — الأفضل لتدخلات عالية.</p><span class="suit">التأثير: ×2.2 استرداد</span></div>
+                <div class="role-card"><h4>الظهير الجارف</h4><p>يغطي الطرف دفاعاً وهجوماً — الأفضل لسرعة وتحمل.</p><span class="suit">التأثير: ×1.7 صناعة طرفية</span></div>
+            </div>
+            <p style="color:#888;font-size:0.75rem;margin-top:0.4rem;">الدور يُضبط من القائمة داخل كل بطاقة لاعب على اللوحة — جرّب وستظهر الملاءمة فوراً في أداء المباراة.</p>
+        </div>
+    </div>
+
     <div class="card" style="margin-bottom:1rem;">
         <div class="card-header"><h3><i class="fas fa-clipboard-list"></i> الخطط التكتيكية المحفوظة</h3></div>
         {% if presets %}

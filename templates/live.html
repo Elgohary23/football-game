@@ -71,6 +71,12 @@
         </div>
     </div>
 
+    <div class="card" style="margin-top:1rem;">
+        <div class="card-header"><h3><i class="fas fa-chart-line"></i> الزخم وخريطة الهجوم</h3></div>
+        <div class="momentum-wrap"><canvas id="momentumCanvas" height="90"></canvas></div>
+        <p style="color:#888;font-size:0.75rem;margin-top:0.3rem;">منحنى الزخم يُبنى من أحداث المباراة لحظة بلحظة — الصعود لصالحك، والهبوط للخصم.</p>
+    </div>
+
     <div class="card" style="margin-top:1rem;text-align:center;">
         <button class="btn btn-primary" id="btnMinute1">+1 دقيقة</button>
         <button class="btn btn-primary" id="btnMinute5">+5 دقائق</button>
@@ -82,4 +88,44 @@
 {% set initial = payload|tojson %}
 <input type="hidden" id="csrfToken" value="{{ csrf_token() }}">
 <script id="liveInitial" type="application/json" data-live-id="{{ match.id }}">{{ initial }}</script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Momentum graph from live events (additive visual, no engine coupling).
+    function drawMomentum() {
+        const c = document.getElementById('momentumCanvas');
+        if (!c) return;
+        let events = [];
+        try {
+            const raw = document.getElementById('liveInitial').textContent;
+            events = (JSON.parse(raw).events) || [];
+        } catch (e) { events = []; }
+        const feed = document.querySelectorAll('#liveFeed .live-event');
+        const W = c.width = c.offsetWidth || 600, H = c.height = 90;
+        const ctx = c.getContext('2d');
+        ctx.clearRect(0, 0, W, H);
+        ctx.strokeStyle = '#2a2a4a';
+        ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
+        if (!events.length) {
+            ctx.fillStyle = '#666'; ctx.font = '12px Tahoma';
+            ctx.fillText('ستظهر بيانات الزخم مع أول حدث...', 10, H / 2 - 8);
+            return;
+        }
+        let m = 0; const pts = [0];
+        events.forEach(function(ev) {
+            const t = ev.team === 'home' ? 1 : (ev.team === 'away' ? -1 : 0);
+            const w = ev.type === 'goal' ? 3 : (ev.type === 'shot' ? 1 : 0.4);
+            m += t * w; pts.push(m);
+        });
+        const mx = Math.max(4, ...pts.map(p => Math.abs(p)));
+        ctx.beginPath();
+        pts.forEach(function(p, i) {
+            const x = i / (pts.length - 1) * W, y = H / 2 - p / mx * (H / 2 - 6);
+            i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        });
+        ctx.strokeStyle = '#e94560'; ctx.lineWidth = 2; ctx.stroke();
+    }
+    drawMomentum();
+    setInterval(drawMomentum, 6000);
+});
+</script>
 {% endblock %}

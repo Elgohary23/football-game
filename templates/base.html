@@ -12,127 +12,236 @@
 <body>
     <a href="#main-content" class="skip-link">انتقل للمحتوى الرئيسي</a>
 
-    <header role="banner">
-        <nav class="main-nav" aria-label="التنقل الرئيسي">
-            <div class="nav-brand">
+    <div class="app-shell">
+        {% if session.get('active_save') %}
+        <!-- ===== Sidebar Navigation ===== -->
+        <aside class="app-sidebar" id="appSidebar" aria-label="القائمة الجانبية">
+            <div class="sidebar-brand">
                 <i class="fas fa-futbol"></i>
                 <span>مدير كرة القدم</span>
             </div>
+            <nav aria-label="التنقل الرئيسي">
+                <div class="side-group-label">الإدارة</div>
+                <ul class="side-menu">
+                    <li><a href="{{ url_for('main.dashboard') }}" class="side-link"><i class="fas fa-tachometer-alt"></i><span>اللوحة</span></a></li>
+                    <li><a href="{{ url_for('inbox.messages') }}" class="side-link"><i class="fas fa-envelope"></i><span>الرسائل</span><span id="unreadBadge" class="badge{% if unread_count == 0 %} badge-hidden{% endif %}">{{ unread_count }}</span></a></li>
+                    <li><a href="{{ url_for('main.board_center') }}" class="side-link"><i class="fas fa-clipboard-check"></i><span>الإدارة والأهداف</span></a></li>
+                    <li><a href="{{ url_for('main.finances_center') }}" class="side-link"><i class="fas fa-coins"></i><span>المالية</span></a></li>
+                    <li><a href="{{ url_for('main.club_center') }}" class="side-link"><i class="fas fa-shield-alt"></i><span>النادي</span></a></li>
+                </ul>
+                <div class="side-group-label">الفريق</div>
+                <ul class="side-menu">
+                    <li><a href="{{ url_for('team.squad') }}" class="side-link"><i class="fas fa-users"></i><span>الفريق</span></a></li>
+                    <li><a href="{{ url_for('team.formation') }}" class="side-link"><i class="fas fa-chess-board"></i><span>التكتيكات</span></a></li>
+                    <li><a href="{{ url_for('main.tactics_center') }}" class="side-link"><i class="fas fa-sliders-h"></i><span>مركز التكتيك</span></a></li>
+                    <li><a href="{{ url_for('team.training') }}" class="side-link"><i class="fas fa-dumbbell"></i><span>التدريب</span></a></li>
+                    <li><a href="{{ url_for('team.medical') }}" class="side-link"><i class="fas fa-hospital"></i><span>المركز الطبي</span></a></li>
+                    <li><a href="{{ url_for('team.staff') }}" class="side-link"><i class="fas fa-user-tie"></i><span>الطاقم التدريبي</span></a></li>
+                    <li><a href="{{ url_for('team.facilities') }}" class="side-link"><i class="fas fa-building"></i><span>المرافق</span></a></li>
+                    <li><a href="{{ url_for('team.compare') }}" class="side-link"><i class="fas fa-balance-scale"></i><span>مقارنة اللاعبين</span></a></li>
+                </ul>
+                <div class="side-group-label">المنافسات</div>
+                <ul class="side-menu">
+                    <li><a href="{{ url_for('main.calendar') }}" class="side-link"><i class="fas fa-calendar-alt"></i><span>التقويم</span></a></li>
+                    <li><a href="{{ url_for('main.match_view') }}" class="side-link"><i class="fas fa-futbol"></i><span>المباراة</span></a></li>
+                    <li><a href="{{ url_for('main.match_history') }}" class="side-link"><i class="fas fa-history"></i><span>تاريخ المباريات</span></a></li>
+                    <li><a href="{{ url_for('main.standings') }}" class="side-link"><i class="fas fa-list-ol"></i><span>جدول الترتيب</span></a></li>
+                    <li><a href="{{ url_for('stats.stats_center') }}" class="side-link"><i class="fas fa-chart-bar"></i><span>مركز الإحصائيات</span></a></li>
+                    <li><a href="/cups" class="side-link"><i class="fas fa-trophy"></i><span>الكؤوس والبطولات</span></a></li>
+                    <li><a href="{{ url_for('main.world_overview') }}" class="side-link"><i class="fas fa-globe"></i><span>العالم</span></a></li>
+                </ul>
+                <div class="side-group-label">السوق</div>
+                <ul class="side-menu">
+                    <li><a href="{{ url_for('main.transfers_center') }}" class="side-link"><i class="fas fa-exchange-alt"></i><span>مركز الانتقالات</span></a></li>
+                    <li><a href="{{ url_for('team.scouting') }}" class="side-link"><i class="fas fa-search"></i><span>سوق الانتقالات</span></a></li>
+                </ul>
+                <div class="side-group-label">النظام</div>
+                <ul class="side-menu">
+                    <li><a href="{{ url_for('main.settings_center') }}" class="side-link"><i class="fas fa-cog"></i><span>الإعدادات</span></a></li>
+                    <li><a href="{{ url_for('save.exit_to_menu') }}" class="side-link nav-exit"><i class="fas fa-sign-out-alt"></i><span>خروج</span></a></li>
+                </ul>
+            </nav>
+        </aside>
+        {% endif %}
 
-            <div class="nav-toggle" id="navToggle">
-                <i class="fas fa-bars"></i>
-            </div>
-
-            <ul class="nav-menu" id="navMenu">
-                {% if session.get('active_save') %}
-                <li class="nav-item">
-                    <a href="{{ url_for('main.dashboard') }}" class="nav-link">
-                        <i class="fas fa-tachometer-alt"></i>
-                        <span>اللوحة</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="{{ url_for('team.squad') }}" class="nav-link">
-                        <i class="fas fa-users"></i>
-                        <span>الفريق</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="{{ url_for('team.formation') }}" class="nav-link">
-                        <i class="fas fa-shield-alt"></i>
-                        <span>التكتيكات</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="{{ url_for('main.calendar') }}" class="nav-link">
-                        <i class="fas fa-calendar-alt"></i>
-                        <span>التقويم</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="{{ url_for('main.match_view') }}" class="nav-link">
+        <div class="app-main">
+            <!-- ===== Top Navigation ===== -->
+            <header role="banner">
+                <nav class="main-nav" aria-label="التنقل الرئيسي">
+                    <div class="nav-brand">
+                        {% if session.get('active_save') %}
+                        <button class="nav-toggle" id="navToggle" aria-label="القائمة"><i class="fas fa-bars"></i></button>
+                        {% endif %}
                         <i class="fas fa-futbol"></i>
-                        <span>المباراة</span>
-                    </a>
-                </li>
-                <li class="nav-item dropdown">
-                    <a href="#" class="nav-link dropdown-toggle">
-                        <i class="fas fa-ellipsis-h"></i>
-                        <span>المزيد</span>
-                        <i class="fas fa-chevron-down dropdown-icon"></i>
-                    </a>
-                    <ul class="dropdown-menu">
-                        <li><a href="{{ url_for('main.standings') }}" class="dropdown-link"><i class="fas fa-list-ol"></i> جدول الترتيب</a></li>
-                        <li><a href="{{ url_for('stats.stats_center') }}" class="dropdown-link"><i class="fas fa-chart-bar"></i> مركز الإحصائيات</a></li>
-                        <li><a href="{{ url_for('inbox.messages') }}" class="dropdown-link" id="messagesLink"><i class="fas fa-envelope"></i> الرسائل<span id="unreadBadge" class="badge{% if unread_count == 0 %} badge-hidden{% endif %}">{{ unread_count }}</span></a></li>
-                        <li><a href="{{ url_for('team.scouting') }}" class="dropdown-link"><i class="fas fa-search"></i> سوق الانتقالات</a></li>
-                        <li><a href="{{ url_for('team.compare') }}" class="dropdown-link"><i class="fas fa-balance-scale"></i> مقارنة اللاعبين</a></li>
-                        <li><a href="{{ url_for('team.facilities') }}" class="dropdown-link"><i class="fas fa-building"></i> المرافق</a></li>
-                        <li><a href="{{ url_for('team.training') }}" class="dropdown-link"><i class="fas fa-dumbbell"></i> التدريب</a></li>
-                        <li><a href="{{ url_for('team.staff') }}" class="dropdown-link"><i class="fas fa-user-tie"></i> الطاقم التدريبي</a></li>
-                        <li><a href="{{ url_for('team.medical') }}" class="dropdown-link"><i class="fas fa-hospital"></i> المركز الطبي</a></li>
-                        <li><a href="{{ url_for('main.match_history') }}" class="dropdown-link"><i class="fas fa-history"></i> تاريخ المباريات</a></li>
-                        <li><a href="/cups" class="dropdown-link"><i class="fas fa-trophy"></i> الكؤوس والبطولات</a></li>
-                    </ul>
-                </li>
-                <li class="nav-item">
-                    <a href="{{ url_for('save.exit_to_menu') }}" class="nav-link nav-exit">
-                        <i class="fas fa-sign-out-alt"></i>
-                        <span>خروج</span>
-                    </a>
-                </li>
-                {% else %}
-                <li class="nav-item">
-                    <a href="{{ url_for('save.load_game') }}" class="nav-link">
-                        <i class="fas fa-save"></i>
-                        <span>اختيار الحفظ</span>
-                    </a>
-                </li>
-                {% endif %}
-            </ul>
+                        <span>مدير كرة القدم</span>
+                    </div>
 
-            {% if session.get('active_save') and manager_name %}
-            <div class="nav-manager">
-                <i class="fas fa-user-circle"></i>
-                <div class="manager-info">
-                    <span class="manager-name">{{ manager_name }}</span>
-                    {% if manager_nationality %}
-                    <span class="manager-nationality">{{ manager_nationality }}</span>
+                    {% if session.get('active_save') %}
+                    <!-- Global search -->
+                    <div class="global-search" role="search">
+                        <i class="fas fa-search search-icon"></i>
+                        <input type="text" id="globalSearch" class="search-input" placeholder="بحث: لاعب، نادٍ، موظف..." autocomplete="off" data-tooltip="ابحث في اللاعبين والأندية والموظفين">
+                        <div id="searchResults" class="search-results" hidden></div>
+                    </div>
                     {% endif %}
+
+                    <ul class="nav-menu" id="navMenu">
+                        {% if session.get('active_save') %}
+                        <li class="nav-item">
+                            <a href="{{ url_for('main.dashboard') }}" class="nav-link">
+                                <i class="fas fa-tachometer-alt"></i>
+                                <span>اللوحة</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('team.squad') }}" class="nav-link">
+                                <i class="fas fa-users"></i>
+                                <span>الفريق</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('team.formation') }}" class="nav-link">
+                                <i class="fas fa-shield-alt"></i>
+                                <span>التكتيكات</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('main.calendar') }}" class="nav-link">
+                                <i class="fas fa-calendar-alt"></i>
+                                <span>التقويم</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('main.match_view') }}" class="nav-link">
+                                <i class="fas fa-futbol"></i>
+                                <span>المباراة</span>
+                            </a>
+                        </li>
+                        <li class="nav-item dropdown">
+                            <a href="#" class="nav-link dropdown-toggle">
+                                <i class="fas fa-ellipsis-h"></i>
+                                <span>المزيد</span>
+                                <i class="fas fa-chevron-down dropdown-icon"></i>
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li><a href="{{ url_for('main.board_center') }}" class="dropdown-link"><i class="fas fa-clipboard-check"></i> الإدارة والأهداف</a></li>
+                                <li><a href="{{ url_for('main.finances_center') }}" class="dropdown-link"><i class="fas fa-coins"></i> المالية</a></li>
+                                <li><a href="{{ url_for('main.club_center') }}" class="dropdown-link"><i class="fas fa-shield-alt"></i> النادي</a></li>
+                                <li><a href="{{ url_for('main.transfers_center') }}" class="dropdown-link"><i class="fas fa-exchange-alt"></i> مركز الانتقالات</a></li>
+                                <li><a href="{{ url_for('main.tactics_center') }}" class="dropdown-link"><i class="fas fa-sliders-h"></i> مركز التكتيك</a></li>
+                                <li><a href="{{ url_for('main.world_overview') }}" class="dropdown-link"><i class="fas fa-globe"></i> العالم</a></li>
+                                <li><a href="{{ url_for('main.standings') }}" class="dropdown-link"><i class="fas fa-list-ol"></i> جدول الترتيب</a></li>
+                                <li><a href="{{ url_for('stats.stats_center') }}" class="dropdown-link"><i class="fas fa-chart-bar"></i> مركز الإحصائيات</a></li>
+                                <li><a href="{{ url_for('inbox.messages') }}" class="dropdown-link" id="messagesLink"><i class="fas fa-envelope"></i> الرسائل<span id="unreadBadgeTop" class="badge{% if unread_count == 0 %} badge-hidden{% endif %}">{{ unread_count }}</span></a></li>
+                                <li><a href="{{ url_for('team.scouting') }}" class="dropdown-link"><i class="fas fa-search"></i> سوق الانتقالات</a></li>
+                                <li><a href="{{ url_for('team.compare') }}" class="dropdown-link"><i class="fas fa-balance-scale"></i> مقارنة اللاعبين</a></li>
+                                <li><a href="{{ url_for('team.facilities') }}" class="dropdown-link"><i class="fas fa-building"></i> المرافق</a></li>
+                                <li><a href="{{ url_for('team.training') }}" class="dropdown-link"><i class="fas fa-dumbbell"></i> التدريب</a></li>
+                                <li><a href="{{ url_for('team.staff') }}" class="dropdown-link"><i class="fas fa-user-tie"></i> الطاقم التدريبي</a></li>
+                                <li><a href="{{ url_for('team.medical') }}" class="dropdown-link"><i class="fas fa-hospital"></i> المركز الطبي</a></li>
+                                <li><a href="{{ url_for('main.match_history') }}" class="dropdown-link"><i class="fas fa-history"></i> تاريخ المباريات</a></li>
+                                <li><a href="/cups" class="dropdown-link"><i class="fas fa-trophy"></i> الكؤوس والبطولات</a></li>
+                                <li><a href="{{ url_for('main.settings_center') }}" class="dropdown-link"><i class="fas fa-cog"></i> الإعدادات</a></li>
+                            </ul>
+                        </li>
+                        <!-- Notification center -->
+                        <li class="nav-item dropdown">
+                            <a href="#" class="nav-link dropdown-toggle" id="notifBell" aria-label="التنبيهات">
+                                <i class="fas fa-bell"></i>
+                                <span id="unreadBadgeNotif" class="badge{% if unread_count == 0 %} badge-hidden{% endif %}">{{ unread_count }}</span>
+                            </a>
+                            <ul class="dropdown-menu notif-menu" id="notifMenu">
+                                <li class="notif-header">مركز التنبيهات <a href="{{ url_for('inbox.messages') }}" class="notif-all">عرض الكل</a></li>
+                                <li><a href="{{ url_for('inbox.messages') }}" class="dropdown-link"><i class="fas fa-exchange-alt"></i> تحديثات الانتقالات</a></li>
+                                <li><a href="{{ url_for('team.scouting') }}" class="dropdown-link"><i class="fas fa-search"></i> نتائج الكشافة</a></li>
+                                <li><a href="{{ url_for('main.board_center') }}" class="dropdown-link"><i class="fas fa-clipboard-check"></i> رسائل الإدارة</a></li>
+                                <li><a href="{{ url_for('team.medical') }}" class="dropdown-link"><i class="fas fa-hospital"></i> تقارير الإصابات</a></li>
+                                <li><a href="{{ url_for('main.finances_center') }}" class="dropdown-link"><i class="fas fa-coins"></i> التحديثات المالية</a></li>
+                                <li><a href="{{ url_for('main.world_overview') }}" class="dropdown-link"><i class="fas fa-globe"></i> أخبار العالم</a></li>
+                            </ul>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('save.exit_to_menu') }}" class="nav-link nav-exit">
+                                <i class="fas fa-sign-out-alt"></i>
+                                <span>خروج</span>
+                            </a>
+                        </li>
+                        {% else %}
+                        <li class="nav-item">
+                            <a href="{{ url_for('save.load_game') }}" class="nav-link">
+                                <i class="fas fa-save"></i>
+                                <span>اختيار الحفظ</span>
+                            </a>
+                        </li>
+                        {% endif %}
+                    </ul>
+
+                    {% if session.get('active_save') and manager_name %}
+                    <div class="nav-manager">
+                        <i class="fas fa-user-circle"></i>
+                        <div class="manager-info">
+                            <span class="manager-name">{{ manager_name }}</span>
+                            {% if manager_nationality %}
+                            <span class="manager-nationality">{{ manager_nationality }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </nav>
+                {% if session.get('active_save') and player_team_name %}
+                <div class="sub-nav">
+                    <div class="sub-nav-inner">
+                        <span class="sub-nav-team"><i class="fas fa-shield-alt"></i> {{ player_team_name }}</span>
+                        <span class="sub-nav-divider">|</span>
+                        <span class="sub-nav-chip" data-tooltip="الموسم الحالي"><i class="fas fa-flag"></i> الموسم {{ season_number }}</span>
+                        <span class="sub-nav-divider">|</span>
+                        <span class="sub-nav-chip" data-tooltip="التاريخ الحالي">{{ current_date }}</span>
+                        <span class="sub-nav-divider">|</span>
+                        <span class="sub-nav-week">الأسبوع {{ current_week }}</span>
+                        <span class="sub-nav-divider">|</span>
+                        <span class="sub-nav-day">اليوم {{ current_day }}</span>
+                        <span class="sub-nav-divider">|</span>
+                        <span class="sub-nav-chip money-text" data-tooltip="ميزانية الانتقالات">${{ "{:,}".format(club_budget) }}</span>
+                        <span class="sub-nav-divider">|</span>
+                        <span class="sub-nav-chip" data-tooltip="ميزانية الأجور السنوية">${{ "{:,}".format(club_wage_budget) }} أجور</span>
+                        <span class="sub-nav-divider">|</span>
+                        <span class="sub-nav-chip {{ 'morale-good' if board_confidence >= 70 else ('morale-mid' if board_confidence >= 40 else 'morale-bad') }}" data-tooltip="ثقة الإدارة">ثقة {{ board_confidence }}%</span>
+                        <span class="sub-nav-divider">|</span>
+                        <span class="sub-nav-chip" data-tooltip="ملف الحفظ النشط"><i class="fas fa-save"></i> حفظ {{ active_slot }}</span>
+                        <span class="sub-nav-divider">|</span>
+                        <a href="{{ url_for('inbox.messages') }}" class="sub-nav-chip" data-tooltip="الرسائل غير المقروءة"><i class="fas fa-envelope"></i> <span class="subnav-unread">{{ unread_count }}</span></a>
+                    </div>
+                </div>
+                {% endif %}
+            </header>
+
+            {% with messages = get_flashed_messages() %}
+                {% if messages %}
+                    <div class="flash-messages" role="alert" aria-live="assertive">
+                        {% for message in messages %}
+                            <div class="flash-message">{{ message }}</div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+
+            <div id="simOverlay" class="sim-overlay" role="status" aria-live="polite">
+                <div class="sim-modal">
+                    <h3><i class="fas fa-spinner fa-spin"></i> جارٍ محاكاة المباريات...</h3>
+                    <div class="progress-bar"><div class="progress-fill" id="simProgressFill" style="width:5%"></div></div>
+                    <div class="progress-text" id="simProgressText">5%</div>
                 </div>
             </div>
-            {% endif %}
-        </nav>
-        {% if session.get('active_save') and player_team_name %}
-        <div class="sub-nav">
-            <div class="sub-nav-inner">
-                <span class="sub-nav-team">{{ player_team_name }}</span>
-                <span class="sub-nav-divider">|</span>
-                <span class="sub-nav-week">الأسبوع {{ current_week }}</span>
-                <span class="sub-nav-divider">|</span>
-                <span class="sub-nav-day">اليوم {{ current_day }}</span>
-            </div>
+
+            <main id="main-content" class="container" role="main">
+                {% block content %}{% endblock %}
+            </main>
+
+            <footer role="contentinfo">
+                <p>مدير كرة القدم &copy; 2026 - جميع الحقوق محفوظة</p>
+            </footer>
         </div>
-        {% endif %}
-    </header>
-
-    {% with messages = get_flashed_messages() %}
-        {% if messages %}
-            <div class="flash-messages" role="alert" aria-live="assertive">
-                {% for message in messages %}
-                    <div class="flash-message">{{ message }}</div>
-                {% endfor %}
-            </div>
-        {% endif %}
-    {% endwith %}
-
-    <main id="main-content" class="container" role="main">
-        {% block content %}{% endblock %}
-    </main>
-
-    <footer role="contentinfo">
-        <p>مدير كرة القدم &copy; 2026 - جميع الحقوق محفوظة</p>
-    </footer>
+    </div>
 
     <script src="{{ url_for('static', filename='app.js') }}"></script>
     {% block scripts %}{% endblock %}

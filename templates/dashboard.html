@@ -44,6 +44,8 @@
         </form>
         <a href="{{ url_for('main.calendar') }}" class="btn btn-secondary">التقويم</a>
         <a href="{{ url_for('team.squad') }}" class="btn btn-secondary">التشكيلة</a>
+        <a href="{{ url_for('main.transfers_center') }}" class="btn btn-secondary" data-tooltip="مركز الانتقالات: عروض وقوائم وإعارات">الانتقالات</a>
+        <a href="{{ url_for('main.tactics_center') }}" class="btn btn-secondary" data-tooltip="غرفة التكتيك الكاملة">التكتيك</a>
     </div>
 
     <!-- Match Day Alert -->
@@ -63,6 +65,100 @@
         الأيام المتبقية للمباراة: {{ 7 - (state.current_day % 7) }} &bull; الموسم: {{ state.season_number or 1 }}
     </div>
     {% endif %}
+
+    <!-- Next / Last match widgets -->
+    <div class="widget-grid">
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-arrow-circle-right"></i> المباراة القادمة</h3>
+            {% if next_match %}
+            <div class="mini-list">
+                <div class="mini-row"><span>{{ next_match.home_team.name }} × {{ next_match.away_team.name }}</span><span class="pill badge-blue">أسبوع {{ next_match.week }}</span></div>
+                <div class="mini-row"><span style="color:#888;">{{ next_match.date or '' }}</span><a href="{{ url_for('main.match_view') }}" class="btn btn-sm btn-primary">مركز المباراة</a></div>
+            </div>
+            {% else %}
+            <div class="empty-state">لا توجد مباراة قادمة مجدولة</div>
+            {% endif %}
+        </div>
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-history"></i> آخر مباراة</h3>
+            {% if last_match %}
+            <div class="mini-list">
+                <div class="mini-row"><span>{{ last_match.home_team.name }} {{ last_match.home_score }} - {{ last_match.away_score }} {{ last_match.away_team.name }}</span></div>
+                <div class="mini-row"><span style="color:#888;">أسبوع {{ last_match.week }}</span><a href="{{ url_for('main.match_report', match_id=last_match.id) }}" class="btn btn-sm btn-secondary">التقرير</a></div>
+            </div>
+            {% else %}
+            <div class="empty-state">لم تُلعب أي مباراة بعد</div>
+            {% endif %}
+        </div>
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-fire"></i> دليل النتائج</h3>
+            {% if form_guide %}
+            <div class="form-guide" data-tooltip="الأحدث على اليسار">
+                {% for r in form_guide %}<span class="form-badge form-{{ r }}">{{ r }}</span>{% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">لا نتائج بعد — العب أول مباراة</div>
+            {% endif %}
+            <div class="kv"><span class="k">المركز الحالي</span><span class="v">#{{ team_rank }}</span></div>
+        </div>
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-star"></i> الهدافون</h3>
+            {% if top_scorers %}
+            <div class="mini-list">
+                {% for s in top_scorers %}
+                <div class="mini-row"><span>{{ s[1] }}</span><strong style="color:#e94560;">{{ s[4] }}</strong></div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">لا أهداف مسجلة بعد في الدوري</div>
+            {% endif %}
+            <a href="{{ url_for('stats.stats_center') }}" style="font-size:0.78rem;color:#e94560;text-decoration:none;">كل الإحصائيات ←</a>
+        </div>
+    </div>
+
+    <div class="widget-grid">
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-seedling"></i> مواهب الأكاديمية</h3>
+            {% if youth_prospects %}
+            <div class="mini-list">
+                {% for p in youth_prospects %}
+                <div class="mini-row"><span>{{ p.name }} ({{ p.age }})</span><span class="pot-badge">{{ p.potential }}</span></div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">لا مواهب شابة (≤21) حالياً</div>
+            {% endif %}
+        </div>
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-coins"></i> الملخص المالي</h3>
+            <div class="kv"><span class="k">الميزانية</span><span class="v money-text">${{ "{:,}".format(player_team.budget) }}</span></div>
+            <div class="kv"><span class="k">كتلة الأجور السنوية</span><span class="v">${{ "{:,}".format(finance_summary.wage_bill) }}</span></div>
+            <div class="kv"><span class="k">إنفاق الموسم</span><span class="v">${{ "{:,}".format(finance_summary.spend) }}</span></div>
+            <div class="kv"><span class="k">دخل الموسم</span><span class="v money-text">${{ "{:,}".format(finance_summary.income) }}</span></div>
+            <a href="{{ url_for('main.finances_center') }}" style="font-size:0.78rem;color:#e94560;text-decoration:none;">المركز المالي الكامل ←</a>
+        </div>
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-exchange-alt"></i> الانتقالات</h3>
+            <div class="kv"><span class="k">معروضون للبيع</span><span class="v">{{ transfer_counts.listed }}</span></div>
+            <div class="kv"><span class="k">طلبات رحيل</span><span class="v">{{ transfer_counts.requested }}</span></div>
+            <div class="kv"><span class="k">إعارات</span><span class="v">{{ transfer_counts.loans }}</span></div>
+            <div class="kv"><span class="k">وكلاء أحرار متاحون</span><span class="v">{{ transfer_counts.free_agents }}</span></div>
+            <a href="{{ url_for('main.transfers_center') }}" style="font-size:0.78rem;color:#e94560;text-decoration:none;">مركز الانتقالات ←</a>
+        </div>
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-hospital"></i> الإصابات</h3>
+            {% if injured_players %}
+            <div class="mini-list">
+                {% for p in injured_players %}
+                <div class="mini-row"><span>{{ p.name }}</span><span style="color:#e74c3c;font-size:0.78rem;">{{ p.injury_days }} يوم</span></div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">لا إصابات — الفريق جاهز بالكامل</div>
+            {% endif %}
+            <a href="{{ url_for('team.medical') }}" style="font-size:0.78rem;color:#e94560;text-decoration:none;">المركز الطبي ←</a>
+        </div>
+    </div>
 
     <!-- Cup Competitions Overview -->
     {% if cup_statuses %}
@@ -118,7 +214,7 @@
     {% if board_objectives %}
     <!-- Board Objectives -->
     <div class="card">
-        <div class="card-header"><h3><i class="fas fa-clipboard-check"></i> أهداف مجلس الإدارة هذا الموسم</h3></div>
+        <div class="card-header"><h3><i class="fas fa-clipboard-check"></i> أهداف مجلس الإدارة هذا الموسم</h3><a href="{{ url_for('main.board_center') }}" class="btn btn-sm btn-secondary">مركز الإدارة</a></div>
         <div class="board-objectives">
             {% for obj in board_objectives %}
             {% set labels = {'avg_age': 'متوسط عمر الفريق', 'youth_goals': 'أهداف من الأكاديمية', 'league_position': 'المركز في الدوري'} %}
@@ -165,6 +261,55 @@
             <div class="depth-stat">
                 <div class="depth-label">الفارق</div>
                 <div class="depth-value" style="color:{{ '#2ecc71' if avg_att >= avg_def else '#e74c3c' }};">{{ "%.1f"|format(avg_att - avg_def) }}</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="widget-grid">
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-chart-pie"></i> توزيع الأعمار</h3>
+            <div id="ageChart">
+                {% set ages = {'شاب (≤21)': 0, 'ذروة (22-29)': 0, 'مخضرم (30+)': 0} %}
+                {% for p in players %}
+                    {% if p.age <= 21 %}{% set _ = ages.update({'شاب (≤21)': ages['شاب (≤21)'] + 1}) %}
+                    {% elif p.age <= 29 %}{% set _ = ages.update({'ذروة (22-29)': ages['ذروة (22-29)'] + 1}) %}
+                    {% else %}{% set _ = ages.update({'مخضرم (30+)': ages['مخضرم (30+)'] + 1}) %}
+                    {% endif %}
+                {% endfor %}
+                {% for label, count in ages.items() %}
+                <div class="bar-row"><span class="bar-label">{{ label }}</span><div class="bar-track"><div class="bar-fill green" style="width:{{ (count / players|length * 100) if players else 0 }}%"></div></div><span class="bar-val">{{ count }}</span></div>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-wallet"></i> هيكل الأجور</h3>
+            <div id="wageChart">
+                {% set wb = namespace(low=0, mid=0, high=0) %}
+                {% for p in players %}
+                    {% if (p.wage or 0) < 100000 %}{% set wb.low = wb.low + 1 %}
+                    {% elif (p.wage or 0) < 500000 %}{% set wb.mid = wb.mid + 1 %}
+                    {% else %}{% set wb.high = wb.high + 1 %}
+                    {% endif %}
+                {% endfor %}
+                <div class="bar-row"><span class="bar-label">منخفضة</span><div class="bar-track"><div class="bar-fill blue" style="width:{{ (wb.low / players|length * 100) if players else 0 }}%"></div></div><span class="bar-val">{{ wb.low }}</span></div>
+                <div class="bar-row"><span class="bar-label">متوسطة</span><div class="bar-track"><div class="bar-fill" style="width:{{ (wb.mid / players|length * 100) if players else 0 }}%"></div></div><span class="bar-val">{{ wb.mid }}</span></div>
+                <div class="bar-row"><span class="bar-label">مرتفعة</span><div class="bar-track"><div class="bar-fill" style="width:{{ (wb.high / players|length * 100) if players else 0 }}%;background:linear-gradient(90deg,#e74c3c,#f39c12)"></div></div><span class="bar-val">{{ wb.high }}</span></div>
+            </div>
+        </div>
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-smile"></i> توزيع المعنويات والحدة</h3>
+            <div id="moraleChart">
+                {% set mb = namespace(good=0, mid=0, bad=0) %}
+                {% for p in players %}
+                    {% if (p.morale or 0) >= 70 %}{% set mb.good = mb.good + 1 %}
+                    {% elif (p.morale or 0) >= 40 %}{% set mb.mid = mb.mid + 1 %}
+                    {% else %}{% set mb.bad = mb.bad + 1 %}
+                    {% endif %}
+                {% endfor %}
+                <div class="bar-row"><span class="bar-label">مرتفعة</span><div class="bar-track"><div class="bar-fill green" style="width:{{ (mb.good / players|length * 100) if players else 0 }}%"></div></div><span class="bar-val">{{ mb.good }}</span></div>
+                <div class="bar-row"><span class="bar-label">متوسطة</span><div class="bar-track"><div class="bar-fill" style="width:{{ (mb.mid / players|length * 100) if players else 0 }}%"></div></div><span class="bar-val">{{ mb.mid }}</span></div>
+                <div class="bar-row"><span class="bar-label">منخفضة</span><div class="bar-track"><div class="bar-fill" style="width:{{ (mb.bad / players|length * 100) if players else 0 }}%;background:linear-gradient(90deg,#e74c3c,#c0392b)"></div></div><span class="bar-val">{{ mb.bad }}</span></div>
             </div>
         </div>
     </div>
@@ -273,18 +418,31 @@
 
 </section>
 
-<!-- Player Profile Modal -->
+<!-- Player Profile Modal (FM tabs + radar) -->
 <div class="modal-overlay" id="playerModal">
-    <div class="modal-content">
+    <div class="modal-content" style="width:620px;">
         <div class="modal-header">
             <h2 id="modalPlayerName">—</h2>
             <button class="modal-close" id="modalClose">&times;</button>
         </div>
         <div class="modal-body" id="modalBody">
-            <div class="modal-stats" id="modalStats"></div>
-            <div class="modal-section">
-                <h4>آخر التقييمات</h4>
-                <div id="modalRatings"></div>
+            <div class="profile-tabs" id="profileTabs">
+                <button class="profile-tab active" data-ptab="overview">نظرة عامة</button>
+                <button class="profile-tab" data-ptab="attrs">الصفات</button>
+                <button class="profile-tab" data-ptab="dev">التطور</button>
+                <button class="profile-tab" data-ptab="career">المسيرة</button>
+            </div>
+            <div class="profile-pane active" data-ppane="overview"><div class="modal-stats" id="modalStats"></div></div>
+            <div class="profile-pane" data-ppane="attrs">
+                <div class="radar-wrap"><canvas id="radarCanvas" width="300" height="260"></canvas></div>
+                <div class="modal-stats" id="modalAttrs"></div>
+            </div>
+            <div class="profile-pane" data-ppane="dev"><div class="modal-stats" id="modalDev"></div></div>
+            <div class="profile-pane" data-ppane="career">
+                <div class="modal-section">
+                    <h4>آخر التقييمات</h4>
+                    <div id="modalRatings"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -298,7 +456,48 @@ document.addEventListener('DOMContentLoaded', function() {
     const modalClose = document.getElementById('modalClose');
     const modalName = document.getElementById('modalPlayerName');
     const modalStats = document.getElementById('modalStats');
+    const modalAttrs = document.getElementById('modalAttrs');
+    const modalDev = document.getElementById('modalDev');
     const modalRatings = document.getElementById('modalRatings');
+
+    document.querySelectorAll('#profileTabs .profile-tab').forEach(function(t) {
+        t.addEventListener('click', function() {
+            document.querySelectorAll('#profileTabs .profile-tab').forEach(function(x) { x.classList.remove('active'); });
+            document.querySelectorAll('.profile-pane').forEach(function(p) { p.classList.toggle('active', p.dataset.ppane === t.dataset.ptab); });
+            t.classList.add('active');
+        });
+    });
+
+    function drawRadar(data) {
+        const c = document.getElementById('radarCanvas');
+        if (!c) return;
+        const ctx = c.getContext('2d');
+        ctx.clearRect(0, 0, c.width, c.height);
+        const labels = ['هجوم', 'دفاع', 'بدنية', 'مهارة', 'سرعة', 'كامن'];
+        const vals = [data.attack || 0, data.defense || 0, data.stamina || 0, data.technique || 0, data.speed || 0, data.potential || 0];
+        const cx = 150, cy = 130, R = 95, n = labels.length;
+        function pt(i, v) {
+            const a = -Math.PI / 2 + i * 2 * Math.PI / n;
+            const r = R * Math.max(0, Math.min(100, v)) / 100;
+            return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+        }
+        ctx.strokeStyle = '#2a2a4a';
+        [25, 50, 75, 100].forEach(function(lv) {
+            ctx.beginPath();
+            for (let i = 0; i <= n; i++) { const p = pt(i % n, lv); i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); }
+            ctx.stroke();
+        });
+        ctx.beginPath();
+        vals.forEach(function(v, i) { const p = pt(i, v); i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); });
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(233,69,96,0.3)'; ctx.fill();
+        ctx.strokeStyle = '#e94560'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = '#aaa'; ctx.font = '11px Tahoma';
+        labels.forEach(function(l, i) {
+            const a = -Math.PI / 2 + i * 2 * Math.PI / n;
+            ctx.fillText(l + ' ' + (vals[i] || 0), cx + (R + 14) * Math.cos(a) - 14, cy + (R + 14) * Math.sin(a));
+        });
+    }
 
     document.querySelectorAll('.player-name-link').forEach(link => {
         link.addEventListener('click', function(e) {
@@ -310,6 +509,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (!ok || body.error) return;
                     const data = body;
                     modalName.textContent = data.name + ' (' + (data.detailed_position || data.position) + ')';
+                    let topHtml = '';
+                    if (data.top_attributes && data.top_attributes.length) {
+                        topHtml = '<div class="modal-stat"><span class="modal-stat-label">أبرز الصفات</span><span class="modal-stat-value">' + data.top_attributes.map(t => t.attr + ' ' + t.value).join('، ') + '</span></div>';
+                    }
                     modalStats.innerHTML = `
                         <div class="modal-stat"><span class="modal-stat-label">العمر</span><span class="modal-stat-value">${data.age}</span></div>
                         <div class="modal-stat"><span class="modal-stat-label">الطول</span><span class="modal-stat-value">${data.height} سم</span></div>
@@ -326,6 +529,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         <div class="modal-stat"><span class="modal-stat-label">التمريرات الحاسمة</span><span class="modal-stat-value">${data.assists}</span></div>
                         <div class="modal-stat"><span class="modal-stat-label">متوسط التقييم</span><span class="modal-stat-value">${data.avg_rating}</span></div>
                     `;
+                    modalAttrs.innerHTML = `
+                        <div class="modal-stat"><span class="modal-stat-label">البدنية</span><span class="modal-stat-value">${data.stamina}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">المهارة</span><span class="modal-stat-value">${data.technique}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">السرعة</span><span class="modal-stat-value">${data.speed}</span></div>
+                        ${topHtml}
+                    `;
+                    modalDev.innerHTML = `
+                        <div class="modal-stat"><span class="modal-stat-label">الكامنة مقابل الحالي</span><span class="modal-stat-value">${data.potential} / ${data.overall || data.attack}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">الحدة</span><span class="modal-stat-value">${data.sharpness != null ? data.sharpness : '—'}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">المعنويات</span><span class="modal-stat-value">${data.morale != null ? data.morale : '—'}</span></div>
+                    `;
+                    drawRadar(data);
                     if (data.recent_ratings && data.recent_ratings.length > 0) {
                         let html = '<table><thead><tr><th>تقييم</th><th>أهداف</th><th>تمريرات</th></tr></thead><tbody>';
                         data.recent_ratings.forEach(r => {

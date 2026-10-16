@@ -104,8 +104,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-// Live match driver (live.html)
-document.addEventListener('DOMContentLoaded', function() {
+// Live match driver (live.html)document.addEventListener('DOMContentLoaded', function() {
     var initial = document.getElementById('liveInitial');
     if (!initial) return;
 
@@ -366,4 +365,106 @@ document.addEventListener('DOMContentLoaded', function() {
     renderState(payload);
     refreshState();
     setInterval(refreshState, 5000);
+});
+
+// ===== App shell: sidebar toggle + unread badge sync + global search =====
+document.addEventListener('DOMContentLoaded', function() {
+    var sidebar = document.getElementById('appSidebar');
+    var navToggle = document.getElementById('navToggle');
+    if (navToggle && sidebar) {
+        navToggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            sidebar.classList.toggle('open');
+        });
+        document.addEventListener('click', function(e) {
+            if (sidebar.classList.contains('open') && !sidebar.contains(e.target)) {
+                sidebar.classList.remove('open');
+            }
+        });
+    }
+
+    // Keep every unread badge in sync (sidebar + topbar + notif bell).
+    var badges = document.querySelectorAll('#unreadBadge, #unreadBadgeTop, #unreadBadgeNotif');
+    if (badges.length) {
+        setInterval(function() {
+            fetch('/inbox_unread', { headers: { 'Accept': 'application/json' } })
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(data) {
+                    if (!data) return;
+                    var n = Number(data.unread || 0);
+                    badges.forEach(function(b) {
+                        b.textContent = n;
+                        b.classList.toggle('badge-hidden', n === 0);
+                    });
+                    var sub = document.querySelector('.subnav-unread');
+                    if (sub) sub.textContent = n;
+                })
+                .catch(function() {});
+        }, 30000);
+    }
+
+    // Global search: players / teams / staff via /api/search.
+    var input = document.getElementById('globalSearch');
+    var box = document.getElementById('searchResults');
+    if (input && box) {
+        var timer = null;
+        input.addEventListener('input', function() {
+            var q = input.value.trim();
+            clearTimeout(timer);
+            if (q.length < 2) { box.hidden = true; box.innerHTML = ''; return; }
+            timer = setTimeout(function() {
+                fetch('/api/search?q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } })
+                    .then(function(r) { return r.ok ? r.json() : null; })
+                    .then(function(d) {
+                        if (!d) return;
+                        var html = '';
+                        function esc(s) {
+                            return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+                                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+                            });
+                        }
+                        if ((d.players || []).length) {
+                            html += '<div class="search-group-label">اللاعبون</div>';
+                            d.players.forEach(function(p) {
+                                html += '<a class="search-item" href="/squad">' + esc(p.name) +
+                                    ' <small>' + esc(p.pos || '') + ' • ' + esc(p.team || '') + '</small></a>';
+                            });
+                        }
+                        if ((d.teams || []).length) {
+                            html += '<div class="search-group-label">الأندية</div>';
+                            d.teams.forEach(function(t) {
+                                html += '<a class="search-item" href="/standings">' + esc(t.name) +
+                                    (t.mine ? ' <small>• فريقي</small>' : '') + '</a>';
+                            });
+                        }
+                        if ((d.staff || []).length) {
+                            html += '<div class="search-group-label">الموظفون</div>';
+                            d.staff.forEach(function(s) {
+                                html += '<a class="search-item" href="/staff">' + esc(s.name) +
+                                    ' <small>' + esc(s.role || '') + '</small></a>';
+                            });
+                        }
+                        box.innerHTML = html || '<div class="search-item">لا نتائج — جرّب اسماً آخر</div>';
+                        box.hidden = false;
+                    })
+                    .catch(function() {});
+            }, 250);
+        });
+        document.addEventListener('click', function(e) {
+            if (!box.contains(e.target) && e.target !== input) box.hidden = true;
+        });
+    }
+
+    // Generic tab helper: [data-tabs] container with .tab-btn[data-tab] + .tab-pane[data-pane].
+    document.querySelectorAll('[data-tabs]').forEach(function(wrap) {
+        var btns = wrap.querySelectorAll('.tab-btn[data-tab]');
+        var panes = wrap.querySelectorAll('.tab-pane[data-pane]');
+        btns.forEach(function(b) {
+            b.addEventListener('click', function() {
+                btns.forEach(function(x) { x.classList.remove('active'); });
+                panes.forEach(function(p) { p.classList.toggle('active', p.dataset.pane === b.dataset.tab); });
+                b.classList.add('active');
+            });
+        });
+    });
 });

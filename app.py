@@ -48,9 +48,16 @@ def create_app() -> Flask:
             "player_team_name": "",
             "current_week": 0,
             "current_day": 0,
+            "club_budget": 0,
+            "club_wage_budget": 0,
+            "season_number": 1,
+            "current_date": "",
+            "board_confidence": 60,
+            "active_slot": 0,
         }
         if get_active_slot() == 0:
             return ctx
+        ctx["active_slot"] = get_active_slot()
         try:
             ctx["unread_count"] = get_unread_count()
             state = GameState.query.first()
@@ -59,9 +66,14 @@ def create_app() -> Flask:
                 ctx["manager_nationality"] = state.manager_nationality or ""
                 ctx["current_week"] = state.current_week or 0
                 ctx["current_day"] = state.current_day or 0
+                ctx["season_number"] = state.season_number or 1
+                ctx["current_date"] = state.current_date or ""
+                ctx["board_confidence"] = state.board_confidence if state.board_confidence is not None else 60
             player_team = Team.query.filter_by(is_player_team=True).first()
             if player_team:
                 ctx["player_team_name"] = player_team.name or ""
+                ctx["club_budget"] = player_team.budget or 0
+                ctx["club_wage_budget"] = player_team.wage_budget or 0
         except Exception:
             pass
         return ctx

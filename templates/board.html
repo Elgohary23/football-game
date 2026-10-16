@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}مركز الإدارة{% endblock %}
+{% block content %}
+<section class="dashboard">
+    <h1 class="page-title"><i class="fas fa-clipboard-check"></i> مركز الإدارة</h1>
+    <div class="help-box"><i class="fas fa-info-circle"></i> رؤية النادي وتوقعات الإدارة وأهداف الموسم — تُحدد ثقة الإدارة التي تؤثر على دعمك في سوق الانتقالات.</div>
+
+    <div class="widget-grid">
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-heart"></i> ثقة الإدارة</h3>
+            <div class="meter">
+                <div class="meter-label"><span>الثقة الحالية</span><span>{{ state.board_confidence or 60 }}%</span></div>
+                <div class="meter-track"><div class="meter-fill" style="width:{{ state.board_confidence or 60 }}%;background:{{ '#2ecc71' if (state.board_confidence or 60) >= 70 else ('#f39c12' if (state.board_confidence or 60) >= 40 else '#e74c3c') }}"></div></div>
+            </div>
+            <div class="kv"><span class="k">الموسم</span><span class="v">{{ state.season_number or 1 }}</span></div>
+            <div class="kv"><span class="k">المركز الحالي</span><span class="v">#{{ team_rank }}</span></div>
+        </div>
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-eye"></i> رؤية النادي وتوقعاته</h3>
+            <div class="kv"><span class="k">متوسط العمر المستهدف</span><span class="v">≤ 26 سنة</span></div>
+            <div class="kv"><span class="k">متوسط عمر فريقك</span><span class="v">{{ "%.1f"|format(avg_age) }}</span></div>
+            <div class="kv"><span class="k">أهداف الأكاديمية</span><span class="v">{{ player_team.youth_goals or 0 }}</span></div>
+            <div class="kv"><span class="k">نقاط الدوري</span><span class="v">{{ player_team.points }}</span></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-bullseye"></i> أهداف الموسم — التقدم والمكافآت</h3></div>
+        {% if objectives %}
+        <div class="table-container">
+        <table>
+            <thead><tr><th>الهدف</th><th>المستهدف</th><th>التقدم</th><th>الحالة</th><th>مكافأة/عقوبة</th></tr></thead>
+            <tbody>
+                {% for obj in objectives %}
+                <tr>
+                    <td style="text-align:right;">{{ {'avg_age': 'متوسط عمر الفريق', 'youth_goals': 'أهداف من الأكاديمية', 'league_position': 'المركز في الدوري'}.get(obj.objective_type, obj.objective_type) }}</td>
+                    <td>{{ obj.target_value }}</td>
+                    <td style="text-align:right;font-size:0.8rem;">
+                        {% if obj.objective_type == 'avg_age' %}الحالي {{ "%.1f"|format(avg_age) }}
+                        {% elif obj.objective_type == 'youth_goals' %}{{ player_team.youth_goals or 0 }} / {{ obj.target_value|int }}
+                        {% elif obj.objective_type == 'league_position' %}#{{ team_rank }} (المستهدف ≤ {{ obj.target_value|int }})
+                        {% endif %}
+                    </td>
+                    <td><span class="{{ 'morale-good' if obj.achieved else 'morale-mid' }}">{{ 'تحقق ✓' if obj.achieved else 'قيد التنفيذ' }}</span></td>
+                    <td style="font-size:0.78rem;color:#888;">{{ '+10 ثقة عند التحقق' if not obj.achieved else 'تمت المكافأة' }} • الموسم {{ obj.season }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <div class="empty-state">لا أهداف مسجلة لهذا الموسم — الإدارة تثق بك مؤقتاً ({{ state.board_confidence or 60 }}%)</div>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-users"></i> لاعبوك ({{ players|length }})</h3><a href="{{ url_for('team.squad') }}" class="btn btn-sm btn-secondary">إدارة التشكيلة</a></div>
+        <div class="mini-list">
+            {% for p in players[:8] %}
+            <div class="mini-row"><span>{{ p.name }} ({{ p.detailed_position or p.position }})</span><span class="money-text">${{ "{:,}".format(p.market_value) }}</span></div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+{% endblock %}
+{% block scripts %}{% endblock %}

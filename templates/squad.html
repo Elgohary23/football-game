@@ -91,6 +91,43 @@
                     <button class="filter-btn" data-filter="FWD">هجوم</button>
                     <button class="filter-btn" data-filter="starter">أساسي</button>
                 </div>
+                <div class="scouting-controls" style="margin-bottom:0.8rem;">
+                    <input type="text" id="squadSearch" class="filter-input" placeholder="بحث بالاسم..." style="flex:1;min-width:140px;" data-tooltip="ابحث عن لاعب بالاسم">
+                    <select id="squadAge" class="filter-input" data-tooltip="تصفية حسب العمر">
+                        <option value="">كل الأعمار</option>
+                        <option value="u21">شاب ≤21</option>
+                        <option value="peak">ذروة 22-29</option>
+                        <option value="vet">مخضرم 30+</option>
+                    </select>
+                    <select id="squadNat" class="filter-input" data-tooltip="تصفية حسب الجنسية/المنطقة">
+                        <option value="">كل الجنسيات</option>
+                        {% for nat in players|map(attribute='nationality')|select|unique|list %}
+                        <option value="{{ nat }}">{{ nat }}</option>
+                        {% endfor %}
+                        {% for reg in players|map(attribute='region')|select|unique|list %}
+                        <option value="reg:{{ reg }}">منطقة: {{ reg }}</option>
+                        {% endfor %}
+                    </select>
+                    <select id="squadAbility" class="filter-input" data-tooltip="الحد الأدنى للقدرة (هجوم/دفاع)">
+                        <option value="0">كل القدرات</option>
+                        <option value="60">قدرة 60+</option>
+                        <option value="70">قدرة 70+</option>
+                        <option value="80">قدرة 80+</option>
+                    </select>
+                    <select id="squadPotential" class="filter-input" data-tooltip="الحد الأدنى للكامنة">
+                        <option value="0">كل الكامن</option>
+                        <option value="70">كامن 70+</option>
+                        <option value="80">كامن 80+</option>
+                        <option value="90">كامن 90+</option>
+                    </select>
+                    <select id="squadSort" class="filter-input" data-tooltip="ترتيب حسب الأجر أو القيمة">
+                        <option value="">ترتيب افتراضي</option>
+                        <option value="wage_desc">الأجر ↓</option>
+                        <option value="wage_asc">الأجر ↑</option>
+                        <option value="val_desc">القيمة ↓</option>
+                        <option value="val_asc">القيمة ↑</option>
+                    </select>
+                </div>
                 <div class="table-container squad-table-scroll">
                 <table class="sortable" id="squadTable">
                     <thead>
@@ -115,7 +152,7 @@
                     </thead>
                     <tbody>
                         {% for player in players %}
-                        <tr class="player-row {{ 'row-starter' if player.is_starting }} {{ 'row-injured' if player.injury_days > 0 }}" data-id="{{ player.id }}" data-pos="{{ player.position }}" data-injury="{{ player.injury_days }}" data-starter="{{ '1' if player.is_starting else '0' }}">
+                        <tr class="player-row {{ 'row-starter' if player.is_starting }} {{ 'row-injured' if player.injury_days > 0 }}" data-id="{{ player.id }}" data-pos="{{ player.position }}" data-injury="{{ player.injury_days }}" data-starter="{{ '1' if player.is_starting else '0' }}" data-name="{{ player.name }}" data-age="{{ player.age }}" data-nat="{{ player.nationality or '' }}" data-region="{{ player.region or '' }}" data-ability="{{ [player.attack, player.defense]|max }}" data-potential="{{ player.potential }}" data-wage="{{ player.wage or 0 }}" data-val="{{ player.market_value }}">
                             <td><span class="pos-tag {{ player.position }}">{{ player.detailed_position or player.position }}</span></td>
                             <td style="text-align:right;"><a href="#" class="player-name-link" data-id="{{ player.id }}" style="color:#e0e0e0;text-decoration:none;font-weight:bold;">{{ player.name }}</a></td>
                             <td>{{ player.age }}</td>
@@ -331,18 +368,31 @@
     {% endif %}
 </section>
 
-<!-- Player Profile Modal -->
+<!-- Player Profile Modal (FM tabs + radar) -->
 <div class="modal-overlay" id="playerModal">
-    <div class="modal-content">
+    <div class="modal-content" style="width:620px;">
         <div class="modal-header">
             <h2 id="modalPlayerName">—</h2>
             <button class="modal-close" id="modalClose">&times;</button>
         </div>
         <div class="modal-body" id="modalBody">
-            <div class="modal-stats" id="modalStats"></div>
-            <div class="modal-section">
-                <h4>آخر التقييمات</h4>
-                <div id="modalRatings"></div>
+            <div class="profile-tabs" id="profileTabs">
+                <button class="profile-tab active" data-ptab="overview">نظرة عامة</button>
+                <button class="profile-tab" data-ptab="attrs">الصفات</button>
+                <button class="profile-tab" data-ptab="dev">التطور</button>
+                <button class="profile-tab" data-ptab="career">المسيرة</button>
+            </div>
+            <div class="profile-pane active" data-ppane="overview"><div class="modal-stats" id="modalStats"></div></div>
+            <div class="profile-pane" data-ppane="attrs">
+                <div class="radar-wrap"><canvas id="radarCanvas" width="300" height="260"></canvas></div>
+                <div class="modal-stats" id="modalAttrs"></div>
+            </div>
+            <div class="profile-pane" data-ppane="dev"><div class="modal-stats" id="modalDev"></div></div>
+            <div class="profile-pane" data-ppane="career">
+                <div class="modal-section">
+                    <h4>آخر التقييمات</h4>
+                    <div id="modalRatings"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -352,12 +402,53 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Player modal
+    // Player modal (FM tabs + radar)
     const modal = document.getElementById('playerModal');
     const modalClose = document.getElementById('modalClose');
     const modalName = document.getElementById('modalPlayerName');
     const modalStats = document.getElementById('modalStats');
+    const modalAttrs = document.getElementById('modalAttrs');
+    const modalDev = document.getElementById('modalDev');
     const modalRatings = document.getElementById('modalRatings');
+
+    document.querySelectorAll('#profileTabs .profile-tab').forEach(function(t) {
+        t.addEventListener('click', function() {
+            document.querySelectorAll('#profileTabs .profile-tab').forEach(function(x) { x.classList.remove('active'); });
+            document.querySelectorAll('.profile-pane').forEach(function(p) { p.classList.toggle('active', p.dataset.ppane === t.dataset.ptab); });
+            t.classList.add('active');
+        });
+    });
+
+    function drawRadar(data) {
+        const c = document.getElementById('radarCanvas');
+        if (!c) return;
+        const ctx = c.getContext('2d');
+        ctx.clearRect(0, 0, c.width, c.height);
+        const labels = ['هجوم', 'دفاع', 'بدنية', 'مهارة', 'سرعة', 'كامن'];
+        const vals = [data.attack || 0, data.defense || 0, data.stamina || 0, data.technique || 0, data.speed || 0, data.potential || 0];
+        const cx = 150, cy = 130, R = 95, n = labels.length;
+        function pt(i, v) {
+            const a = -Math.PI / 2 + i * 2 * Math.PI / n;
+            const r = R * Math.max(0, Math.min(100, v)) / 100;
+            return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+        }
+        ctx.strokeStyle = '#2a2a4a';
+        [25, 50, 75, 100].forEach(function(lv) {
+            ctx.beginPath();
+            for (let i = 0; i <= n; i++) { const p = pt(i % n, lv); i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); }
+            ctx.stroke();
+        });
+        ctx.beginPath();
+        vals.forEach(function(v, i) { const p = pt(i, v); i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); });
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(233,69,96,0.3)'; ctx.fill();
+        ctx.strokeStyle = '#e94560'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = '#aaa'; ctx.font = '11px Tahoma';
+        labels.forEach(function(l, i) {
+            const a = -Math.PI / 2 + i * 2 * Math.PI / n;
+            ctx.fillText(l + ' ' + (vals[i] || 0), cx + (R + 14) * Math.cos(a) - 14, cy + (R + 14) * Math.sin(a));
+        });
+    }
 
     document.querySelectorAll('.player-name-link').forEach(link => {
         link.addEventListener('click', function(e) {
@@ -394,6 +485,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         <div class="modal-stat"><span class="modal-stat-label">التمريرات الحاسمة</span><span class="modal-stat-value">${data.assists}</span></div>
                         <div class="modal-stat"><span class="modal-stat-label">متوسط التقييم</span><span class="modal-stat-value">${data.avg_rating}</span></div>
                     `;
+                    modalAttrs.innerHTML = `
+                        <div class="modal-stat"><span class="modal-stat-label">البدنية</span><span class="modal-stat-value">${data.stamina}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">المهارة</span><span class="modal-stat-value">${data.technique}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">السرعة</span><span class="modal-stat-value">${data.speed}</span></div>
+                        ${topHtml}
+                    `;
+                    modalDev.innerHTML = `
+                        <div class="modal-stat"><span class="modal-stat-label">الكامنة مقابل الحالي</span><span class="modal-stat-value">${data.potential} / ${data.overall || data.attack}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">الحدة</span><span class="modal-stat-value">${data.sharpness != null ? data.sharpness : '—'}</span></div>
+                        <div class="modal-stat"><span class="modal-stat-label">المعنويات</span><span class="modal-stat-value">${data.morale != null ? data.morale : '—'}</span></div>
+                    `;
+                    drawRadar(data);
                     if (data.recent_ratings && data.recent_ratings.length > 0) {
                         let html = '<table><thead><tr><th>تقييم</th><th>أهداف</th><th>تمريرات</th></tr></thead><tbody>';
                         data.recent_ratings.forEach(r => {
@@ -412,18 +515,53 @@ document.addEventListener('DOMContentLoaded', function() {
     modalClose.addEventListener('click', function() { modal.classList.remove('active'); });
     modal.addEventListener('click', function(e) { if (e.target === modal) modal.classList.remove('active'); });
 
-    // Filters
+    // Filters: position buttons + search/age/nationality/ability/potential/sort
+    let activePos = 'all';
+    function applySquadFilters() {
+        const q = (document.getElementById('squadSearch') || {}).value || '';
+        const age = (document.getElementById('squadAge') || {}).value || '';
+        const nat = (document.getElementById('squadNat') || {}).value || '';
+        const minAb = parseInt((document.getElementById('squadAbility') || {}).value || '0', 10);
+        const minPot = parseInt((document.getElementById('squadPotential') || {}).value || '0', 10);
+        const sort = (document.getElementById('squadSort') || {}).value || '';
+        const tbody = document.querySelector('#squadTable tbody');
+        let rows = Array.from(document.querySelectorAll('#squadTable tbody tr'));
+        rows = rows.filter(function(row) {
+            const d = row.dataset;
+            if (activePos === 'starter') { if (d.starter !== '1') return false; }
+            else if (activePos !== 'all' && d.pos !== activePos) return false;
+            if (q && (d.name || '').indexOf(q.trim()) === -1) return false;
+            const a = parseInt(d.age || '0', 10);
+            if (age === 'u21' && a > 21) return false;
+            if (age === 'peak' && (a < 22 || a > 29)) return false;
+            if (age === 'vet' && a < 30) return false;
+            if (nat) {
+                if (nat.indexOf('reg:') === 0) { if ((d.region || '') !== nat.slice(4)) return false; }
+                else if ((d.nat || '') !== nat) return false;
+            }
+            if (parseInt(d.ability || '0', 10) < minAb) return false;
+            if (parseInt(d.potential || '0', 10) < minPot) return false;
+            return true;
+        });
+        if (sort === 'wage_desc') rows.sort((a, b) => parseFloat(b.dataset.wage || 0) - parseFloat(a.dataset.wage || 0));
+        else if (sort === 'wage_asc') rows.sort((a, b) => parseFloat(a.dataset.wage || 0) - parseFloat(b.dataset.wage || 0));
+        else if (sort === 'val_desc') rows.sort((a, b) => parseFloat(b.dataset.val || 0) - parseFloat(a.dataset.val || 0));
+        else if (sort === 'val_asc') rows.sort((a, b) => parseFloat(a.dataset.val || 0) - parseFloat(b.dataset.val || 0));
+        document.querySelectorAll('#squadTable tbody tr').forEach(function(r) { r.style.display = 'none'; });
+        rows.forEach(function(r) { r.style.display = ''; if (tbody) tbody.appendChild(r); });
+    }
     document.querySelectorAll('.filter-btn').forEach(btn => {
         btn.addEventListener('click', function() {
             document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
             this.classList.add('active');
-            const filter = this.dataset.filter;
-            document.querySelectorAll('#squadTable tbody tr').forEach(row => {
-                if (filter === 'all') { row.style.display = ''; }
-                else if (filter === 'starter') { row.style.display = row.dataset.starter === '1' ? '' : 'none'; }
-                else { row.style.display = row.dataset.pos === filter ? '' : 'none'; }
-            });
+            activePos = this.dataset.filter;
+            applySquadFilters();
         });
+    });
+    ['squadSearch', 'squadAge', 'squadNat', 'squadAbility', 'squadPotential', 'squadSort'].forEach(function(id) {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', applySquadFilters);
+        if (el) el.addEventListener('change', applySquadFilters);
     });
 
     // Sortable table

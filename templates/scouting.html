@@ -6,7 +6,9 @@
     <p style="color:#888;font-size:0.85rem;margin-bottom:1rem;">
         الميزانية: <strong class="money-text">${{ "{:,}".format(player_team.budget) }}</strong>
         • ثقة الإدارة: <strong>{{ state.board_confidence if state and state.board_confidence is not none else 60 }}%</strong>
+        • <a href="{{ url_for('main.transfers_center') }}" style="color:#e94560;">مركز الانتقالات ←</a>
     </p>
+    <div class="help-box"><i class="fas fa-info-circle"></i> شبكة الكشافة تكشف التقييمات المموهة (؟) وتجد المواهب — مستويات المعرفة: مجهول → أساسي → متوسط → مفصّل → كامل. ركّز المهام على: المواهب، المهاجمين، المدافعين، الوسط، الحراس.</div>
 
     {% if transfer_status %}
     <div class="card" style="margin-bottom:1rem;border:1px solid {% if transfer_status.window_open %}#27ae60{% else %}#e94560{% endif %};">
@@ -39,6 +41,15 @@
     </div>
     {% endif %}
 
+    <div data-tabs>
+        <div class="tabs" role="tablist">
+            <button class="tab-btn active" data-tab="network">شبكة الكشافة</button>
+            <button class="tab-btn" data-tab="market">السوق</button>
+            <button class="tab-btn" data-tab="free">الوكلاء الأحرار</button>
+            <button class="tab-btn" data-tab="knowledge">المعرفة والتقارير</button>
+        </div>
+
+        <div class="tab-pane active" data-pane="network">
     {% if scouts %}
     <div class="card" style="margin-bottom:1rem;">
         <div class="card-header"><h3>الكشافة ومهامهم</h3></div>
@@ -76,9 +87,13 @@
         </table>
         <p style="color:#777;font-size:0.75rem;margin-top:0.4rem;">
             <i class="fas fa-info-circle"></i> الكشافة تكشف التقييم الحقيقي للاعبين (المموّهة بعلامة “؟”) وتكتشف مواهب شابة من المنطقة.
+            مجالات التركيز: المواهب • المهاجمون • المدافعون • الوسط • الحراس — اختر المنطقة والمدة عبر <a href="{{ url_for('team.staff') }}" style="color:#e94560;">صفحة الطاقم</a>.
         </p>
     </div>
     {% endif %}
+        </div><!-- /network -->
+
+        <div class="tab-pane" data-pane="market">
 
     <div class="scouting-controls">
         <input type="text" id="searchName" class="filter-input" placeholder="ابحث عن لاعب..." style="flex:1;min-width:150px;">
@@ -104,48 +119,6 @@
         </select>
     </div>
 
-    {% if free_agents %}
-    <div class="card" style="margin-bottom:1rem;">
-        <div class="card-header"><h3>وكلاء أحرار (بدون نادٍ)</h3></div>
-        <div class="table-container" style="max-height:420px;overflow-y:auto;">
-        <table>
-            <thead>
-                <tr><th>الاسم</th><th>المركز</th><th>العمر</th><th>الهجوم</th><th>الدفاع</th><th>القيمة</th><th>إجراء</th></tr>
-            </thead>
-            <tbody>
-                {% for p in free_agents %}
-                <tr>
-                    <td style="text-align:right;font-weight:bold;">{{ p.name }}</td>
-                    <td><span class="pos-tag {{ p.position }}">{{ p.detailed_position or p.position }}</span></td>
-                    <td>{{ p.age }}</td>
-                    <td>{{ ratings.get(p.id, p.attack) }}</td>
-                    <td>{{ ratings.get(p.id, p.defense) }}</td>
-                    <td class="money-text">${{ "{:,}".format(p.market_value) }}</td>
-                    <td>
-                        <form action="/buy_player/{{ p.id }}" method="POST">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                            <input type="checkbox" name="sell_on" value="0.20" id="sellon-{{ p.id }}"/>
-                            <label for="sellon-{{ p.id }}" style="font-size:0.7rem;color:#888;">-20% مقابل بند بيع مستقبلي</label>
-                            <button class="btn btn-sm btn-success" type="submit" {% if player_team.budget < p.market_value %}disabled title="الميزانية غير كافية"{% endif %}>شراء</button>
-                        </form>
-                        <details style="margin-top:0.3rem;">
-                            <summary style="font-size:0.75rem;color:#3498db;cursor:pointer;">تعاقد حر بشروط (راتب/مدة/بونص)</summary>
-                            <form action="/free_agent/{{ p.id }}/sign" method="POST" style="display:flex;flex-direction:column;gap:0.25rem;">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                                <input type="number" name="wage" min="0" step="1000" value="0" class="filter-input" placeholder="راتب سنوي"/>
-                                <input type="number" name="years" min="1" max="5" value="3" class="filter-input" placeholder="سنوات العقد"/>
-                                <input type="number" name="signing_bonus" min="0" step="1000" value="0" class="filter-input" placeholder="بونص توقيع"/>
-                                <button type="submit" class="btn btn-sm btn-primary">توقيع حر</button>
-                            </form>
-                        </details>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        </div>
-    </div>
-    {% endif %}
 
     <div class="card">
         <div class="card-header"><h3>لاعبو الأندية</h3></div>
@@ -257,6 +230,70 @@
         </table>
         </div>
     </div>
+        </div><!-- /market -->
+
+        <div class="tab-pane" data-pane="free">
+    {% if free_agents %}
+    <div class="card" style="margin-bottom:1rem;">
+        <div class="card-header"><h3>وكلاء أحرار (بدون نادٍ)</h3></div>
+        <div class="table-container" style="max-height:420px;overflow-y:auto;">
+        <table>
+            <thead>
+                <tr><th>الاسم</th><th>المركز</th><th>العمر</th><th>الهجوم</th><th>الدفاع</th><th>القيمة</th><th>إجراء</th></tr>
+            </thead>
+            <tbody>
+                {% for p in free_agents %}
+                <tr>
+                    <td style="text-align:right;font-weight:bold;">{{ p.name }}</td>
+                    <td><span class="pos-tag {{ p.position }}">{{ p.detailed_position or p.position }}</span></td>
+                    <td>{{ p.age }}</td>
+                    <td>{{ ratings.get(p.id, p.attack) }}</td>
+                    <td>{{ ratings.get(p.id, p.defense) }}</td>
+                    <td class="money-text">${{ "{:,}".format(p.market_value) }}</td>
+                    <td>
+                        <form action="/buy_player/{{ p.id }}" method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <input type="checkbox" name="sell_on" value="0.20" id="sellon-{{ p.id }}"/>
+                            <label for="sellon-{{ p.id }}" style="font-size:0.7rem;color:#888;">-20% مقابل بند بيع مستقبلي</label>
+                            <button class="btn btn-sm btn-success" type="submit" {% if player_team.budget < p.market_value %}disabled title="الميزانية غير كافية"{% endif %}>شراء</button>
+                        </form>
+                        <details style="margin-top:0.3rem;">
+                            <summary style="font-size:0.75rem;color:#3498db;cursor:pointer;">تعاقد حر بشروط (راتب/مدة/بونص)</summary>
+                            <form action="/free_agent/{{ p.id }}/sign" method="POST" style="display:flex;flex-direction:column;gap:0.25rem;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <input type="number" name="wage" min="0" step="1000" value="0" class="filter-input" placeholder="راتب سنوي"/>
+                                <input type="number" name="years" min="1" max="5" value="3" class="filter-input" placeholder="سنوات العقد"/>
+                                <input type="number" name="signing_bonus" min="0" step="1000" value="0" class="filter-input" placeholder="بونص توقيع"/>
+                                <button type="submit" class="btn btn-sm btn-primary">توقيع حر</button>
+                            </form>
+                        </details>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+    {% endif %}
+        </div><!-- /free -->
+
+        <div class="tab-pane" data-pane="knowledge">
+            <div class="card">
+                <div class="card-header"><h3>مستويات المعرفة والتقارير</h3></div>
+                <div class="role-grid">
+                    <div class="role-card"><h4>مجهول</h4><p>التقييم مموه (؟).</p></div>
+                    <div class="role-card"><h4>اساسي</h4><p>نطاق تقريبي بعد اول مهمة.</p></div>
+                    <div class="role-card"><h4>متوسط</h4><p>تقييم مقارب بعد مهام متكررة.</p></div>
+                    <div class="role-card"><h4>مفصل</h4><p>تقييم دقيق ونقاط قوة وضعف.</p></div>
+                    <div class="role-card"><h4>كامل</h4><p>كل شيء مكشوف بثقة عالية.</p></div>
+                </div>
+                <div class="meter" style="margin-top:0.8rem;">
+                    <div class="meter-label"><span>مقياس الاكتشاف</span><span>+8 لكل مهمة (عتبة 50)</span></div>
+                    <div class="meter-track"><div class="meter-fill" style="width:50%;background:#f39c12"></div></div>
+                </div>
+            </div>
+        </div><!-- /knowledge -->
+    </div><!-- /tabs -->
 
     <a href="{{ url_for('main.dashboard') }}" class="btn-back">← العودة للوحة</a>
 </section>

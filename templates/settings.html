@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}الإعدادات{% endblock %}
+{% block content %}
+<section class="dashboard">
+    <h1 class="page-title"><i class="fas fa-cog"></i> الإعدادات</h1>
+    <div class="help-box"><i class="fas fa-info-circle"></i> صعوبة الذكاء الاصطناعي تضبط مهارة الخصوم فقط — لا تعديلات خفية على فريقك. الحفظ اليدوي من صفحة الحفظ.</div>
+
+    <div class="card" style="margin-bottom:1rem;">
+        <div class="card-header"><h3><i class="fas fa-brain"></i> صعوبة الذكاء الاصطناعي (الحالية: {{ state.ai_difficulty or 'عادي' }})</h3></div>
+        <form action="/difficulty" method="POST" class="tactics-grid">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <div><label>المستوى</label>
+                <select name="mode" class="filter-input">
+                    {% for d in difficulties %}
+                    <option value="{{ d }}" {% if (state.ai_difficulty or 'عادي') == d %}selected{% endif %}>{{ d }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button class="btn btn-primary">حفظ الصعوبة</button>
+        </form>
+    </div>
+
+    <div class="card" style="margin-bottom:1rem;">
+        <div class="card-header"><h3><i class="fas fa-save"></i> الحفظ</h3></div>
+        <div class="kv"><span class="k">ملف الحفظ النشط</span><span class="v">حفظ {{ session.get('active_save') }}</span></div>
+        <div class="kv"><span class="k">الموسم / الأسبوع / اليوم</span><span class="v">{{ state.season_number or 1 }} / {{ state.current_week }} / {{ state.current_day }}</span></div>
+        <div class="kv"><span class="k">النادي</span><span class="v">{{ player_team.name }}</span></div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.8rem;flex-wrap:wrap;">
+            <a href="{{ url_for('save.load_game') }}" class="btn btn-secondary">صفحة الحفظ</a>
+            <a href="{{ url_for('save.exit_to_menu') }}" class="btn btn-danger">خروج للقائمة</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-question-circle"></i> دليل سريع</h3></div>
+        <div class="mini-list">
+            <div class="mini-row"><span>التشكيلة الأساسية تتطلب 11 لاعباً قبل المباريات الحية</span><a href="{{ url_for('team.formation') }}" class="btn btn-sm btn-secondary">التشكيلة</a></div>
+            <div class="mini-row"><span>الإصابات تُعالج تلقائياً مع الوقت والطاقم الطبي</span><a href="{{ url_for('team.medical') }}" class="btn btn-sm btn-secondary">الطبي</a></div>
+            <div class="mini-row"><span>الكشافة تكشف التقييمات المموهة وتجد المواهب</span><a href="{{ url_for('team.scouting') }}" class="btn btn-sm btn-secondary">الكشافة</a></div>
+            <div class="mini-row"><span>نافذة الانتقالات تُفتح وتُغلق من السوق أو تلقائياً</span><a href="{{ url_for('main.transfers_center') }}" class="btn btn-sm btn-secondary">الانتقالات</a></div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+{% block scripts %}{% endblock %}

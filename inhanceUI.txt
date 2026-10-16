@@ -1,0 +1,728 @@
+You are a Senior Product Designer, UX Architect, and Frontend Engineer working on a Football Manager-style web game.
+
+Your task is to redesign and fully implement the User Interface and User Experience so that EVERY backend system that already exists in the game becomes visible, accessible, intuitive, and fully usable through the UI.
+
+IMPORTANT:
+- Do NOT remove any existing functionality.
+- Assume the backend APIs, services, routes, models, and business logic already exist.
+- Build frontend screens, layouts, modals, dashboards, controls, navigation, tables, cards, visualizations, and interactions for all implemented systems.
+- The final product should feel like a premium Football Manager + EA FC Career Mode + Top Eleven hybrid.
+- Every implemented feature must be discoverable by the user.
+- No backend feature should remain hidden.
+- Use modern responsive UI.
+- Use clean dark mode football management aesthetic.
+- Use professional dashboards, cards, charts, badges, progress indicators, notifications, and advanced management panels.
+
+========================================
+GLOBAL APPLICATION STRUCTURE
+========================================
+
+Create a complete application shell including:
+
+1. Sidebar Navigation
+
+Main Categories:
+- Dashboard
+- Inbox
+- Squad
+- Formation
+- Tactics
+- Training
+- Scouting
+- Transfers
+- Staff
+- Board
+- Competitions
+- World
+- Match Center
+- Finances
+- Club
+- Settings
+
+2. Top Navigation
+
+Show:
+- Club Name
+- Current Season
+- Current Date
+- Budget
+- Wage Budget
+- Notifications
+- Inbox Counter
+- Board Confidence
+- Save Game Status
+
+3. Global Search
+
+Allow searching:
+- Players
+- Teams
+- Staff
+- Competitions
+- Scouts
+- Agents
+
+4. Global Notification Center
+
+Show:
+- Transfer Updates
+- Scouting Results
+- Board Messages
+- Injury Reports
+- Contract Updates
+- Competition News
+
+========================================
+DASHBOARD OVERHAUL
+========================================
+
+Create a powerful manager dashboard.
+
+Widgets:
+
+- Next Match
+- Last Match
+- League Position
+- Form Guide
+- Top Scorers
+- Board Confidence
+- Transfer Targets
+- Youth Prospects
+- Financial Summary
+- Squad Depth Analysis
+- Injury Overview
+- Competition Progress
+
+Charts:
+
+- Form Trend
+- Goal Statistics
+- Squad Age Distribution
+- Wage Structure
+- Morale Distribution
+
+========================================
+INBOX CENTER
+========================================
+
+Build a complete mailbox system.
+
+Features:
+
+- Read / Unread
+- Archive
+- Delete
+- Mark Important
+- Urgent Messages
+- Categories
+    - Transfers
+    - Board
+    - Staff
+    - Scouting
+    - Financial
+    - Competitions
+    - Media
+
+Message Reader:
+
+- Full content view
+- Action buttons
+- Reply actions
+- Direct navigation links
+
+Examples:
+
+"Scout report available"
+"Transfer bid received"
+"Board objective updated"
+
+========================================
+SQUAD MANAGEMENT
+========================================
+
+Create elite squad management screens.
+
+Each player card shows:
+
+- Photo
+- Age
+- Nationality
+- Position
+- Overall Ability
+- Potential
+- Morale
+- Sharpness
+- Fitness
+- Value
+- Wage
+
+Filters:
+
+- Position
+- Age
+- Nationality
+- Ability
+- Potential
+
+Sorting:
+
+- Ability
+- Potential
+- Wage
+- Market Value
+
+========================================
+PLAYER PROFILE PAGE
+========================================
+
+Create a modern Football Manager style player page.
+
+Tabs:
+
+Overview
+Attributes
+Development
+Personality
+Career
+Contracts
+Traits
+Statistics
+
+Display:
+
+- Technical Attributes
+- Mental Attributes
+- Physical Attributes
+- Morale
+- Sharpness
+- Potential
+- Form
+- Personality
+- Hidden Traits
+- Strengths
+- Weaknesses
+
+History Section:
+
+- Ratings Timeline
+- Career Stats
+- Development Graph
+- Attribute Progression
+
+Visualizations:
+
+- Radar Chart
+- Attribute Comparison
+- Performance Trends
+
+========================================
+FORMATION SCREEN
+========================================
+
+Completely redesign formation management.
+
+Features:
+
+- Drag & Drop Players
+- Live Formation Board
+- Position Heatmaps
+- Team Shape Visualization
+
+Buttons:
+
+- Auto Pick Best XI
+- Fill Formation By Ability
+- Reset Formation
+- Save Formation
+
+Show:
+
+- Team Chemistry
+- Tactical Familiarity
+- Position Familiarity
+
+========================================
+PLAYER ROLE SYSTEM
+========================================
+
+Expose all player role functionality.
+
+Roles:
+
+- Poacher
+- Advanced Forward
+- Target Forward
+- Deep Lying Forward
+- Pressing Forward
+
+- Deep Lying Playmaker
+- Advanced Playmaker
+- Box To Box Midfielder
+
+- Ball Winning Midfielder
+- Anchor Man
+
+- Wing Back
+- Inverted Wing Back
+- Full Back
+
+- Ball Playing Defender
+- Central Defender
+
+For every role show:
+
+- Description
+- Strength Indicators
+- Suitability Score
+- Tactical Impact
+
+========================================
+TACTICS CENTER
+========================================
+
+Create a complete FM-like tactics section.
+
+Tabs:
+
+Mentality
+In Possession
+Transitions
+Out Of Possession
+Set Pieces
+
+Mentality:
+
+- Very Defensive
+- Defensive
+- Balanced
+- Positive
+- Attacking
+- Very Attacking
+
+In Possession:
+
+- Passing Directness
+- Tempo
+- Width
+- Crossing
+- Creativity
+
+Transitions:
+
+- Counter Press
+- Counter Attack
+- Goalkeeper Distribution
+
+Out Of Possession:
+
+- Pressing Intensity
+- Defensive Line
+- Line of Engagement
+
+Set Pieces:
+
+- Corners
+- Free Kicks
+- Penalties
+- Throw Ins
+
+Visual Tactical Preview:
+
+- Animated Tactical Board
+- Movement Visualization
+- Tactical Familiarity Meter
+
+========================================
+TRANSFER CENTER
+========================================
+
+Create a world-class transfer hub.
+
+Tabs:
+
+Targets
+Incoming
+Outgoing
+Loans
+Shortlist
+Transfer Market
+
+Features:
+
+- Submit Offer
+- Negotiate
+- Counter Offer
+- Bid History
+- Transfer Timeline
+
+Player Market View:
+
+- Market Value
+- Asking Price
+- Agent
+- Contract Status
+- Interest Level
+
+========================================
+ADVANCED TRANSFER FEATURES
+========================================
+
+Build dedicated interfaces for:
+
+Loan Offers
+
+Options:
+- Loan Fee
+- Wage Percentage
+- Buy Option
+- Mandatory Buy Option
+
+Release Clauses
+
+Show:
+- Clause Value
+- Trigger Conditions
+
+Buy Back Clauses
+
+Show:
+- Expiration
+- Buy Back Price
+
+Sell-On Clauses
+
+Show:
+- Future Percentage
+
+First Refusal Clauses
+
+Show:
+- Trigger Logic
+- Eligible Clubs
+
+Installment Deals
+
+Show:
+- Initial Payment
+- Scheduled Payments
+
+Performance Bonuses
+
+Show:
+- Appearances
+- Goals
+- Competition Wins
+
+Swap Deals
+
+Interface:
+
+- Select Incoming Player
+- Select Outgoing Player
+- Balance Difference
+- Negotiation Preview
+
+Transfer Requests
+
+View:
+
+- Listed Players
+- Unhappy Players
+- Requested Transfers
+
+========================================
+SCOUTING CENTER
+========================================
+
+Create a comprehensive scouting department.
+
+Main Views:
+
+- Scout Network
+- Regions
+- Reports
+- Assignments
+- Knowledge Map
+
+Scout Assignment:
+
+- Region Selection
+- Duration
+- Focus Area
+
+Focus Areas:
+
+- Wonderkids
+- Strikers
+- Defenders
+- Midfielders
+- Goalkeepers
+
+========================================
+SCOUT REPORT SYSTEM
+========================================
+
+Create advanced scouting reports.
+
+Show:
+
+- Estimated Ability
+- Estimated Potential
+- Strengths
+- Weaknesses
+
+Knowledge Levels:
+
+- Unknown
+- Basic
+- Moderate
+- Detailed
+- Complete
+
+Visual Indicators:
+
+- Knowledge Meter
+- Confidence Score
+- Discovery Progress
+
+========================================
+MENTORING SYSTEM
+========================================
+
+Create a dedicated mentoring screen.
+
+Show:
+
+- Mentor
+- Mentee
+- Relationship Strength
+- Growth Impact
+
+Visualizations:
+
+- Influence Network
+- Development Progress
+
+Actions:
+
+- Assign Mentor
+- Remove Mentor
+- View Effects
+
+========================================
+STAFF MANAGEMENT
+========================================
+
+Create a complete staff portal.
+
+Staff Types:
+
+- Assistant Manager
+- Coach
+- Scout
+- Physio
+- Analyst
+
+Features:
+
+- Hire
+- Fire
+- Renew Contract
+- Compare Staff
+
+Show:
+
+- Skills
+- Bonuses
+- Responsibilities
+- Impact Scores
+
+========================================
+BOARD CENTER
+========================================
+
+Build a full board management section.
+
+Dashboard:
+
+- Board Confidence
+- Club Vision
+- Expectations
+
+Objectives:
+
+- League Position
+- Youth Development
+- Financial Targets
+- Competition Goals
+
+Show:
+
+- Progress Tracking
+- Rewards
+- Penalties
+- Deadline Indicators
+
+========================================
+COMPETITION CENTER
+========================================
+
+Create advanced competition interfaces.
+
+Leagues:
+
+- Table
+- Form
+- Stats
+- Fixtures
+
+Cup Competitions:
+
+- Brackets
+- Knockout Tree
+- Qualification Paths
+
+Continental Competitions:
+
+- League Phase
+- Group Stage
+- Knockout Stage
+
+Visualizations:
+
+- Interactive Brackets
+- Qualification Simulator
+
+========================================
+WORLD CENTER
+========================================
+
+Create a football world dashboard.
+
+Sections:
+
+- Global Rankings
+- Transfer Activity
+- League Summaries
+- Club News
+- Continental News
+
+Show:
+
+- Top Scorers
+- Top Assists
+- Best Players
+- Emerging Talents
+
+World Events:
+
+- Manager Sacked
+- Club Takeovers
+- Major Transfers
+- Title Races
+- Relegation Battles
+
+========================================
+LIVE MATCH CENTER
+========================================
+
+Create a premium match experience.
+
+Live Match Dashboard:
+
+- Match Clock
+- Scoreboard
+- Event Feed
+
+Statistics:
+
+- Possession
+- xG
+- Shots
+- Shots On Target
+- Corners
+- Fouls
+- Cards
+
+Interactive Controls:
+
+- Shouts
+- Tactical Changes
+- Mentality Changes
+- Substitutions
+
+Live Visualizations:
+
+- Momentum Graph
+- Attack Map
+- Match Flow
+
+========================================
+FINANCIAL CENTER
+========================================
+
+Create complete financial screens.
+
+Display:
+
+- Budget
+- Wage Budget
+- Income
+- Expenses
+
+Charts:
+
+- Revenue Sources
+- Monthly Balance
+- Transfer Spending
+
+Financial Reports:
+
+- Sponsorship
+- Ticket Sales
+- Prize Money
+- Merchandise
+
+========================================
+UX REQUIREMENTS
+========================================
+
+Every page must include:
+
+- Empty States
+- Loading States
+- Error States
+- Responsive Layouts
+- Tooltips
+- Help Guides
+- Contextual Explanations
+
+Use:
+
+- Charts
+- Progress Bars
+- Heat Maps
+- Timelines
+- Radar Charts
+- Interactive Tables
+- Filters
+- Search
+- Sorting
+
+========================================
+FINAL REQUIREMENT
+========================================
+
+Audit the entire backend and automatically generate UI components for EVERY implemented route, service, feature, API endpoint, and game system that lacks frontend coverage.
+
+No backend functionality should remain inaccessible.
+
+For every hidden feature:
+- Create a screen
+- Create navigation access
+- Create actions
+- Create forms
+- Create visual feedback
+- Create analytics and progress visualizations
+
+The result should feel like a modern AAA Football Management Simulator with complete parity between backend functionality and user experience.

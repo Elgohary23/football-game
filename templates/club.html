@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}النادي{% endblock %}
+{% block content %}
+<section class="dashboard">
+    <h1 class="page-title"><i class="fas fa-shield-alt"></i> {{ player_team.name }}</h1>
+    <div class="manager-record">
+        <div class="record-item"><div class="record-label">المركز</div><div class="record-value">#{{ team_rank }}</div></div>
+        <div class="record-item"><div class="record-label">النقاط</div><div class="record-value">{{ player_team.points }}</div></div>
+        <div class="record-item"><div class="record-label">الأهداف</div><div class="record-value green">{{ player_team.goals_for }}</div></div>
+        <div class="record-item"><div class="record-label">الشباك</div><div class="record-value red">{{ player_team.goals_against }}</div></div>
+        <div class="record-item"><div class="record-label">السمعة</div><div class="record-value gold">{{ player_team.reputation or 50 }}</div></div>
+        <div class="record-item"><div class="record-label">المعنويات</div><div class="record-value">{{ player_team.morale }}%</div></div>
+    </div>
+
+    <div class="widget-grid">
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-eye"></i> هوية النادي</h3>
+            {% if player_team.philosophy %}
+            <div class="kv"><span class="k">الفلسفة</span><span class="v">{{ player_team.philosophy.primary }}</span></div>
+            <div class="kv"><span class="k">الهدف الموسمي</span><span class="v">{{ player_team.philosophy.season_goal }}</span></div>
+            <div class="kv"><span class="k">الطموح</span><span class="v">{{ player_team.philosophy.board_ambition }}</span></div>
+            {% else %}
+            <div class="empty-state">لا فلسفة مسجلة — نادٍ متوازن يبحث عن هويته</div>
+            {% endif %}
+            <div class="kv"><span class="k">التدريب</span><span class="v">{{ player_team.training_facilities }}/10</span></div>
+            <div class="kv"><span class="k">الأكاديمية</span><span class="v">{{ player_team.youth_facilities }}/10</span></div>
+        </div>
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-user-tie"></i> الطاقم ({{ staff|length }})</h3>
+            {% if staff %}
+            <div class="mini-list">
+                {% for s in staff[:6] %}
+                <div class="mini-row"><span>{{ s.name }} ({{ s.role }})</span><span>مستوى {{ s.level }}</span></div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">لا طاقم بعد — وظّف من صفحة الطاقم</div>
+            {% endif %}
+            <a href="{{ url_for('team.staff') }}" style="font-size:0.78rem;color:#e94560;text-decoration:none;">إدارة الطاقم ←</a>
+        </div>
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-users"></i> التشكيلة ({{ players|length }})</h3>
+            {% set gk = players|selectattr('position', 'equalto', 'GK')|list|length %}
+            {% set df = players|selectattr('position', 'equalto', 'DEF')|list|length %}
+            {% set md = players|selectattr('position', 'equalto', 'MID')|list|length %}
+            {% set fw = players|selectattr('position', 'equalto', 'FWD')|list|length %}
+            <div class="bar-row"><span class="bar-label">حراس</span><div class="bar-track"><div class="bar-fill green" style="width:{{ (gk / players|length * 100) if players else 0 }}%"></div></div><span class="bar-val">{{ gk }}</span></div>
+            <div class="bar-row"><span class="bar-label">دفاع</span><div class="bar-track"><div class="bar-fill blue" style="width:{{ (df / players|length * 100) if players else 0 }}%"></div></div><span class="bar-val">{{ df }}</span></div>
+            <div class="bar-row"><span class="bar-label">وسط</span><div class="bar-track"><div class="bar-fill" style="width:{{ (md / players|length * 100) if players else 0 }}%"></div></div><span class="bar-val">{{ md }}</span></div>
+            <div class="bar-row"><span class="bar-label">هجوم</span><div class="bar-track"><div class="bar-fill" style="width:{{ (fw / players|length * 100) if players else 0 }}%;background:linear-gradient(90deg,#e74c3c,#f39c12)"></div></div><span class="bar-val">{{ fw }}</span></div>
+            <a href="{{ url_for('team.squad') }}" style="font-size:0.78rem;color:#e94560;text-decoration:none;">عرض التشكيلة ←</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-list-ol"></i> وضع الدوري</h3><a href="{{ url_for('main.standings') }}" class="btn btn-sm btn-secondary">الجدول الكامل</a></div>
+        <div class="table-container"><table>
+            <thead><tr><th>#</th><th>الفريق</th><th>نقاط</th></tr></thead>
+            <tbody>
+                {% for t in league_table[:8] %}
+                <tr class="{{ 'row-highlight' if t.id == player_team.id }}"><td>{{ loop.index }}</td><td style="text-align:right;">{{ t.name }}</td><td><strong>{{ t.points }}</strong></td></tr>
+                {% endfor %}
+            </tbody>
+        </table></div>
+    </div>
+</section>
+{% endblock %}
+{% block scripts %}{% endblock %}

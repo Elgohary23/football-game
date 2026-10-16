@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}المركز المالي{% endblock %}
+{% block content %}
+<section class="dashboard">
+    <h1 class="page-title"><i class="fas fa-coins"></i> المركز المالي</h1>
+    <div class="help-box"><i class="fas fa-info-circle"></i> الميزانية وكتلة الأجور والدخل والمصروفات — راقب اللعب المالي النظيف قبل إبرام الصفقات الكبرى.</div>
+
+    <div class="stats-grid">
+        <div class="stat-card"><span class="stat-label">الميزانية</span><span class="stat-value money-text" style="font-size:1.2rem;">${{ "{:,}".format(player_team.budget) }}</span></div>
+        <div class="stat-card"><span class="stat-label">ميزانية الأجور</span><span class="stat-value" style="font-size:1.2rem;">${{ "{:,}".format(player_team.wage_budget or 0) }}</span></div>
+        <div class="stat-card"><span class="stat-label">كتلة الأجور السنوية</span><span class="stat-value" style="font-size:1.2rem;">${{ "{:,}".format(wage_bill) }}</span></div>
+        <div class="stat-card"><span class="stat-label">صافي الموسم</span><span class="stat-value" style="font-size:1.2rem;color:{{ '#2ecc71' if ((player_team.season_income or 0) - (player_team.season_spend or 0)) >= 0 else '#e74c3c' }};">${{ "{:,}".format((player_team.season_income or 0) - (player_team.season_spend or 0)) }}</span></div>
+    </div>
+
+    <div class="widget-grid">
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-chart-bar"></i> الدخل مقابل المصروفات</h3>
+            {% set inc = player_team.season_income or 0 %}
+            {% set sp = player_team.season_spend or 0 %}
+            {% set mx = [inc, sp, 1]|max %}
+            <div class="bar-row"><span class="bar-label">الدخل</span><div class="bar-track"><div class="bar-fill green" style="width:{{ (inc / mx * 100) }}%"></div></div><span class="bar-val">${{ "{:,}".format(inc) }}</span></div>
+            <div class="bar-row"><span class="bar-label">الإنفاق</span><div class="bar-track"><div class="bar-fill" style="width:{{ (sp / mx * 100) }}%;background:linear-gradient(90deg,#e74c3c,#f39c12)"></div></div><span class="bar-val">${{ "{:,}".format(sp) }}</span></div>
+        </div>
+        <div class="card widget">
+            <h3 class="widget-title"><i class="fas fa-receipt"></i> مصادر الإيرادات</h3>
+            <div class="kv"><span class="k"><i class="fas fa-handshake"></i> الرعاية</span><span class="v">تُحتسب تلقائياً مع الدخل</span></div>
+            <div class="kv"><span class="k"><i class="fas fa-ticket-alt"></i> التذاكر</span><span class="v">حسب الحضور والموسم</span></div>
+            <div class="kv"><span class="k"><i class="fas fa-trophy"></i> الجوائز</span><span class="v">عند الفوز بالبطولات ({{ state.trophies or 0 }})</span></div>
+            <div class="kv"><span class="k"><i class="fas fa-shirt"></i> المتجر</span><span class="v">حسب شعبية النادي</span></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-hourglass-half"></i> الأقساط المؤجلة ({{ debts|length }})</h3></div>
+        {% if debts %}
+        <div class="table-container"><table>
+            <thead><tr><th>اللاعب</th><th>المبلغ</th><th>يوم الاستحقاق</th><th>الحالة</th></tr></thead>
+            <tbody>
+                {% for d in debts %}
+                <tr><td style="text-align:right;">{{ d.player.name if d.player else ('#' ~ d.player_id) }}</td><td class="money-text">${{ "{:,}".format(d.amount) }}</td><td>اليوم {{ d.due_day }}</td><td>{{ 'مدفوع' if d.paid else 'مستحق' }}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table></div>
+        {% else %}
+        <div class="empty-state">لا أقساط مستحقة — كل صفقاتك مدفوعة نقداً</div>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3><i class="fas fa-gift"></i> مكافآت الأداء المعلقة ({{ bonuses|length }})</h3></div>
+        {% if bonuses %}
+        <div class="table-container"><table>
+            <thead><tr><th>اللاعب</th><th>المبلغ</th><th>الهدف</th><th>الحالة</th></tr></thead>
+            <tbody>
+                {% for b in bonuses %}
+                <tr><td style="text-align:right;">{{ b.player.name if b.player else ('#' ~ b.player_id) }}</td><td class="money-text">${{ "{:,}".format(b.amount) }}</td><td>{{ b.target_goals }} هدف</td><td>{{ 'مدفوعة' if b.paid else 'معلقة' }}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table></div>
+        {% else %}
+        <div class="empty-state">لا مكافآت أداء معلقة</div>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}
+{% block scripts %}{% endblock %}

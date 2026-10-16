@@ -229,6 +229,76 @@ def dashboard():
     except Exception:
         cup_statuses = []
 
+    # --- Dashboard widgets (all best-effort: never break the hub) ---
+    last_match = None
+    form_guide = []
+    top_scorers = []
+    youth_prospects = []
+    injured_players = []
+    transfer_counts = {"listed": 0, "requested": 0, "loans": 0, "free_agents": 0}
+    finance_summary = {"spend": 0, "income": 0, "wage_bill": 0}
+    try:
+        last_match = (
+            Match.query.filter(
+                ((Match.home_team_id == player_team.id) | (Match.away_team_id == player_team.id)),
+                Match.played == True,
+            )
+            .order_by(Match.week.desc())
+            .first()
+        )
+    except Exception:
+        last_match = None
+    try:
+        played = (
+            Match.query.filter(
+                ((Match.home_team_id == player_team.id) | (Match.away_team_id == player_team.id)),
+                Match.played == True,
+            )
+            .order_by(Match.week.desc())
+            .limit(5)
+            .all()
+        )
+        for m in played:
+            if m.home_team_id == player_team.id:
+                form_guide.append("W" if (m.home_score or 0) > (m.away_score or 0) else ("D" if (m.home_score or 0) == (m.away_score or 0) else "L"))
+            else:
+                form_guide.append("W" if (m.away_score or 0) > (m.home_score or 0) else ("D" if (m.away_score or 0) == (m.home_score or 0) else "L"))
+        form_guide = form_guide[::-1]
+    except Exception:
+        form_guide = []
+    try:
+        from simulation import get_top_scorers
+        top_scorers = (get_top_scorers(league_id) or [])[:5]
+    except Exception:
+        top_scorers = []
+    try:
+        youth_prospects = sorted(
+            [p for p in players if (p.age or 99) <= 21],
+            key=lambda p: (p.potential or 0),
+            reverse=True,
+        )[:4]
+    except Exception:
+        youth_prospects = []
+    try:
+        injured_players = [p for p in players if (p.injury_days or 0) > 0][:5]
+    except Exception:
+        injured_players = []
+    try:
+        transfer_counts["listed"] = sum(1 for p in players if p.transfer_listed)
+        transfer_counts["requested"] = sum(1 for p in players if p.transfer_requested)
+        transfer_counts["loans"] = sum(1 for p in players if p.loan_to_team_id or p.loan_from_team_id)
+        transfer_counts["free_agents"] = Player.query.filter_by(team_id=None).count()
+    except Exception:
+        pass
+    try:
+        finance_summary = {
+            "spend": player_team.season_spend or 0,
+            "income": player_team.season_income or 0,
+            "wage_bill": sum(p.wage or 0 for p in players),
+        }
+    except Exception:
+        pass
+
     return render_template(
         "dashboard.html",
         state=state,
@@ -236,6 +306,14 @@ def dashboard():
         players=players,
         team_rank=team_rank,
         current_match=current_match,
+        next_match=current_match,
+        last_match=last_match,
+        form_guide=form_guide,
+        top_scorers=top_scorers,
+        youth_prospects=youth_prospects,
+        injured_players=injured_players,
+        transfer_counts=transfer_counts,
+        finance_summary=finance_summary,
         league_table=league_table,
         recent_results=recent_results,
         pending_actions=pending_actions,
@@ -962,3 +1040,164 @@ def world_overview():
                            title_races=title_races, relegations=relegations,
                            continental=continental, form_table=form_table,
                            top_scorers=top_scorers)
+
+
+# --------------------------------------------------------------------------
+# Management hubs (inhanceUI): board / finances / tactics / transfers /
+# club / settings + global search API. Thin glue only — data comes from
+# models/services, exactly like every other route in this blueprint.
+# --------------------------------------------------------------------------
+@bp.route("/board")
+def board_center():
+    from models import BoardObjective
+    redir = _setup_redirect()
+    if redir:
+        return redir
+    state = safe_state()
+    player_team = safe_player_team()
+    objectives = BoardObjective.query.filter_by(
+        team_id=player_team.id, season=state.season_number or 1
+    ).all()
+    players = Player.query.filter_by(team_id=player_team.id).all()
+    try:
+        avg_age = sum(p.age or 0 for p in players) / max(1, len(players))
+    except Exception:
+        avg_age = 0
+    rank = get_team_rank(player_team.league_id, player_team)
+    return render_template("board.html", state=state, player_team=player_team,
+                           players=players, objectives=objectives,
+                           avg_age=avg_age, team_rank=rank)
+
+
+@bp.route("/finances")
+def finances_center():
+    redir = _setup_redirect()
+    if redir:
+        return redir
+    state = safe_state()
+    player_team = safe_player_team()
+    players = Player.query.filter_by(team_id=player_team.id).all()
+    wage_bill = sum(p.wage or 0 for p in players)
+    debts = []
+    bonuses = []
+    try:
+        from models import InstallmentDebt, PerformanceBonus
+        debts = InstallmentDebt.query.filter_by(from_team_id=player_team.id, paid=False).all()
+        bonuses = PerformanceBonus.query.filter_by(payer_team_id=player_team.id, paid=False).all()
+    except Exception:
+        pass
+    return render_template("finances.html", state=state, player_team=player_team,
+                           players=players, wage_bill=wage_bill,
+                           debts=debts, bonuses=bonuses)
+
+
+@bp.route("/tactics")
+def tactics_center():
+    from tactics import get_team_tactics
+    redir = _setup_redirect()
+    if redir:
+        return redir
+    state = safe_state()
+    player_team = safe_player_team()
+    try:
+        tactics_data = get_team_tactics(player_team)
+    except Exception:
+        tactics_data = {"mentality": 3}
+    return render_template("tactics.html", state=state, player_team=player_team,
+                           tactics_data=tactics_data)
+
+
+@bp.route("/transfers")
+def transfers_center():
+    from models import TransferOffer
+    redir = _setup_redirect()
+    if redir:
+        return redir
+    state = safe_state()
+    player_team = safe_player_team()
+    try:
+        incoming = TransferOffer.query.filter_by(to_team_id=player_team.id).order_by(TransferOffer.id.desc()).limit(20).all()
+    except Exception:
+        incoming = []
+    try:
+        outgoing = TransferOffer.query.filter_by(from_team_id=player_team.id).order_by(TransferOffer.id.desc()).limit(20).all()
+    except Exception:
+        outgoing = []
+    squad = Player.query.filter_by(team_id=player_team.id).all()
+    listed = [p for p in squad if p.transfer_listed]
+    requested = [p for p in squad if p.transfer_requested]
+    loans = [p for p in squad if p.loan_to_team_id or p.loan_from_team_id]
+    return render_template("transfers.html", state=state, player_team=player_team,
+                           incoming=incoming, outgoing=outgoing, listed=listed,
+                           requested=requested, loans=loans)
+
+
+@bp.route("/club")
+def club_center():
+    redir = _setup_redirect()
+    if redir:
+        return redir
+    state = safe_state()
+    player_team = safe_player_team()
+    players = Player.query.filter_by(team_id=player_team.id).all()
+    staff = []
+    try:
+        from models import Staff
+        staff = Staff.query.filter_by(team_id=player_team.id).all()
+    except Exception:
+        pass
+    rank = get_team_rank(player_team.league_id, player_team)
+    table = get_league_table(player_team.league_id)
+    return render_template("club.html", state=state, player_team=player_team,
+                           players=players, staff=staff, team_rank=rank,
+                           league_table=table)
+
+
+@bp.route("/settings")
+def settings_center():
+    redir = _setup_redirect()
+    if redir:
+        return redir
+    state = safe_state()
+    player_team = safe_player_team()
+    difficulties = []
+    try:
+        from config import AI_DIFFICULTIES
+        difficulties = list(AI_DIFFICULTIES)
+    except Exception:
+        pass
+    return render_template("settings.html", state=state, player_team=player_team,
+                           difficulties=difficulties)
+
+
+@bp.route("/api/search")
+def global_search():
+    redir = _setup_redirect()
+    if redir:
+        return jsonify({"error": "no active save"}), 400
+    player_team = safe_player_team()
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"players": [], "teams": [], "staff": []})
+    like = f"%{q}%"
+    out = {"players": [], "teams": [], "staff": []}
+    try:
+        rows = Player.query.filter(Player.name.ilike(like)).limit(8).all()
+        out["players"] = [{"id": p.id, "name": p.name,
+                           "pos": p.detailed_position or p.position,
+                           "team": p.team.name if p.team else "—"} for p in rows]
+    except Exception:
+        pass
+    try:
+        rows = Team.query.filter(Team.name.ilike(like)).limit(8).all()
+        out["teams"] = [{"id": t.id, "name": t.name,
+                         "mine": bool(t.is_player_team)} for t in rows]
+    except Exception:
+        pass
+    try:
+        from models import Staff
+        rows = Staff.query.filter(Staff.name.ilike(like)).limit(8).all()
+        out["staff"] = [{"id": s.id, "name": s.name, "role": s.role} for s in rows]
+    except Exception:
+        pass
+    return jsonify(out)

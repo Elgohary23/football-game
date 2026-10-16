@@ -4,15 +4,41 @@
 <section class="dashboard">
     <h1 style="color:#e94560;margin-bottom:1rem;">الرسائل</h1>
 
+    <div class="help-box"><i class="fas fa-info-circle"></i> صندوق وارد كامل: تصفية حسب الفئة، بحث فوري، تثبيت المهم، وأرشفة — التثبيت والأرشفة محفوظان محلياً على جهازك.</div>
+
+    <div class="card" style="margin-bottom:1rem;">
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.6rem;">
+            <input type="text" id="inboxSearch" class="filter-input" placeholder="بحث في الرسائل..." style="flex:1;min-width:160px;">
+            <select id="inboxRead" class="filter-input" style="max-width:150px;">
+                <option value="">الكل (مقروء/غير مقروء)</option>
+                <option value="unread">غير المقروء</option>
+                <option value="read">المقروء</option>
+                <option value="urgent">العاجل</option>
+                <option value="starred">المثبت</option>
+                <option value="archived">الأرشيف</option>
+            </select>
+        </div>
+        <div class="cat-chips" id="inboxCats">
+            <button class="cat-chip active" data-cat="">الكل</button>
+            <button class="cat-chip" data-cat="transfer">انتقالات</button>
+            <button class="cat-chip" data-cat="board">الإدارة</button>
+            <button class="cat-chip" data-cat="staff">الطاقم</button>
+            <button class="cat-chip" data-cat="scout">الكشافة</button>
+            <button class="cat-chip" data-cat="finance">مالية</button>
+            <button class="cat-chip" data-cat="competition">منافسات</button>
+            <button class="cat-chip" data-cat="media">إعلام</button>
+        </div>
+    </div>
+
     <div class="messages-layout">
         <!-- Message List -->
         <div class="messages-list-pane" id="messageListPane">
             {% if messages %}
                 {% for msg in messages %}
-                <div class="message-list-item {% if not msg.read %}unread{% endif %} {% if msg.urgent %}urgent{% endif %}" data-id="{{ msg.id }}">
-                    <div class="ml-title">{{ msg.title }}</div>
+                <div class="message-list-item {% if not msg.read %}unread{% endif %} {% if msg.urgent %}urgent{% endif %}" data-id="{{ msg.id }}" data-type="{{ msg.type }}" data-title="{{ msg.title }}" data-body="{{ msg.content[:120] }}">
+                    <div class="ml-title"><span class="msg-star" data-star="{{ msg.id }}" title="تثبيت">★</span>{{ msg.title }}</div>
                     <div class="ml-preview">{{ msg.content[:60] }}{% if msg.content|length > 60 %}...{% endif %}</div>
-                    <div class="ml-day">اليوم {{ msg.created_day }}{% if msg.urgent %} • <span style="color:#e94560;">عاجل</span>{% endif %}</div>
+                    <div class="ml-day">اليوم {{ msg.created_day }}{% if msg.urgent %} • <span style="color:#e94560;">عاجل</span>{% endif %} • {{ msg.type }}</div>
                 </div>
                 {% endfor %}
             {% else %}
@@ -79,6 +105,55 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const pane = document.getElementById('messageReadPane');
+    let activeCat = '';
+    const starred = new Set(JSON.parse(localStorage.getItem('inbox_starred') || '[]'));
+    const archived = new Set(JSON.parse(localStorage.getItem('inbox_archived') || '[]'));
+
+    function applyInboxFilters() {
+        const q = ((document.getElementById('inboxSearch') || {}).value || '').trim();
+        const mode = (document.getElementById('inboxRead') || {}).value || '';
+        document.querySelectorAll('.message-list-item').forEach(function(item) {
+            const type = (item.dataset.type || '').toLowerCase();
+            const hay = ((item.dataset.title || '') + ' ' + (item.dataset.body || '')).toLowerCase();
+            let show = true;
+            if (activeCat && type.indexOf(activeCat) === -1 && hay.indexOf(activeCat) === -1) show = false;
+            if (q && hay.indexOf(q.toLowerCase()) === -1) show = false;
+            if (mode === 'unread' && !item.classList.contains('unread')) show = false;
+            if (mode === 'read' && item.classList.contains('unread')) show = false;
+            if (mode === 'urgent' && !item.classList.contains('urgent')) show = false;
+            if (mode === 'starred' && !starred.has(item.dataset.id)) show = false;
+            if (mode === 'archived' && !archived.has(item.dataset.id)) show = false;
+            else if (mode !== 'archived' && archived.has(item.dataset.id)) show = false;
+            item.style.display = show ? '' : 'none';
+        });
+    }
+    function paintStars() {
+        document.querySelectorAll('.msg-star').forEach(function(s) {
+            s.classList.toggle('starred', starred.has(s.dataset.star));
+        });
+    }
+    document.querySelectorAll('#inboxCats .cat-chip').forEach(function(c) {
+        c.addEventListener('click', function() {
+            document.querySelectorAll('#inboxCats .cat-chip').forEach(function(x) { x.classList.remove('active'); });
+            c.classList.add('active');
+            activeCat = c.dataset.cat || '';
+            applyInboxFilters();
+        });
+    });
+    const si = document.getElementById('inboxSearch');
+    if (si) si.addEventListener('input', applyInboxFilters);
+    const ri = document.getElementById('inboxRead');
+    if (ri) ri.addEventListener('change', applyInboxFilters);
+    document.querySelectorAll('.msg-star').forEach(function(s) {
+        s.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const id = s.dataset.star;
+            if (starred.has(id)) starred.delete(id); else starred.add(id);
+            localStorage.setItem('inbox_starred', JSON.stringify(Array.from(starred)));
+            paintStars(); applyInboxFilters();
+        });
+    });
+    paintStars(); applyInboxFilters();
     document.querySelectorAll('.message-list-item').forEach(item => {
         item.addEventListener('click', function() {
             document.querySelectorAll('.message-list-item').forEach(i => i.classList.remove('active'));
@@ -91,7 +166,24 @@ document.addEventListener('DOMContentLoaded', function() {
                     this.classList.remove('unread');
                     pane.innerHTML = '<div class="msg-title">' + body.title + '</div>' +
                         '<div class="msg-meta">اليوم ' + body.created_day + (body.urgent ? ' • <span style="color:#e94560;">عاجل</span>' : '') + ' • ' + body.type + '</div>' +
-                        '<div class="msg-body">' + body.content + '</div>';
+                        '<div class="msg-body">' + body.content + '</div>' +
+                        '<div style="display:flex;gap:0.5rem;margin-top:1rem;">' +
+                        '<button class="btn btn-sm btn-secondary" id="msgStarBtn">★ تثبيت</button>' +
+                        '<button class="btn btn-sm btn-secondary" id="msgArchiveBtn">أرشفة</button>' +
+                        '<a href="/messages" class="btn btn-sm btn-secondary">تحديث القائمة</a></div>';
+                    const sb = document.getElementById('msgStarBtn');
+                    if (sb) sb.addEventListener('click', function() {
+                        if (starred.has(id)) starred.delete(id); else starred.add(id);
+                        localStorage.setItem('inbox_starred', JSON.stringify(Array.from(starred)));
+                        paintStars();
+                    });
+                    const ab = document.getElementById('msgArchiveBtn');
+                    if (ab) ab.addEventListener('click', function() {
+                        archived.add(id);
+                        localStorage.setItem('inbox_archived', JSON.stringify(Array.from(archived)));
+                        applyInboxFilters();
+                        pane.innerHTML = '<div class="empty-state">تمت الأرشفة — اختر رسالة أخرى</div>';
+                    });
                 })
                 .catch(function() {});
         });
