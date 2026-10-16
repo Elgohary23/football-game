@@ -230,6 +230,37 @@ class TestProgression:
         state.current_day = 1
         assert is_match_day(state) is False
 
+    def test_simulate_calendar_counts_days(self, ctx):
+        from simulation import simulate_calendar
+
+        state = _state()
+        start = state.current_day
+        res = simulate_calendar(3, state, background=True)
+        assert res["days_simulated"] == 3
+        assert state.current_day == start + 3
+
+    def test_simulate_calendar_survives_midrun_error(self, ctx, monkeypatch):
+        """Bug 1 regression: an error on day 2 must keep day 1's progress."""
+        import simulation as sim_mod
+        from simulation import simulate_calendar
+
+        state = _state()
+        start = state.current_day
+        real_day = sim_mod.simulate_day
+        calls = {"n": 0}
+
+        def flaky_day(state):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("boom on day 2")
+            return real_day(state)
+
+        monkeypatch.setattr(sim_mod, "simulate_day", flaky_day)
+        res = simulate_calendar(3, state, background=True)
+        assert res["days_simulated"] == 3
+        # Day 2 was skipped safely; days 1 and 3 still advanced the counter.
+        assert state.current_day == start + 2
+
     def test_get_current_match(self, ctx):
         from simulation import get_current_match
 

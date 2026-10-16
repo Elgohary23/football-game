@@ -8,12 +8,15 @@ staff effects, training and promotion/relegation.
 import json
 import logging
 import random
+import time
 from typing import Optional
 
 import numpy as np
 from sqlalchemy import update
 
 from config import (
+    CALENDAR_COMMIT_EVERY_DAYS,
+    CALENDAR_DAY_THROTTLE_MS,
     CUP_MATCH_WEEK,
     DAILY_FITNESS_RECOVERY,
     DAYS_PER_WEEK,
@@ -983,7 +986,9 @@ def simulate_day(state: GameState) -> None:
             curr_dt = datetime.strptime(state.current_date, "%Y-%m-%d").date()
             state.current_date = (curr_dt + timedelta(days=1)).isoformat()
     except Exception:
-        pass
+        # FIX 7: never swallow the original error silently — log the full
+        # traceback so a bad date value is visible instead of invisible.
+        logger.exception("simulate_day date advance failed")
 
     state.current_day += 1
 
@@ -1070,7 +1075,8 @@ def _bump_detailed_attrs(player, gain: int, attacking: bool) -> None:
             cur = getattr(player, attr, 50) or 50
             setattr(player, attr, max(1, min(99, cur + gain)))
     except Exception:
-        pass
+        # FIX 7 (same rule): log instead of swallowing silently.
+        logger.exception("_bump_detailed_attrs failed")
 
 
 def update_player_evolution() -> None:
@@ -1455,7 +1461,83 @@ def _match_involves_player(match: Match) -> bool:
         return False
 
 
-def simulate_calendar(days: int, state: GameState, background: bool = False) -> dict:
+def _simulate_calendar_day(state: GameState, res: dict, run_auto, background: bool) -> bool:
+    """FIX 1: step-per-day — process EXACTLY one day per call.
+
+    No nested unbounded loops: every inner loop here is bounded (today's
+    fixtures, today's due events). Returns True to keep simulating, False
+    to stop early (foreground reached the manager's unplayed fixture).
+    """
+    simulate_day(state)
+    res["expired_offers"] += expire_transfer_offers(state)
+    if not is_match_day(state):
+        return True
+    try:
+        from cup_services import play_due_cup_fixtures as _play_cups
+        # simulate_day already played non-player ties; background
+        # fast-forward also plays the manager's own cup ties.
+        _cup_res = _play_cups(state, background=background)
+        res["matches_played"] += _cup_res.get("played", 0)
+    except Exception:
+        # FIX 3: log the FULL original error with traceback, then carry on —
+        # never reset the simulation state.
+        logger.exception("cup fixtures calendar tick failed")
+    matches = Match.query.filter_by(week=state.current_week, played=False).all()
+    if background:
+        for m in matches:
+            if m.played:
+                continue
+            # Per-match SAVEPOINT: one bad fixture (e.g. a rare
+            # integrity error) rolls back to here instead of
+            # poisoning the day's transaction.
+            savepoint = db.session.begin_nested()
+            try:
+                if _match_involves_player(m) and run_auto is not None:
+                    if run_auto(m):
+                        res["matches_played"] += 1
+                    update_manager_record(m, state)
+                elif match_director(m, state):
+                    res["matches_played"] += 1
+                savepoint.commit()
+            except Exception:
+                try:
+                    savepoint.rollback()
+                except Exception:
+                    pass
+                # FIX 3: full traceback, skip this fixture safely.
+                logger.exception(
+                    "Background match %s failed", getattr(m, "id", "?")
+                )
+        state.current_week += 1
+        return True
+    player_pending = get_current_match(state)
+    for m in matches:
+        if player_pending and m.id == player_pending.id:
+            continue  # FM: leave the manager's fixture for live play
+        # FIX 4: the foreground path previously called match_director
+        # unwrapped — one bad fixture aborted the whole run. Guard each
+        # fixture so a failure skips that match safely.
+        savepoint = db.session.begin_nested()
+        try:
+            if match_director(m, state):
+                res["matches_played"] += 1
+            savepoint.commit()
+        except Exception:
+            try:
+                savepoint.rollback()
+            except Exception:
+                pass
+            logger.exception(
+                "Foreground match %s failed", getattr(m, "id", "?")
+            )
+    if player_pending and not player_pending.played:
+        return False  # stop the fast-forward at the manager's match day
+    state.current_week += 1
+    return True
+
+
+def simulate_calendar(days: int, state: GameState, background: bool = False,
+                      throttle_ms: Optional[int] = None) -> dict:
     """Fast-forward ``days`` days.
 
     ``background=False`` (default) keeps the classic behaviour used by
@@ -1470,7 +1552,10 @@ def simulate_calendar(days: int, state: GameState, background: bool = False) -> 
     fast-forward past any event (e.g. a transfer window) closes it with no
     moves in or out of the squad.
     """
-    res = {"matches_played": 0, "expired_offers": 0}
+    res = {"matches_played": 0, "expired_offers": 0,
+           "days_simulated": 0, "stopped_early": False}
+    # FIX 2: all state setup happens ONCE, before the loop — never inside
+    # the day loop or an except block, so an error can't wipe progress.
     # Lazy import: live_match imports from simulation at call time, so a
     # top-level import here would be circular.
     run_auto = None
@@ -1478,58 +1563,45 @@ def simulate_calendar(days: int, state: GameState, background: bool = False) -> 
         try:
             from live_match import run_auto_match as run_auto
         except Exception:
+            logger.exception("run_auto_match import failed; background sim continues without it")
             run_auto = None
+    if throttle_ms is None:
+        throttle_ms = CALENDAR_DAY_THROTTLE_MS
+    commit_every = max(1, CALENDAR_COMMIT_EVERY_DAYS)
     for _ in range(days):
-        simulate_day(state)
-        res["expired_offers"] += expire_transfer_offers(state)
-        if is_match_day(state):
+        # FIX 5: the day counter advances unconditionally — the for-range
+        # always terminates, and days_simulated counts every attempted day
+        # even when that day's step fails.
+        try:
+            keep_going = _simulate_calendar_day(state, res, run_auto, background)
+        except Exception:
+            # FIX 3: full traceback, skip the failed day safely, keep every
+            # completed day — NEVER reset the simulation state.
+            logger.exception("calendar day failed; keeping completed days")
+            keep_going = True
+        res["days_simulated"] += 1
+        # FIX 6 (Bug 1 root cause): commit per chunk instead of once at the
+        # end, so an error on day N no longer rolls days 1..N-1 back to day 1.
+        if res["days_simulated"] % commit_every == 0:
             try:
-                from cup_services import play_due_cup_fixtures as _play_cups
-                # simulate_day already played non-player ties; background
-                # fast-forward also plays the manager's own cup ties.
-                _cup_res = _play_cups(state, background=background)
-                res["matches_played"] += _cup_res.get("played", 0)
+                db.session.commit()
             except Exception:
-                logger.exception("cup fixtures calendar tick failed")
-            matches = Match.query.filter_by(week=state.current_week, played=False).all()
-            if background:
-                for m in matches:
-                    if m.played:
-                        continue
-                    # Per-match SAVEPOINT: one bad fixture (e.g. a rare
-                    # integrity error) rolls back to here instead of
-                    # poisoning the whole multi-week batch transaction.
-                    savepoint = db.session.begin_nested()
-                    try:
-                        if _match_involves_player(m) and run_auto is not None:
-                            if run_auto(m):
-                                res["matches_played"] += 1
-                            update_manager_record(m, state)
-                        elif match_director(m, state):
-                            res["matches_played"] += 1
-                        savepoint.commit()
-                    except Exception:
-                        try:
-                            savepoint.rollback()
-                        except Exception:
-                            pass
-                        logger.exception(
-                            "Background match %s failed", getattr(m, "id", "?")
-                        )
-                state.current_week += 1
-                continue
-            player_pending = get_current_match(state)
-            for m in matches:
-                if player_pending and m.id == player_pending.id:
-                    continue  # FM: leave the manager's fixture for live play
-                match_director(m, state)
-                res["matches_played"] += 1
-            if player_pending and not player_pending.played:
-                break  # stop the fast-forward at the manager's match day
-            state.current_week += 1
+                db.session.rollback()
+                logger.exception("calendar day commit failed; stopping gracefully")
+                break
+        # FIX 8 (Bug 2): optional time-based throttle — one day per N ms.
+        if throttle_ms:
+            time.sleep(throttle_ms / 1000.0)
+        if not keep_going:
+            res["stopped_early"] = True
+            break
 
-    # Single batch commit for the whole simulated stretch (Tip 8).
-    db.session.commit()
+    # Final flush for a trailing partial chunk (commit_every > 1).
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception("calendar final commit failed")
     return res
 
 

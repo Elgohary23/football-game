@@ -88,6 +88,14 @@ PROMOTION_RELEGATION_SPOTS = 3
 DEVELOPMENT_UPDATE_DAYS = 30
 SEASON_RESET_PLAYER_STATS = True
 
+# --- Calendar fast-forward (simulate_calendar day loop) ---
+# Commit the transaction this often so an error on day N keeps days 1..N-1
+# instead of rolling the whole stretch back to day 1 (Bug 1 fix).
+CALENDAR_COMMIT_EVERY_DAYS = 1
+# Optional server-side throttle: sleep this many ms after each simulated day.
+# 0 = flat out (default, keeps requests fast); raise to pace long sims.
+CALENDAR_DAY_THROTTLE_MS = 0
+
 # --- AI transfers ---
 POSITION_REQUIREMENTS = [("GK", 1), ("DEF", 4), ("MID", 4), ("FWD", 2)]
 TRANSFER_OFFER_DEADLINE_DAYS = 3

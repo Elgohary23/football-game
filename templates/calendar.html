@@ -1014,29 +1014,48 @@ document.addEventListener('DOMContentLoaded', function() {
             serverDone = true;
         });
 
-        // Slow eased approach while the server works: fast at first, then
-        // ever slower, never touching the final day until the server is done.
+        // FIX 9: named time-based throttle — one sweep-step per N ms, so day
+        // advancement speed is controllable instead of flat-out.
+        // FIX 10: the wait loop below is now bounded (max-wait guard), so it
+        // can never spin forever stuck on one day if the server hangs.
+        const SIM_SWEEP_STEP_MS = 70;
+        const SIM_SWEEP_POLL_MS = 60;
+        const SIM_SWEEP_FINISH_MIN_MS = 60;
+        const SIM_SWEEP_FINISH_MAX_MS = 160;
+        const SIM_SWEEP_MAX_WAIT_MS = 120000;
         const expectedMs = Math.min(12000, Math.max(3500, path.length * 160));
         const tau = Math.max(900, Math.min(4200, expectedMs / 3));
         const holdIdx = path.length >= 3 ? path.length - 2 : path.length - 1;
         const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
         let shown = -1;
+        let timedOut = false;
         const now = function() {
             return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
         };
-        while (!serverDone) {
+        while (!serverDone && !timedOut) {
+            if (now() - t0 > SIM_SWEEP_MAX_WAIT_MS) {
+                timedOut = true;
+                break;
+            }
             const elapsed = now() - t0;
             const p = 1 - Math.exp(-elapsed / tau);
             const idx = Math.min(holdIdx, Math.floor(p * path.length));
             while (shown < idx) {
                 shown += 1;
                 showSweepDay(shown, path);
-                await sleep(70);
-                if (serverDone) break;
+                await sleep(SIM_SWEEP_STEP_MS);
+                if (serverDone || timedOut) break;
             }
-            await sleep(60);
+            await sleep(SIM_SWEEP_POLL_MS);
         }
         await serverPromise;
+
+        if (timedOut) {
+            // Graceful stop: no resubmit (the server may still finish on its
+            // own), no state reset — just park the UI with a message.
+            resetSweep('استغرقت المحاكاة وقتاً طويلاً — حدّث الصفحة لرؤية التقدم');
+            return;
+        }
 
         if (serverError) {
             resetSweep(serverError.message || 'تعذرت المحاكاة');
@@ -1046,7 +1065,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Server finished: glide the last day(s) into the target, then go.
         if (simHudLabel) simHudLabel.innerHTML = '<i class="fas fa-check"></i> اكتملت المحاكاة';
         const remaining = (path.length - 1) - shown;
-        const finishStep = remaining <= 0 ? 0 : Math.max(60, Math.min(160, Math.round(900 / remaining)));
+        const finishStep = remaining <= 0 ? 0 : Math.max(SIM_SWEEP_FINISH_MIN_MS, Math.min(SIM_SWEEP_FINISH_MAX_MS, Math.round(900 / remaining)));
         while (shown < path.length - 1) {
             shown += 1;
             showSweepDay(shown, path);
