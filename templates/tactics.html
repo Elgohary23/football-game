@@ -116,7 +116,26 @@
                         <h4><i class="fas fa-chair"></i> دكة الاحتياط</h4>
                         <div id="bench" class="bench"></div>
                     </div>
-                    <div id="pitch-grid" class="pitch-grid"></div>
+                    <div id="pitch-grid" class="pitch-grid">
+                        <!-- Permanent pitch markings (goals, boxes, lines) — drawn once, never cleared by renders -->
+                        <div class="pitch-markings" aria-hidden="true">
+                            <div class="mark goal goal-top"></div>
+                            <div class="mark goal goal-bottom"></div>
+                            <div class="mark pen pen-top"></div>
+                            <div class="mark six six-top"></div>
+                            <div class="mark pen pen-bottom"></div>
+                            <div class="mark six six-bottom"></div>
+                            <div class="mark spot pen-spot top"></div>
+                            <div class="mark spot pen-spot bottom"></div>
+                            <div class="mark halfway"></div>
+                            <div class="mark circle center"></div>
+                            <div class="mark spot center-spot"></div>
+                            <div class="mark arc corner tl"></div>
+                            <div class="mark arc corner tr"></div>
+                            <div class="mark arc corner bl"></div>
+                            <div class="mark arc corner br"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -305,11 +324,178 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 <style>
+/* ===== Tactics pitch (playground) ===== */
 .free-pitch { position: relative; display: flex; flex-direction: column; gap: 0.5rem; }
-.bench-area { padding: 0.8rem; background: rgba(0,0,0,0.3); border: 1px dashed #2a2a4a; border-radius: 8px; margin-bottom: 1rem; }
-.bench-area h4 { color:#888; font-size:0.85rem; margin-bottom:0.5rem; }
-.bench { display: flex; flex-wrap: wrap; gap: 0.4rem; min-height: 40px; }
-.pitch-grid { position: relative; width: 100%; height: 550px; background: radial-gradient(ellipse at center, #0f7c2e 0%, #0b5f23 100%); border: 2px solid #fff; border-radius: 6px; overflow: hidden; }
+.bench-area {
+    padding: 0.85rem 1rem;
+    background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+    border: 1px dashed rgba(255,255,255,0.2);
+    border-radius: 10px;
+    margin-bottom: 1rem;
+}
+.bench-area h4 { color: #888; font-size: 0.8rem; margin: 0 0 0.5rem; display: flex; align-items: center; gap: 0.4rem; }
+.bench { display: flex; flex-wrap: wrap; gap: 0.5rem; min-height: 72px; align-items: flex-start; }
+.bench-player, .pool-player {
+    display: flex; align-items: center; gap: 0.45rem;
+    padding: 0.45rem 0.65rem; border-radius: 8px; font-size: 0.78rem; color: #e0e0e0;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(15, 20, 35, 0.55);
+    cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.bench-player:hover, .pool-player:hover {
+    border-color: #e94560; background: rgba(233, 69, 96, 0.18); transform: translateY(-1px);
+}
+.bench-player.dragging, .pool-player.dragging { opacity: 0.55; }
+
+/* The pitch itself */
+.pitch-grid {
+    position: relative;
+    width: 100%;
+    height: 600px;
+    border: 3px solid #fff;
+    border-radius: 3px;
+    overflow: hidden;
+    box-shadow: inset 0 0 70px rgba(0,0,0,0.6), 0 14px 40px rgba(0,0,0,0.45);
+    background:
+        radial-gradient(circle at 50% 50%, #227c34 0%, #165824 45%, #0c3a19 100%),
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.035) 0, rgba(255,255,255,0.035) 6%, transparent 6%, transparent 13%);
+    z-index: 1;
+}
+
+/* Pitch markings layer (drawn once, survives re-renders) */
+.pitch-markings { position: absolute; inset: 0; pointer-events: none; z-index: 2; display: flex; }
+.mark { position: absolute; box-sizing: border-box; }
+
+/* Goals straddling the goal line */
+.mark.goal {
+    left: 50%; transform: translateX(-50%);
+    width: 10%; height: 7%; border: 2px solid #fff; border-radius: 3px;
+    background:
+        repeating-linear-gradient(45deg, rgba(255,255,255,0.15) 0, rgba(255,255,255,0.15) 5px, transparent 5px, transparent 10px),
+        repeating-linear-gradient(-45deg, rgba(255,255,255,0.15) 0, rgba(255,255,255,0.15) 5px, transparent 5px, transparent 10px),
+        rgba(255,255,255,0.05);
+}
+.mark.goal-top { top: -7%; }
+.mark.goal-bottom { bottom: -7%; }
+
+/* Penalty area (18 yards) */
+.mark.pen {
+    left: 23%; width: 54%; height: 15.5%;
+    border: 2px solid rgba(255,255,255,0.5);
+    border-radius: 2px;
+    background: rgba(255,255,255,0.015);
+}
+.mark.pen-top { top: 0; }
+.mark.pen-bottom { bottom: 0; }
+
+/* Six-yard box */
+.mark.six {
+    left: 37.6%; width: 24.8%; height: 5.2%;
+    border: 2px solid rgba(255,255,255,0.5);
+    border-radius: 2px;
+    background: rgba(255,255,255,0.01);
+}
+.mark.six-top { top: 0; }
+.mark.six-bottom { bottom: 0; }
+
+/* Penalty spots + center spot */
+.mark.spot {
+    left: 50%; transform: translateX(-50%);
+    width: 7px; height: 7px; border-radius: 50%; background: #fff;
+}
+.mark.pen-spot.top { top: 10.5%; }
+.mark.pen-spot.bottom { bottom: 10.5%; }
+.mark.center-spot { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+
+/* Halfway line */
+.mark.halfway {
+    left: 50%; top: 0; bottom: 0;
+    width: 2px;
+    background: linear-gradient(to bottom, #fff 0%, #fff 55%, rgba(255,255,255,0.35) 100%);
+}
+
+/* Center circle */
+.mark.circle {
+    left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 105px; height: 105px;
+    border: 2px solid rgba(255,255,255,0.55);
+    border-radius: 50%;
+}
+
+/* Corner arcs */
+.mark.arc {
+    width: 24px; height: 24px; border: 2px solid rgba(255,255,255,0.55);
+    border-radius: 50%; box-sizing: border-box;
+}
+.mark.arc.tl { top: 0; left: 0; border-right-color: transparent; border-bottom-color: transparent; }
+.mark.arc.tr { top: 0; right: 0; border-left-color: transparent; border-bottom-color: transparent; }
+.mark.arc.bl { bottom: 0; left: 0; border-right-color: transparent; border-top-color: transparent; }
+.mark.arc.br { bottom: 0; right: 0; border-left-color: transparent; border-top-color: transparent; }
+
+/* Inner boundary line */
+.pitch-grid::after {
+    content: ""; position: absolute; inset: 6px; border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 1px; pointer-events: none; z-index: 1;
+}
+
+/* Player cards on the pitch */
+.pitch-box {
+    position: absolute;
+    width: 54px; height: 66px;
+    border: 1.5px solid rgba(255,255,255,0.35);
+    border-radius: 10px;
+    background: rgba(12, 18, 32, 0.6);
+    backdrop-filter: blur(9px) saturate(1.25);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2px; padding: 4px 3px 2px;
+    font-size: 0.6rem; color: #eef2f7; cursor: pointer; user-select: none; z-index: 5;
+    transition: transform 0.1s ease, box-shadow 0.15s ease, border-color 0.15s;
+}
+.pitch-box:active { transform: scale(1.1); }
+.pitch-box.dragging { opacity: 0.7; border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.3); }
+.pitch-box.injured { border-color: #e74c3c; box-shadow: 0 0 0 2px rgba(231,76,60,0.5); }
+.pitch-box .pb-injured { color: #e74c3c; font-size: 0.65rem; line-height: 1; }
+.pitch-box .pb-name {
+    font-weight: 800; font-size: 0.62rem; line-height: 1.05; text-shadow: 0 1px 3px rgba(0,0,0,0.75);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; text-align: center;
+}
+.pitch-box .pb-pos {
+    font-size: 0.5rem; font-weight: 900; letter-spacing: 0.4px; padding: 1px 6px; border-radius: 6px;
+    background: rgba(255,255,255,0.14); color: #fff; border: 1px solid rgba(255,255,255,0.28); margin-top: 1px;
+}
+.pitch-box .pb-attr { font-size: 0.5rem; color: #b9c4d6; margin-top: 1px; }
+.pitch-box .role-select {
+    width: 100%; font-size: 0.5rem; padding: 0 1px; margin-top: 3px;
+    border: 1px solid #444; background: #0f3460; color: #fff; border-radius: 3px;
+}
+
+/* Position accents */
+.pitch-box.GK { border-left: 3px solid #ff9800; }
+.pitch-box.DEF { border-left: 3px solid #3498db; }
+.pitch-box.MID { border-left: 3px solid #2ecc71; }
+.pitch-box.FWD { border-left: 3px solid #e94560; }
+
+/* Empty slots */
+.pitch-slot {
+    position: absolute;
+    width: 54px; height: 66px;
+    border: 2px dashed rgba(255,255,255,0.3);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.03);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 3px; font-size: 0.52rem; color: #8a97ab; text-align: center; z-index: 4; pointer-events: auto;
+}
+.pitch-slot .sb-pos { font-weight: 800; font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.3px; opacity: 0.85; }
+.pitch-slot .sb-hint { font-size: 0.5rem; color: #aaa; }
+.pitch-slot.dragover {
+    border-color: #2ecc71; background: rgba(46,204,113,0.12); color: #2ecc71;
+    box-shadow: 0 0 0 3px rgba(46,204,113,0.2);
+}
+
 .tactics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap: 0.8rem; align-items: end; }
+.tactics-grid label { display: block; color: #888; font-size: 0.8rem; margin-bottom: 0.3rem; }
+.tactics-grid .btn { justify-self: start; }
+.role-select { width: 100%; font-size: 0.65rem; margin-top: 2px; background: #0f3460; color: #fff; border: 1px solid #444; border-radius: 3px; padding: 0 2px; font-family: inherit; }
 </style>
 {% endblock %}

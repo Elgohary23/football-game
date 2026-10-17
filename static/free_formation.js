@@ -104,7 +104,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const isInjured = player.injury_days > 0;
         const name = player.name.split(' ').slice(-1)[0];
         const savedRole = formationData[player.id] && formationData[player.id].role || 'standard';
-        box.innerHTML = `<span class="pb-name" title="${player.name}">${isInjured ? '🔴 ' : ''}${name}</span><span class="pb-pos">${player.detailed_position || player.position}</span><select class="role-select" data-role-player="${player.id}">${roleOptions(savedRole)}</select>`;
+        box.className = `pitch-box ${player.position}${isInjured ? ' injured' : ''}`;
+        box.innerHTML = `<span class="pb-injured" aria-hidden="true">${isInjured ? '🔴' : ''}</span><span class="pb-name" title="${player.name}">${isInjured ? '🔴 ' : ''}${name}</span><span class="pb-pos">${player.detailed_position || player.position}</span><span class="pb-attr">${player.attack}/${player.defense}</span><select class="role-select" data-role-player="${player.id}">${roleOptions(savedRole)}</select>`;
         box.title = `${player.name} - ${player.attack}/${player.defense}`;
 
         box.addEventListener('dragstart', (e) => {
@@ -247,7 +248,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function renderAll() {
-        pitchGrid.innerHTML = '';
+        // Keep the permanent pitch markings; only clear dynamic boxes/slots.
+        pitchGrid.querySelectorAll('.pitch-box, .pitch-slot').forEach((el) => el.remove());
         bench.innerHTML = '';
         playerPool.innerHTML = '';
         placedIds.clear();
