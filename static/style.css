@@ -311,22 +311,6 @@ select.filter-input { min-width: 120px; cursor: pointer; }
 /* ===== Page title (compare + other single-h1 pages) ===== */
 .page-title { color: #e94560; font-size: 1.4rem; margin-bottom: 1rem; }
 
-/* ===== Bench chips (squad page + JS-generated) ===== */
-.bench-chip {
-    background: #1a1a2e;
-    border: 1px solid #2a2a4a;
-    border-radius: 6px;
-    padding: 0.4rem 0.8rem;
-    font-size: 0.8rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: #e0e0e0;
-}
-.bench-chip .pos-tag { font-size: 0.6rem; }
-.bench-chip .bench-name { font-weight: bold; }
-.bench-chip .bench-injury { color: #e74c3c; font-size: 0.7rem; }
-
 /* ===== Themed scrollbars (dark system-wide, Firefox + WebKit) ===== */
 * { scrollbar-width: thin; scrollbar-color: #2a2a4a transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -727,22 +711,9 @@ tbody tr:hover { background: rgba(233, 69, 96, 0.04); }
 .team-card .team-power strong { color: #e94560; }
 
 /* ===== Squad Screen ===== */
-.squad-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 350px;
-    gap: 1.25rem;
-    align-items: start;
-}
-.squad-main-col {
-    min-width: 0;
-}
-.squad-side-col {
-    min-width: 0;
-    position: sticky;
-    top: 70px;
-}
 .squad-table-scroll {
-    max-height: 580px;
+    max-height: calc(100vh - 260px);
+    min-height: 340px;
     overflow-y: auto;
     overflow-x: auto;
     border-radius: 6px;
@@ -768,207 +739,10 @@ tbody tr:hover { background: rgba(233, 69, 96, 0.04); }
     color: #888;
     font-size: 0.8rem;
 }
-
-/* Vertical Pitch Container */
-.pitch-container {
-    background: #1a1a2e;
-    border: 1px solid #2a2a4a;
-    border-radius: 8px;
-    padding: 1rem;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
-}
-.pitch-tactical-view {
-    position: relative;
-    width: 100%;
-}
-.pitch {
-    background: repeating-linear-gradient(
-        180deg,
-        #1b5e20 0px,
-        #1b5e20 28px,
-        #216b27 28px,
-        #216b27 56px
-    );
-    border: 2px solid rgba(255, 255, 255, 0.45);
-    border-radius: 8px;
-    padding: 0.8rem 0.4rem;
-    aspect-ratio: 1 / 1.35;
+.squad-head-meta {
     display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    position: relative;
-    overflow: hidden;
-    box-shadow: inset 0 0 35px rgba(0, 0, 0, 0.45);
-}
-/* Center Line */
-.pitch::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: rgba(255, 255, 255, 0.35);
-    z-index: 1;
-}
-/* Center Circle */
-.pitch::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 60px;
-    height: 60px;
-    border: 2px solid rgba(255, 255, 255, 0.35);
-    border-radius: 50%;
-    z-index: 1;
-}
-/* Pitch Goal Areas */
-.pitch-box-top {
-    position: absolute;
-    top: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 52%;
-    height: 16%;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    border-top: none;
-    border-radius: 0 0 4px 4px;
-    pointer-events: none;
-    z-index: 1;
-}
-.pitch-box-bottom {
-    position: absolute;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 52%;
-    height: 16%;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    border-bottom: none;
-    border-radius: 4px 4px 0 0;
-    pointer-events: none;
-    z-index: 1;
-}
-.pitch-rows {
-    position: relative;
-    z-index: 2;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    height: 100%;
-}
-.pitch-row {
-    display: flex;
-    justify-content: center;
-    gap: 0.35rem;
     align-items: center;
-    min-height: 44px;
-}
-
-/* Tactical Player Tokens */
-.pitch-player {
-    background: rgba(15, 20, 35, 0.9);
-    backdrop-filter: blur(4px);
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    border-radius: 6px;
-    padding: 3px 5px;
-    text-align: center;
-    min-width: 52px;
-    max-width: 68px;
-    font-size: 0.68rem;
-    cursor: pointer;
-    transition: all 0.18s ease;
-    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
-    flex: 0 1 auto;
-}
-.pitch-player:hover {
-    transform: translateY(-2px) scale(1.05);
-    box-shadow: 0 5px 14px rgba(0, 0, 0, 0.55);
-    border-color: #fff;
-}
-.pitch-player .pp-badge {
-    display: inline-block;
-    font-size: 0.56rem;
-    font-weight: 700;
-    padding: 0 4px;
-    border-radius: 3px;
-    margin-bottom: 2px;
-}
-.pitch-player .pp-name {
-    color: #fff;
-    font-weight: 700;
-    display: block;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    line-height: 1.2;
-}
-.pitch-player .pp-pos {
-    color: #cbd5e1;
-    font-size: 0.6rem;
-    font-weight: 600;
-    display: block;
-    line-height: 1.2;
-}
-.pitch-player.pp-gk {
-    border-color: rgba(255, 152, 0, 0.65);
-    background: rgba(255, 152, 0, 0.18);
-}
-.pitch-player.pp-gk .pp-badge { background: #ff9800; color: #000; }
-.pitch-player.pp-def {
-    border-color: rgba(52, 152, 219, 0.65);
-    background: rgba(52, 152, 219, 0.18);
-}
-.pitch-player.pp-def .pp-badge { background: #3498db; color: #fff; }
-.pitch-player.pp-mid {
-    border-color: rgba(46, 204, 113, 0.65);
-    background: rgba(46, 204, 113, 0.18);
-}
-.pitch-player.pp-mid .pp-badge { background: #2ecc71; color: #fff; }
-.pitch-player.pp-fwd {
-    border-color: rgba(233, 69, 96, 0.65);
-    background: rgba(233, 69, 96, 0.18);
-}
-.pitch-player.pp-fwd .pp-badge { background: #e94560; color: #fff; }
-
-.pitch-player.pp-empty {
-    border: 1px dashed rgba(255, 255, 255, 0.25);
-    background: rgba(0, 0, 0, 0.25);
-    box-shadow: none;
-    opacity: 0.4;
-    cursor: default;
-}
-.pitch-player.pp-empty:hover {
-    transform: none;
-    box-shadow: none;
-    border-color: rgba(255, 255, 255, 0.25);
-}
-
-/* Sidebar Bench Section */
-.pitch-bench-section {
-    margin-top: 1rem;
-    padding-top: 0.8rem;
-    border-top: 1px solid #2a2a4a;
-}
-.pitch-bench-section .bench-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.5rem;
-}
-.pitch-bench-section .bench-header h4 {
-    font-size: 0.85rem;
-    color: #bbb;
-    font-weight: 600;
-}
-.bench-chip-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-    max-height: 180px;
-    overflow-y: auto;
+    gap: 0.5rem;
 }
 
 /* Trait Pills & Personality */
@@ -1022,25 +796,6 @@ tbody tr:hover { background: rgba(233, 69, 96, 0.04); }
 .personality-tag.pers-glass { background: rgba(231, 76, 60, 0.15); color: #e74c3c; border-color: rgba(231, 76, 60, 0.35); }
 .personality-tag.pers-lazy { background: rgba(108, 117, 125, 0.15); color: #adb5bd; border-color: rgba(108, 117, 125, 0.3); }
 .personality-tag.pers-normal { background: rgba(255, 255, 255, 0.06); color: #ced4da; border-color: rgba(255, 255, 255, 0.1); }
-
-.squad-filters {
-    display: flex;
-    gap: 0.5rem;
-    margin-bottom: 0.8rem;
-    flex-wrap: wrap;
-}
-.squad-filters .filter-btn {
-    padding: 0.3rem 0.7rem;
-    border-radius: 4px;
-    border: 1px solid #2a2a4a;
-    background: transparent;
-    color: #888;
-    cursor: pointer;
-    font-size: 0.75rem;
-    transition: all 0.15s;
-}
-.squad-filters .filter-btn:hover { border-color: #e94560; color: #e0e0e0; }
-.squad-filters .filter-btn.active { background: #e94560; color: #fff; border-color: #e94560; }
 
 /* ===== Calendar ===== */
 .calendar-wrapper { display: flex; flex-direction: column; gap: 1rem; }
@@ -1319,7 +1074,6 @@ footer { text-align: center; padding: 1.5rem; color: #444; font-size: 0.8rem; bo
 /* ===== Responsive ===== */
 @media (max-width: 900px) {
     .dashboard-grid { grid-template-columns: 1fr; }
-    .squad-layout { grid-template-columns: 1fr; }
     .match-hub { grid-template-columns: 1fr; }
     .messages-layout { grid-template-columns: 1fr; height: auto; }
     .messages-list-pane { max-height: 300px; }

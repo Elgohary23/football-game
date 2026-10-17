@@ -337,7 +337,7 @@ class TestSquadDb:
 
     def test_starter_count_matches_db(self, client):
         team = _player_team()
-        n = sum(1 for p in team.players if p.is_starting)
+        n = sum(1 for p in team.players if p.is_starting and p.injury_days == 0)
         text = _html(client, "/squad")
         assert f"{n}/11" in text
 
@@ -372,24 +372,14 @@ class TestSquadDb:
             p.injury_days = 0
             db.session.commit()
 
-    def test_mentoring_section_from_db(self, client):
-        team = _player_team()
-        mentor = next(p for p in team.players if p.age >= 24)
-        mentor.age = 32
-        mentor.personality = "Leader"
-        mentee = next(p for p in team.players if p.id != mentor.id)
-        mentee.age = 19
-        db.session.add(Mentoring(team_id=team.id, mentor_id=mentor.id,
-                                 mentee_id=mentee.id, started_day=1))
-        db.session.commit()
-        try:
-            text = _html(client, "/squad")
-            assert "التوجيه" in text
-            assert mentor.name in text
-            assert mentee.name in text
-        finally:
-            Mentoring.query.filter_by(team_id=team.id).delete()
-            db.session.commit()
+    def test_mentoring_card_removed_from_page(self, client):
+        # Regression: the mentoring (guidance) card was stripped from the
+        # squad screen; only the backend endpoints remain.
+        text = _html(client, "/squad")
+        assert "التوجيه" not in text
+        assert "المرشد" not in text
+        assert "/mentoring/add" not in text
+        assert "/mentoring/remove" not in text
 
     def test_toggle_then_squad_reflects_db(self, client):
         team = _player_team()
@@ -1354,10 +1344,11 @@ class TestFormsAndTables:
         assert "filterPos" in text
         assert "sortBy" in text
 
-    def test_squad_filter_controls_present(self, client):
+    def test_squad_filter_controls_removed(self, client):
         text = _html(client, "/squad")
         assert "squadTable" in text
-        assert "filter-btn" in text
+        assert "filter-btn" not in text
+        assert "squadSearch" not in text
 
 
 # ======================================================================

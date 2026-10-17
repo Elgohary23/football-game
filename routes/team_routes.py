@@ -38,17 +38,7 @@ def squad():
     state = safe_state()
     player_team = safe_player_team()
     players = Player.query.filter_by(team_id=player_team.id).all()
-
-    from models import Mentoring
-
-    mentoring = (
-        Mentoring.query.filter_by(team_id=player_team.id).all()
-    )
-    veterans = [p for p in players if p.age >= 30 and p.personality in ("Leader", "Professional", "Loyal")]
-    prospects = [p for p in players if p.age <= 23]
-
     starters = [p for p in players if p.is_starting and p.injury_days == 0]
-    bench = [p for p in players if not p.is_starting or p.injury_days > 0]
 
     tiers_data = calculate_team_tier(player_team.id)
 
@@ -58,10 +48,6 @@ def squad():
         player_team=player_team,
         players=players,
         starters=starters,
-        bench=bench,
-        mentoring=mentoring,
-        veterans=veterans,
-        prospects=prospects,
         avg_attack=tiers_data["attack"],
         avg_defense=tiers_data["defense"],
         tier=tiers_data["tier"],

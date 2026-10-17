@@ -44,297 +44,104 @@
         'Normal': {'ar': 'متوازن', 'icon': 'fa-balance-scale', 'class': 'pers-normal', 'desc': 'طبيعي - شخصية متوازنة'}
     } %}
 
-    <div class="squad-layout">
-        <!-- Player Table Column -->
-        <div class="squad-main-col">
-            <div class="card">
-                <div class="card-header">
-                    <h3><i class="fas fa-users"></i> قائمة اللاعبين</h3>
-                    <span class="badge-subtle">{{ players|length }} لاعب</span>
-                </div>
-                <div class="squad-filters">
-                    <button class="filter-btn active" data-filter="all">الكل</button>
-                    <button class="filter-btn" data-filter="GK">حراس</button>
-                    <button class="filter-btn" data-filter="DEF">دفاع</button>
-                    <button class="filter-btn" data-filter="MID">وسط</button>
-                    <button class="filter-btn" data-filter="FWD">هجوم</button>
-                    <button class="filter-btn" data-filter="starter">أساسي</button>
-                </div>
-                <div class="scouting-controls" style="margin-bottom:0.8rem;">
-                    <input type="text" id="squadSearch" class="filter-input" placeholder="بحث بالاسم..." style="flex:1;min-width:140px;" data-tooltip="ابحث عن لاعب بالاسم">
-                    <select id="squadAge" class="filter-input" data-tooltip="تصفية حسب العمر">
-                        <option value="">كل الأعمار</option>
-                        <option value="u21">شاب ≤21</option>
-                        <option value="peak">ذروة 22-29</option>
-                        <option value="vet">مخضرم 30+</option>
-                    </select>
-                    <select id="squadNat" class="filter-input" data-tooltip="تصفية حسب الجنسية/المنطقة">
-                        <option value="">كل الجنسيات</option>
-                        {% for nat in players|map(attribute='nationality')|select|unique|list %}
-                        <option value="{{ nat }}">{{ nat }}</option>
-                        {% endfor %}
-                        {% for reg in players|map(attribute='region')|select|unique|list %}
-                        <option value="reg:{{ reg }}">منطقة: {{ reg }}</option>
-                        {% endfor %}
-                    </select>
-                    <select id="squadAbility" class="filter-input" data-tooltip="الحد الأدنى للقدرة (هجوم/دفاع)">
-                        <option value="0">كل القدرات</option>
-                        <option value="60">قدرة 60+</option>
-                        <option value="70">قدرة 70+</option>
-                        <option value="80">قدرة 80+</option>
-                    </select>
-                    <select id="squadPotential" class="filter-input" data-tooltip="الحد الأدنى للكامنة">
-                        <option value="0">كل الكامن</option>
-                        <option value="70">كامن 70+</option>
-                        <option value="80">كامن 80+</option>
-                        <option value="90">كامن 90+</option>
-                    </select>
-                    <select id="squadSort" class="filter-input" data-tooltip="ترتيب حسب الأجر أو القيمة">
-                        <option value="">ترتيب افتراضي</option>
-                        <option value="wage_desc">الأجر ↓</option>
-                        <option value="wage_asc">الأجر ↑</option>
-                        <option value="val_desc">القيمة ↓</option>
-                        <option value="val_asc">القيمة ↑</option>
-                    </select>
-                </div>
-                <div class="table-container squad-table-scroll">
-                <table class="sortable" id="squadTable">
-                    <thead>
-                        <tr>
-                            <th data-sort="pos">المركز</th>
-                            <th data-sort="name">الاسم</th>
-                            <th data-sort="age">العمر</th>
-                            <th data-sort="overall">الإجمالي</th>
-                            <th data-sort="att">هج</th>
-                            <th data-sort="def">دف</th>
-                            <th data-sort="pot">كامن</th>
-                            <th>الشخصية</th>
-                            <th>السمات</th>
-                            <th>جاهزية</th>
-                            <th data-sort="stamina">تحمل</th>
-                            <th data-sort="technique">مهارة</th>
-                            <th data-sort="speed">سرعة</th>
-                            <th data-sort="val">القيمة</th>
-                            <th>اللياقة</th>
-                            <th>تشكيلة</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for player in players %}
-                        <tr class="player-row {{ 'row-starter' if player.is_starting }} {{ 'row-injured' if player.injury_days > 0 }}" data-id="{{ player.id }}" data-pos="{{ player.position }}" data-injury="{{ player.injury_days }}" data-starter="{{ '1' if player.is_starting else '0' }}" data-name="{{ player.name }}" data-age="{{ player.age }}" data-nat="{{ player.nationality or '' }}" data-region="{{ player.region or '' }}" data-ability="{{ [player.attack, player.defense]|max }}" data-potential="{{ player.potential }}" data-wage="{{ player.wage or 0 }}" data-val="{{ player.market_value }}">
-                            <td><span class="pos-tag {{ player.position }}">{{ player.detailed_position or player.position }}</span></td>
-                            <td style="text-align:right;"><a href="#" class="player-name-link" data-id="{{ player.id }}" style="color:#e0e0e0;text-decoration:none;font-weight:bold;">{{ player.name }}</a></td>
-                            <td>{{ player.age }}</td>
-                            <td><strong style="color:#f39c12;">{{ player.overall or player.attack }}</strong></td>
-                            <td>{{ player.attack }}</td>
-                            <td>{{ player.defense }}</td>
-                            <td><span class="pot-badge">{{ player.potential }}</span></td>
-                            <td>
-                                {% set pm = pers_meta.get(player.personality, {'ar': player.personality, 'icon': 'fa-user', 'class': 'pers-normal', 'desc': player.personality}) %}
-                                <span class="personality-tag {{ pm.class }}" title="{{ pm.desc }}" data-tooltip="{{ pm.desc }}" data-personality="{{ player.personality }}">
-                                    <i class="fas {{ pm.icon }}" style="font-size:0.65rem;"></i>
-                                    <span>{{ pm.ar }}</span>
+    <div class="card">
+        <div class="card-header">
+            <h3><i class="fas fa-users"></i> قائمة اللاعبين</h3>
+            <div class="squad-head-meta">
+                <span id="starterCount" class="starter-badge">{{ starters|length }}/11 أساسي</span>
+                <span class="badge-subtle">{{ players|length }} لاعب</span>
+            </div>
+        </div>
+        <div class="table-container squad-table-scroll">
+            <table class="sortable" id="squadTable">
+                <thead>
+                    <tr>
+                        <th data-sort="pos">المركز</th>
+                        <th data-sort="name">الاسم</th>
+                        <th data-sort="age">العمر</th>
+                        <th data-sort="overall">الإجمالي</th>
+                        <th data-sort="att">هج</th>
+                        <th data-sort="def">دف</th>
+                        <th data-sort="pot">كامن</th>
+                        <th>الشخصية</th>
+                        <th>السمات</th>
+                        <th>جاهزية</th>
+                        <th data-sort="stamina">تحمل</th>
+                        <th data-sort="technique">مهارة</th>
+                        <th data-sort="speed">سرعة</th>
+                        <th data-sort="val">القيمة</th>
+                        <th>اللياقة</th>
+                        <th>تشكيلة</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for player in players %}
+                    <tr class="player-row {{ 'row-starter' if player.is_starting }} {{ 'row-injured' if player.injury_days > 0 }}" data-id="{{ player.id }}" data-pos="{{ player.position }}" data-injury="{{ player.injury_days }}" data-starter="{{ '1' if player.is_starting else '0' }}" data-name="{{ player.name }}" data-age="{{ player.age }}" data-nat="{{ player.nationality or '' }}" data-region="{{ player.region or '' }}" data-ability="{{ [player.attack, player.defense]|max }}" data-potential="{{ player.potential }}" data-wage="{{ player.wage or 0 }}" data-val="{{ player.market_value }}">
+                        <td><span class="pos-tag {{ player.position }}">{{ player.detailed_position or player.position }}</span></td>
+                        <td style="text-align:right;"><a href="#" class="player-name-link" data-id="{{ player.id }}" style="color:#e0e0e0;text-decoration:none;font-weight:bold;">{{ player.name }}</a></td>
+                        <td>{{ player.age }}</td>
+                        <td><strong style="color:#f39c12;">{{ player.overall or player.attack }}</strong></td>
+                        <td>{{ player.attack }}</td>
+                        <td>{{ player.defense }}</td>
+                        <td><span class="pot-badge">{{ player.potential }}</span></td>
+                        <td>
+                            {% set pm = pers_meta.get(player.personality, {'ar': player.personality, 'icon': 'fa-user', 'class': 'pers-normal', 'desc': player.personality}) %}
+                            <span class="personality-tag {{ pm.class }}" title="{{ pm.desc }}" data-tooltip="{{ pm.desc }}" data-personality="{{ player.personality }}">
+                                <i class="fas {{ pm.icon }}" style="font-size:0.65rem;"></i>
+                                <span>{{ pm.ar }}</span>
+                            </span>
+                        </td>
+                        <td>
+                            {% set traits = player.traits or [] %}
+                            {% if traits %}
+                            <div class="traits-cell">
+                                {% for t in traits %}
+                                {% set tm = trait_meta.get(t, {'name': t, 'icon': 'fa-circle-dot', 'type': 'neutral', 'desc': t}) %}
+                                <span class="trait-pill trait-{{ tm.type }}" title="{{ tm.desc }}" data-tooltip="{{ tm.desc }}">
+                                    <i class="fas {{ tm.icon }}"></i>
+                                    <span>{{ tm.name }}</span>
                                 </span>
-                            </td>
-                            <td>
-                                {% set traits = player.traits or [] %}
-                                {% if traits %}
-                                <div class="traits-cell">
-                                    {% for t in traits %}
-                                    {% set tm = trait_meta.get(t, {'name': t, 'icon': 'fa-circle-dot', 'type': 'neutral', 'desc': t}) %}
-                                    <span class="trait-pill trait-{{ tm.type }}" title="{{ tm.desc }}" data-tooltip="{{ tm.desc }}">
-                                        <i class="fas {{ tm.icon }}"></i>
-                                        <span>{{ tm.name }}</span>
-                                    </span>
-                                    {% endfor %}
-                                </div>
-                                {% else %}
-                                <span style="color:#555;">—</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                <span class="{{ 'morale-good' if player.sharpness >= 70 else ('morale-mid' if player.sharpness >= 40 else 'morale-bad') }}">{{ player.sharpness or 0 }}</span>
-                            </td>
-                            <td>{{ player.stamina }}</td>
-                            <td>{{ player.technique }}</td>
-                            <td>{{ player.speed }}</td>
-                            <td class="money-text">${{ "{:,}".format(player.market_value) }}</td>
-                            <td>
-                                <div class="progress-bar">
-                                    <div class="progress-fill" style="width:{{ player.fitness }}%;background:{{ '#e74c3c' if player.fitness < 30 else '#f39c12' if player.fitness < 60 else '#2ecc71' }}"></div>
-                                </div>
-                            </td>
-                            <td>
-                                {% if player.injury_days > 0 %}
-                                <span style="color:#e74c3c;font-size:0.7rem;font-weight:bold;">مصاب</span>
-                                {% else %}
-                                {% set _disc = player.discipline_data or {} %}
-                                {% set _susp = (_disc.get('suspensions') or {}).get('league', 0) %}
-                                {% if _susp %}<span style="color:#f39c12;font-size:0.7rem;font-weight:bold;">موقوف ({{ _susp }})</span>{% endif %}
-                                {% if (player.registration_status or 'registered') != 'registered' %}<span style="color:#9b59b6;font-size:0.7rem;font-weight:bold;">غير مسجل</span>{% endif %}
-                                {% if player.loan_from_team_id %}<span style="color:#3498db;font-size:0.7rem;">معار</span>{% endif %}
-                                <form class="toggle-starter-form" data-id="{{ player.id }}" action="/toggle_starter/{{ player.id }}" method="POST">
-                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                                    <button type="submit" class="btn-icon" title="{{ 'إبعاد' if player.is_starting else 'إضافة' }}">
-                                        <i class="fas {{ 'fa-check-circle' if player.is_starting else 'fa-plus-circle' }}"></i>
-                                    </button>
-                                </form>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-                </div>
-            </div>
-        </div>
-
-        <!-- Tactical Sidebar Column (Pitch & Bench) -->
-        <div class="squad-side-col">
-            <div class="pitch-container">
-                <div class="card-header" style="margin-bottom:0.75rem;padding-bottom:0.5rem;">
-                    <h3 style="font-size:1.05rem;"><i class="fas fa-futbol"></i> التشكيلة الأساسية</h3>
-                    <span id="starterCount" class="starter-badge">{{ starters|length }}/11 أساسي</span>
-                </div>
-                
-                <div class="pitch-tactical-view">
-                    <div class="pitch">
-                        <div class="pitch-box-top"></div>
-                        <div class="pitch-box-bottom"></div>
-                        <div class="pitch-rows">
-                            <div class="pitch-row" id="pitchFwd">
-                                {% for p in starters if p.position == 'FWD' %}
-                                <div class="pitch-player pp-fwd" data-id="{{ p.id }}" data-pos="FWD" title="{{ p.name }}">
-                                    <span class="pp-badge">FWD</span>
-                                    <span class="pp-name">{{ p.name.split()[-1] }}</span>
-                                    <span class="pp-pos">{{ p.attack }}</span>
-                                </div>
                                 {% endfor %}
-                                {% if starters|selectattr('position', 'equalto', 'FWD')|list|length == 0 %}
-                                <div class="pitch-player pp-empty"><span class="pp-name">—</span></div>
-                                <div class="pitch-player pp-empty"><span class="pp-name">—</span></div>
-                                {% endif %}
                             </div>
-                            <div class="pitch-row" id="pitchMid">
-                                {% for p in starters if p.position == 'MID' %}
-                                <div class="pitch-player pp-mid" data-id="{{ p.id }}" data-pos="MID" title="{{ p.name }}">
-                                    <span class="pp-badge">MID</span>
-                                    <span class="pp-name">{{ p.name.split()[-1] }}</span>
-                                    <span class="pp-pos">{{ p.attack }}/{{ p.defense }}</span>
-                                </div>
-                                {% endfor %}
-                                {% if starters|selectattr('position', 'equalto', 'MID')|list|length == 0 %}
-                                <div class="pitch-player pp-empty"><span class="pp-name">—</span></div>
-                                <div class="pitch-player pp-empty"><span class="pp-name">—</span></div>
-                                <div class="pitch-player pp-empty"><span class="pp-name">—</span></div>
-                                <div class="pitch-player pp-empty"><span class="pp-name">—</span></div>
-                                {% endif %}
+                            {% else %}
+                            <span style="color:#555;">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="{{ 'morale-good' if player.sharpness >= 70 else ('morale-mid' if player.sharpness >= 40 else 'morale-bad') }}">{{ player.sharpness or 0 }}</span>
+                        </td>
+                        <td>{{ player.stamina }}</td>
+                        <td>{{ player.technique }}</td>
+                        <td>{{ player.speed }}</td>
+                        <td class="money-text">${{ "{:,}".format(player.market_value) }}</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width:{{ player.fitness }}%;background:{{ '#e74c3c' if player.fitness < 30 else '#f39c12' if player.fitness < 60 else '#2ecc71' }}"></div>
                             </div>
-                            <div class="pitch-row" id="pitchDef">
-                                {% for p in starters if p.position == 'DEF' %}
-                                <div class="pitch-player pp-def" data-id="{{ p.id }}" data-pos="DEF" title="{{ p.name }}">
-                                    <span class="pp-badge">DEF</span>
-                                    <span class="pp-name">{{ p.name.split()[-1] }}</span>
-                                    <span class="pp-pos">{{ p.defense }}</span>
-                                </div>
-                                {% endfor %}
-                                {% if starters|selectattr('position', 'equalto', 'DEF')|list|length == 0 %}
-                                <div class="pitch-player pp-empty"><span class="pp-name">—</span></div>
-                                <div class="pitch-player pp-empty"><span class="pp-name">—</span></div>
-                                <div class="pitch-player pp-empty"><span class="pp-name">—</span></div>
-                                <div class="pitch-player pp-empty"><span class="pp-name">—</span></div>
-                                {% endif %}
-                            </div>
-                            <div class="pitch-row" id="pitchGk">
-                                {% for p in starters if p.position == 'GK' %}
-                                <div class="pitch-player pp-gk" data-id="{{ p.id }}" data-pos="GK" title="{{ p.name }}">
-                                    <span class="pp-badge">GK</span>
-                                    <span class="pp-name">{{ p.name.split()[-1] }}</span>
-                                    <span class="pp-pos">GK</span>
-                                </div>
-                                {% endfor %}
-                                {% if starters|selectattr('position', 'equalto', 'GK')|list|length == 0 %}
-                                <div class="pitch-player pp-empty"><span class="pp-name">—</span></div>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Sidebar Bench -->
-                <div class="pitch-bench-section">
-                    <div class="bench-header">
-                        <h4><i class="fas fa-chair"></i> دكة الاحتياط</h4>
-                        <span class="badge-subtle">{{ bench|length }} بديل</span>
-                    </div>
-                    <div id="benchList" class="bench-chip-list">
-                        {% for p in bench %}
-                        <div class="bench-chip" data-id="{{ p.id }}">
-                            <span class="pos-tag {{ p.position }}">{{ p.position }}</span>
-                            <span class="bench-name">{{ p.name }}</span>
-                            {% if p.injury_days > 0 %}<span class="bench-injury">مصاب {{ p.injury_days }}ي</span>{% endif %}
-                        </div>
-                        {% endfor %}
-                    </div>
-                </div>
-            </div>
+                        </td>
+                        <td>
+                            {% if player.injury_days > 0 %}
+                            <span style="color:#e74c3c;font-size:0.7rem;font-weight:bold;">مصاب</span>
+                            {% else %}
+                            {% set _disc = player.discipline_data or {} %}
+                            {% set _susp = (_disc.get('suspensions') or {}).get('league', 0) %}
+                            {% if _susp %}<span style="color:#f39c12;font-size:0.7rem;font-weight:bold;">موقوف ({{ _susp }})</span>{% endif %}
+                            {% if (player.registration_status or 'registered') != 'registered' %}<span style="color:#9b59b6;font-size:0.7rem;font-weight:bold;">غير مسجل</span>{% endif %}
+                            {% if player.loan_from_team_id %}<span style="color:#3498db;font-size:0.7rem;">معار</span>{% endif %}
+                            <form class="toggle-starter-form" data-id="{{ player.id }}" action="/toggle_starter/{{ player.id }}" method="POST">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <button type="submit" class="btn-icon" title="{{ 'إبعاد' if player.is_starting else 'إضافة' }}">
+                                    <i class="fas {{ 'fa-check-circle' if player.is_starting else 'fa-plus-circle' }}"></i>
+                                </button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
-
-    {% if veterans %}
-    <!-- Mentoring -->
-    <div class="card" style="margin-top:1.25rem;">
-        <div class="card-header"><h3><i class="fas fa-hands-helping"></i> التوجيه (الإرشاد)</h3></div>
-        {% if mentoring %}
-        <div class="table-container">
-        <table>
-            <thead>
-                <tr><th>المرشد</th><th>الشاب</th><th>إجراء</th></tr>
-            </thead>
-            <tbody>
-                {% for m in mentoring %}
-                {% set mentor = m.mentor %}{% set mentee = m.mentee %}
-                <tr>
-                    <td style="text-align:right;">{{ mentor.name if mentor else '?' }} <span class="personality-tag">{{ mentor.personality if mentor else '' }}</span></td>
-                    <td style="text-align:right;">{{ mentee.name if mentee else '?' }} ({{ mentee.age if mentee else '' }})</td>
-                    <td>
-                        <form action="/mentoring/remove/{{ m.id }}" method="POST">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                            <button class="btn btn-sm btn-danger">إنهاء</button>
-                        </form>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        </div>
-        {% endif %}
-        {% if prospects %}
-        <form action="/mentoring/add" method="POST" class="tactics-grid" style="margin-top:0.8rem;">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <div>
-                <label>الشاب (حتى 23 سنة)</label>
-                <select name="mentee_id" class="filter-input">
-                    {% for p in prospects %}
-                    <option value="{{ p.id }}">{{ p.name }} ({{ p.age }})</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div>
-                <label>المرشد المخضرم (30+)</label>
-                <select name="mentor_id" class="filter-input">
-                    {% for p in veterans %}
-                    <option value="{{ p.id }}">{{ p.name }} ({{ p.personality }})</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <button class="btn btn-primary">بدء التوجيه</button>
-        </form>
-        {% else %}
-        <p style="color:#777;font-size:0.85rem;">لا يوجد شباب (≤23) في الفريق لاستقبال التوجيه.</p>
-        {% endif %}
-    </div>
-    {% endif %}
 </section>
 
 <!-- Player Profile Modal (FM tabs + radar) -->
@@ -484,55 +291,6 @@ document.addEventListener('DOMContentLoaded', function() {
     modalClose.addEventListener('click', function() { modal.classList.remove('active'); });
     modal.addEventListener('click', function(e) { if (e.target === modal) modal.classList.remove('active'); });
 
-    // Filters: position buttons + search/age/nationality/ability/potential/sort
-    let activePos = 'all';
-    function applySquadFilters() {
-        const q = (document.getElementById('squadSearch') || {}).value || '';
-        const age = (document.getElementById('squadAge') || {}).value || '';
-        const nat = (document.getElementById('squadNat') || {}).value || '';
-        const minAb = parseInt((document.getElementById('squadAbility') || {}).value || '0', 10);
-        const minPot = parseInt((document.getElementById('squadPotential') || {}).value || '0', 10);
-        const sort = (document.getElementById('squadSort') || {}).value || '';
-        const tbody = document.querySelector('#squadTable tbody');
-        let rows = Array.from(document.querySelectorAll('#squadTable tbody tr'));
-        rows = rows.filter(function(row) {
-            const d = row.dataset;
-            if (activePos === 'starter') { if (d.starter !== '1') return false; }
-            else if (activePos !== 'all' && d.pos !== activePos) return false;
-            if (q && (d.name || '').indexOf(q.trim()) === -1) return false;
-            const a = parseInt(d.age || '0', 10);
-            if (age === 'u21' && a > 21) return false;
-            if (age === 'peak' && (a < 22 || a > 29)) return false;
-            if (age === 'vet' && a < 30) return false;
-            if (nat) {
-                if (nat.indexOf('reg:') === 0) { if ((d.region || '') !== nat.slice(4)) return false; }
-                else if ((d.nat || '') !== nat) return false;
-            }
-            if (parseInt(d.ability || '0', 10) < minAb) return false;
-            if (parseInt(d.potential || '0', 10) < minPot) return false;
-            return true;
-        });
-        if (sort === 'wage_desc') rows.sort((a, b) => parseFloat(b.dataset.wage || 0) - parseFloat(a.dataset.wage || 0));
-        else if (sort === 'wage_asc') rows.sort((a, b) => parseFloat(a.dataset.wage || 0) - parseFloat(b.dataset.wage || 0));
-        else if (sort === 'val_desc') rows.sort((a, b) => parseFloat(b.dataset.val || 0) - parseFloat(a.dataset.val || 0));
-        else if (sort === 'val_asc') rows.sort((a, b) => parseFloat(a.dataset.val || 0) - parseFloat(b.dataset.val || 0));
-        document.querySelectorAll('#squadTable tbody tr').forEach(function(r) { r.style.display = 'none'; });
-        rows.forEach(function(r) { r.style.display = ''; if (tbody) tbody.appendChild(r); });
-    }
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-            this.classList.add('active');
-            activePos = this.dataset.filter;
-            applySquadFilters();
-        });
-    });
-    ['squadSearch', 'squadAge', 'squadNat', 'squadAbility', 'squadPotential', 'squadSort'].forEach(function(id) {
-        const el = document.getElementById(id);
-        if (el) el.addEventListener('input', applySquadFilters);
-        if (el) el.addEventListener('change', applySquadFilters);
-    });
-
     // Sortable table
     const table = document.getElementById('squadTable');
     if (table) {
@@ -567,10 +325,17 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // AJAX toggle starter (Tip 15)
+    // Starter counter mirrors the table rows (fit starters only)
     const starterCount = document.getElementById('starterCount');
-    const benchList = document.getElementById('benchList');
-    const pitchRows = { FWD: document.getElementById('pitchFwd'), MID: document.getElementById('pitchMid'), DEF: document.getElementById('pitchDef'), GK: document.getElementById('pitchGk') };
+
+    function updateStarterCount() {
+        if (!starterCount) return;
+        const rows = Array.from(document.querySelectorAll('#squadTable tbody tr.player-row'));
+        const fit = rows.filter(function(r) {
+            return r.dataset.starter === '1' && Number(r.dataset.injury || 0) === 0;
+        });
+        starterCount.textContent = fit.length + '/11 أساسي';
+    }
 
     function showToast(msg) {
         const t = document.createElement('div');
@@ -578,109 +343,6 @@ document.addEventListener('DOMContentLoaded', function() {
         t.textContent = msg;
         document.body.appendChild(t);
         setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 500); }, 2500);
-    }
-
-    function chipFor(id, pos, name, info) {
-        const d = document.createElement('div');
-        d.className = 'pitch-player pp-' + pos.toLowerCase();
-        d.dataset.id = id;
-        d.dataset.pos = pos;
-        d.title = name;
-
-        const badge = document.createElement('span');
-        badge.className = 'pp-badge';
-        badge.textContent = pos;
-
-        const n = document.createElement('span');
-        n.className = 'pp-name';
-        n.textContent = String(name).split(' ').pop();
-
-        const p = document.createElement('span');
-        p.className = 'pp-pos';
-        p.textContent = info || pos;
-
-        d.appendChild(badge);
-        d.appendChild(n);
-        d.appendChild(p);
-
-        d.addEventListener('click', () => {
-            const link = document.querySelector(`.player-name-link[data-id="${id}"]`);
-            if (link) link.click();
-        });
-
-        return d;
-    }
-
-    // Bind click to open profile on initially rendered pitch players
-    document.querySelectorAll('.pitch-player[data-id]').forEach(chip => {
-        chip.addEventListener('click', () => {
-            const link = document.querySelector(`.player-name-link[data-id="${chip.dataset.id}"]`);
-            if (link) link.click();
-        });
-    });
-
-    function benchChipFor(id, pos, name, injury) {
-        const d = document.createElement('div');
-        d.className = 'bench-chip';
-        d.dataset.id = id;
-        const tag = document.createElement('span');
-        tag.className = 'pos-tag ' + pos;
-        tag.textContent = pos;
-        const nameEl = document.createElement('span');
-        nameEl.className = 'bench-name';
-        nameEl.textContent = name;
-        d.appendChild(tag);
-        d.appendChild(nameEl);
-        if (injury) {
-            const i = document.createElement('span');
-            i.className = 'bench-injury';
-            i.textContent = 'مصاب ' + injury + 'ي';
-            d.appendChild(i);
-        }
-        return d;
-    }
-
-    function rebuildPitchAndBench() {
-        const rows = Array.from(document.querySelectorAll('#squadTable tbody tr.player-row'));
-        const starters = rows.filter(r => r.dataset.starter === '1' && !r.classList.contains('row-injured'));
-        const nonStarters = rows.filter(r => r.dataset.starter === '0' || r.classList.contains('row-injured'));
-
-        Object.values(pitchRows).forEach(row => { row.innerHTML = ''; });
-
-        starters.forEach(r => {
-            const pos = r.dataset.pos;
-            const name = r.cells[1].textContent.trim();
-            let info;
-            if (pos === 'GK') info = 'GK';
-            else if (pos === 'MID') info = r.cells[3].textContent.trim() + ' / ' + r.cells[4].textContent.trim();
-            else info = pos === 'FWD' ? r.cells[3].textContent.trim() : r.cells[4].textContent.trim();
-            const rowEl = pitchRows[pos];
-            if (rowEl) rowEl.appendChild(chipFor(r.dataset.id, pos, name, info));
-        });
-
-        const empties = { FWD: 2, MID: 4, DEF: 4, GK: 1 };
-        Object.keys(empties).forEach(pos => {
-            const rowEl = pitchRows[pos];
-            if (rowEl && rowEl.children.length === 0) {
-                for (let k = 0; k < empties[pos]; k++) {
-                    const d = document.createElement('div');
-                    d.className = 'pitch-player pp-empty';
-                    const n = document.createElement('span');
-                    n.className = 'pp-name';
-                    n.textContent = '—';
-                    d.appendChild(n);
-                    rowEl.appendChild(d);
-                }
-            }
-        });
-
-        if (benchList) {
-            benchList.innerHTML = '';
-            nonStarters.forEach(r => {
-                benchList.appendChild(benchChipFor(r.dataset.id, r.dataset.pos, r.cells[1].textContent.trim(), Number(r.dataset.injury || 0)));
-            });
-        }
-        if (starterCount) starterCount.textContent = starters.length + '/11 أساسي';
     }
 
     document.querySelectorAll('.toggle-starter-form').forEach(form => {
@@ -701,7 +363,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         const btn = target.querySelector('.btn-icon');
                         if (btn) btn.setAttribute('title', now ? 'إبعاد' : 'إضافة');
                     }
-                    rebuildPitchAndBench();
+                    updateStarterCount();
                     showToast(body.message || 'تم تحديث التشكيلة!');
                 })
                 .catch(() => showToast('حدث خطأ أثناء التواصل مع الخادم'));

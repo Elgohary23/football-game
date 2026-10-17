@@ -302,20 +302,11 @@ class TestSquadDetails:
         for pos in ("GK", "DEF", "MID", "FWD"):
             assert browser_page.locator(f"#squadTable .pos-tag.{pos}").count() >= 1
 
-    def test_filter_gk_narrows_rows(self, browser_page):
+    def test_filter_bar_removed_all_rows_visible(self, browser_page):
         browser_page.goto(BASE_URL + "/squad")
-        browser_page.locator('.filter-btn[data-filter="GK"]').click()
-        visible = browser_page.locator("#squadTable tbody tr:visible")
-        assert visible.count() == 2
-        for i in range(visible.count()):
-            assert visible.nth(i).get_attribute("data-pos") == "GK"
-        browser_page.locator('.filter-btn[data-filter="all"]').click()
+        assert browser_page.locator(".squad-filters").count() == 0
+        assert browser_page.locator("#squadSearch").count() == 0
         assert browser_page.locator("#squadTable tbody tr:visible").count() == 15
-
-    def test_filter_starters(self, browser_page):
-        browser_page.goto(BASE_URL + "/squad")
-        browser_page.locator('.filter-btn[data-filter="starter"]').click()
-        assert browser_page.locator("#squadTable tbody tr:visible").count() == 11
 
     def test_sort_by_name_reorders(self, browser_page):
         browser_page.goto(BASE_URL + "/squad")
@@ -324,11 +315,13 @@ class TestSquadDetails:
         after = browser_page.locator("#squadTable tbody tr td:nth-child(2)").all_text_contents()
         assert before != after
 
-    def test_pitch_and_bench_sections(self, browser_page):
+    def test_pitch_and_bench_sections_removed(self, browser_page):
         browser_page.goto(BASE_URL + "/squad")
+        assert browser_page.locator(".squad-side-col").count() == 0
+        assert browser_page.locator("#benchList").count() == 0
         body = _body(browser_page)
-        assert "التشكيلة الأساسية" in body
-        assert "دكة الاحتياط" in body
+        assert "التشكيلة الأساسية" not in body
+        assert "دكة الاحتياط" not in body
 
 
 class TestDashboardDetails:
@@ -838,42 +831,16 @@ class TestFormationDragDrop:
         assert browser_page.locator("#pitch-grid .pitch-box").count() == 11
 
 
-class TestMentoringInteraction:
-    def test_add_and_remove_mentor(self, browser_page, live_server):
-        with _e2e_db(live_server):
-            from models import db, Player, Team
-            team = Team.query.filter_by(is_player_team=True).first()
-            mentor = team.players[0]
-            mentor.age = 32
-            mentor.personality = "Leader"
-            mentee = team.players[-1]
-            mentee.age = 19
-            db.session.commit()
-            mentor_id, mentee_id = str(mentor.id), str(mentee.id)
-            mentor_name, mentee_name = mentor.name, mentee.name
+class TestMentoringUiRemoved:
+    def test_squad_page_has_no_mentoring_card(self, browser_page):
+        # The mentoring (guidance) UI was stripped from the squad screen;
+        # the /mentoring/* endpoints stay covered by the unit tests.
         browser_page.goto(BASE_URL + "/squad")
-        browser_page.select_option('form[action="/mentoring/add"] select[name="mentee_id"]',
-                                   mentee_id)
-        browser_page.select_option('form[action="/mentoring/add"] select[name="mentor_id"]',
-                                   mentor_id)
-        with browser_page.expect_navigation():
-            browser_page.locator('form[action="/mentoring/add"] button').click()
-        expect(browser_page.locator("body")).to_contain_text("مرشداً")
-        expect(browser_page.locator("body")).to_contain_text(mentee_name)
-        with _e2e_db(live_server):
-            from models import Mentoring, Team
-            team = Team.query.filter_by(is_player_team=True).first()
-            assert Mentoring.query.filter_by(team_id=team.id).count() == 1
-        with browser_page.expect_navigation():
-            browser_page.locator('form[action^="/mentoring/remove/"] button').click()
-        expect(browser_page.locator("body")).to_contain_text("تم إنهاء علاقة التوجيه")
-        with _e2e_db(live_server):
-            from models import Mentoring, Team
-            team = Team.query.filter_by(is_player_team=True).first()
-            assert Mentoring.query.filter_by(team_id=team.id).count() == 0
-            db.session.remove()
-        # mentor name must be gone from the mentoring card (still in squad table)
-        assert mentor_name in _body(browser_page)  # squad table keeps every DB player
+        body = _body(browser_page)
+        assert "الإرشاد" not in body
+        assert "المرشد" not in body
+        assert browser_page.locator('form[action="/mentoring/add"]').count() == 0
+        assert browser_page.locator('form[action^="/mentoring/remove/"]').count() == 0
 
 
 class TestCalendarSimInteraction:
