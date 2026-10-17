@@ -308,6 +308,8 @@ def manager_form(slot_id, team_id):
         manager_name = request.form.get("manager_name", "").strip()
         if manager_name:
             state.manager_name = manager_name
+        elif not state.manager_name:
+            state.manager_name = "المدرب"
 
     from simulation import ensure_board_objectives
     if state is not None:

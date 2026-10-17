@@ -15,11 +15,14 @@
     </div>
     <div class="team-grid">
         {% for team in teams %}
-        <a href="{{ url_for('save.manager_form', slot_id=slot_id, team_id=team.id) }}" class="team-card">
-            <h3>{{ team.name }}</h3>
-            <div class="team-budget">${{ "{:,}".format(team.budget) }}</div>
-            <div class="team-power">القوة: <strong>{{ "%.1f"|format(team.rating) }}</strong></div>
-        </a>
+        <form action="{{ url_for('save.manager_form', slot_id=slot_id, team_id=team.id) }}" method="POST" style="margin:0;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <button type="submit" class="team-card" style="width:100%;cursor:pointer;font-family:inherit;background:#1a1a2e;border:1px solid #2a2a4a;color:inherit;text-align:center;padding:1rem;">
+                <h3>{{ team.name }}</h3>
+                <div class="team-budget">${{ "{:,}".format(team.budget) }}</div>
+                <div class="team-power">القوة: <strong>{{ "%.1f"|format(team.rating) }}</strong></div>
+            </button>
+        </form>
         {% endfor %}
     </div>
 </section>

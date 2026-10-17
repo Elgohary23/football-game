@@ -1,19 +1,29 @@
 {% extends "base.html" %}
-{% block title %}بيانات المدرب{% endblock %}
+{% block title %}تأكيد اختيار الفريق{% endblock %}
 {% block content %}
 <section class="setup-screen">
     <div class="setup-container">
         <div class="setup-header">
             <div class="setup-icon"><i class="fas fa-user-tie"></i></div>
-            <h1>بيانات المدرب</h1>
-            <p class="setup-subtitle">لقد اخترت فريق <strong style="color:#e94560;">{{ team.name }}</strong>، أدخل اسمك لتبدأ</p>
+            <h1>تأكيد اختيار الفريق</h1>
+            <p class="setup-subtitle">لقد اخترت فريق <strong style="color:#e94560;">{{ team.name }}</strong></p>
         </div>
         <form action="{{ url_for('save.manager_form', slot_id=slot_id, team_id=team.id) }}" method="POST">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            {% if state and state.manager_name and state.manager_name != 'المدرب' %}
+            <div style="text-align:center;margin-bottom:1.5rem;color:#ccc;font-size:1.05rem;">
+                <span>المدرب: </span><strong style="color:#e94560;">{{ state.manager_name }}</strong>
+                {% if state.manager_nationality and state.manager_nationality != 'غير محدد' %}
+                <span style="color:#666;"> | </span><span>{{ state.manager_nationality }}</span>
+                {% endif %}
+            </div>
+            <input type="hidden" name="manager_name" value="{{ state.manager_name }}">
+            {% else %}
             <div class="form-group">
                 <label for="manager_name">اسم المدرب</label>
-                <input type="text" id="manager_name" name="manager_name" class="form-control" placeholder="أدخل اسمك" required autofocus>
+                <input type="text" id="manager_name" name="manager_name" class="form-control" value="{{ state.manager_name if state and state.manager_name else '' }}" placeholder="أدخل اسمك" required autofocus>
             </div>
+            {% endif %}
             <div class="form-actions">
                 <button type="submit" class="btn btn-primary btn-lg">ابدأ اللعبة</button>
                 <a href="{{ url_for('save.select_team', slot_id=slot_id, league_id=team.league_id) }}" class="btn btn-secondary">رجوع</a>
