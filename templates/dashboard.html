@@ -48,6 +48,81 @@
         <a href="{{ url_for('main.tactics_center') }}" class="btn btn-secondary" data-tooltip="غرفة التكتيك الكاملة">التكتيك</a>
     </div>
 
+    <!-- ===== Focus Hub (fix.txt: reduce cognitive load) ===== -->
+    <div class="focus-hub">
+        {% if top_story %}
+        <div class="storyline-banner tone-{{ top_story.tone|default('neutral') }}">
+            <i class="fas {{ top_story.icon|default('fa-newspaper') }}"></i>
+            <div>
+                <strong>{{ top_story.title }}</strong>
+                <p>{{ top_story.body }}</p>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="focus-grid">
+            <a class="focus-card" href="{{ url_for('main.match_view') }}">
+                <i class="fas fa-futbol"></i>
+                <span class="focus-label">المباراة القادمة</span>
+                {% if next_match %}
+                <span class="focus-value">{{ next_match.home_team.name }} × {{ next_match.away_team.name }}</span>
+                <span class="focus-sub">أسبوع {{ next_match.week }}{% if next_match.date %} • {{ next_match.date }}{% endif %}</span>
+                {% else %}
+                <span class="focus-value">لا مباراة مجدولة</span>
+                <span class="focus-sub">استعد للأسبوع القادم</span>
+                {% endif %}
+            </a>
+            <div class="focus-card tone-{{ 'good' if (state.board_confidence or 60) >= 70 else ('mid' if (state.board_confidence or 60) >= 40 else 'bad') }}">
+                <i class="fas fa-clipboard-check"></i>
+                <span class="focus-label">ثقة مجلس الإدارة</span>
+                <span class="focus-value">{{ state.board_confidence or 60 }}%</span>
+                <span class="focus-sub">{{ 'دعم كامل' if (state.board_confidence or 60) >= 70 else ('تحت المراقبة' if (state.board_confidence or 60) >= 40 else 'تحت الضغط') }}</span>
+            </div>
+            <a class="focus-card" href="{{ url_for('main.standings') }}">
+                <i class="fas fa-list-ol"></i>
+                <span class="focus-label">المركز في الدوري</span>
+                <span class="focus-value">#{{ team_rank }}</span>
+                <span class="focus-sub">نقاط: {{ player_team.points }}</span>
+            </a>
+            <div class="focus-card">
+                <i class="fas fa-fire"></i>
+                <span class="focus-label">النتائج الأخيرة</span>
+                <div class="form-guide">
+                    {% for r in form_guide %}<span class="form-badge form-{{ r }}">{{ r }}</span>{% else %}<span class="focus-sub">لا نتائج بعد</span>{% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="critical-alerts">
+            {% if critical_alerts %}
+                {% for a in critical_alerts %}
+                <a class="alert-item alert-{{ a.tone }}" href="{{ a.link }}">
+                    <span class="alert-priority" style="background:{{ priority_meta(a.priority).color }};">{{ priority_meta(a.priority).label }}</span>
+                    <i class="fas {{ a.icon }}"></i>
+                    <span class="alert-title">{{ a.title }}</span>
+                    <span class="alert-body">{{ a.body }}</span>
+                </a>
+                {% endfor %}
+            {% else %}
+            <div class="alert-item alert-clear"><i class="fas fa-check-circle"></i> لا تنبيهات حرجة — كل شيء تحت السيطرة</div>
+            {% endif %}
+        </div>
+
+        {% if storylines and storylines|length > 1 %}
+        <details class="dash-fold storylines-fold">
+            <summary><i class="fas fa-newspaper"></i> قصص الموسم ({{ storylines|length }})</summary>
+            <div class="storyline-list">
+                {% for s in storylines %}
+                <div class="storyline-item tone-{{ s.tone|default('neutral') }}">
+                    <i class="fas {{ s.icon|default('fa-newspaper') }}"></i>
+                    <div><strong>{{ s.title }}</strong><p>{{ s.body }}</p></div>
+                </div>
+                {% endfor %}
+            </div>
+        </details>
+        {% endif %}
+    </div>
+
     <!-- Match Day Alert -->
     {% if state.season_over %}
     <div class="season-over-banner">
@@ -116,6 +191,8 @@
         </div>
     </div>
 
+    <details class="dash-fold" open>
+        <summary><i class="fas fa-table-cells-large"></i> نظرة شاملة على النادي</summary>
     <div class="widget-grid">
         <div class="card widget">
             <h3 class="widget-title"><i class="fas fa-seedling"></i> مواهب الأكاديمية</h3>
@@ -159,6 +236,7 @@
             <a href="{{ url_for('team.medical') }}" style="font-size:0.78rem;color:#e94560;text-decoration:none;">المركز الطبي ←</a>
         </div>
     </div>
+    </details>
 
     <!-- Cup Competitions Overview -->
     {% if cup_statuses %}
@@ -180,6 +258,8 @@
     {% endif %}
 
     <!-- Team Stats -->
+    <details class="dash-fold" open>
+        <summary><i class="fas fa-chart-simple"></i> مؤشرات الفريق</summary>
     <div class="stats-grid">
         <div class="stat-card">
             <span class="stat-label">المركز</span>
@@ -210,6 +290,7 @@
             <span class="stat-value">{{ player_team.youth_goals or 0 }}</span>
         </div>
     </div>
+    </details>
 
     {% if board_objectives %}
     <!-- Board Objectives -->
@@ -232,6 +313,8 @@
     </div>
     {% endif %}
 
+    <details class="dash-fold">
+        <summary><i class="fas fa-chart-line"></i> التحليلات المتقدمة</summary>
     <!-- Squad Depth Analysis -->
     <div class="card">
         <div class="card-header"><h3>تحليل عمق التشكيلة</h3></div>
@@ -313,7 +396,10 @@
             </div>
         </div>
     </div>
+    </details>
 
+    <details class="dash-fold" open>
+        <summary><i class="fas fa-list-ol"></i> الترتيب والنتائج</summary>
     <div class="dashboard-grid">
         <!-- League Table Card (Clickable) -->
         <div class="card clickable-card" onclick="window.location.href='{{ url_for('main.standings') }}'" style="cursor: pointer; position: relative;">
@@ -373,8 +459,11 @@
             {% endif %}
         </div>
     </div>
+    </details>
 
     <!-- Squad Table -->
+    <details class="dash-fold">
+        <summary><i class="fas fa-users"></i> قائمة اللاعبين ({{ players|length }})</summary>
     <div class="card">
         <div class="card-header">
             <h3>قائمة اللاعبين</h3>
@@ -415,6 +504,7 @@
         </table>
         </div>
     </div>
+    </details>
 
 </section>
 

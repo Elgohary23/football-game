@@ -2315,3 +2315,153 @@ class TestWorldHubDb:
         text = _html(client, "/standings")
         assert "قاري" in text
         assert "مقعد قاري" in text
+
+
+# ======================================================================
+# Calendar season timeline (fix.txt): overview, events, views, warning
+# ======================================================================
+class TestCalendarSeasonTimeline:
+    def test_season_overview_panel_from_db(self, client):
+        from services import get_season_rounds
+        state, team = _state(), _player_team()
+        text = _html(client, "/calendar")
+        assert "season-overview-panel" in text
+        assert "تقدم الموسم" in text
+        assert "نافذة الانتقالات" in text
+        assert "ثقة مجلس الإدارة" in text
+        expected = round(state.current_week / get_season_rounds(team.league_id) * 100)
+        assert f"{expected}%" in text
+
+    def test_calendar_events_json_embedded(self, client):
+        text = _html(client, "/calendar")
+        m = re.search(r"const calendarEvents = (\[.*?\]);", text, re.S)
+        assert m, "calendar must embed the narrative event feed"
+        events = json.loads(m.group(1))
+        assert isinstance(events, list)
+
+    def test_view_switcher_and_today_badge(self, client):
+        text = _html(client, "/calendar")
+        for view in ('data-view="month"', 'data-view="week"', 'data-view="agenda"'):
+            assert view in text
+        assert "TODAY" in text
+        assert "today-badge" in text
+
+    def test_simulation_warning_modal_present(self, client):
+        text = _html(client, "/calendar")
+        assert "simWarningModal" in text
+        assert "مراجعة الأحداث أولاً" in text
+        assert "ستتخطى" in text
+
+
+# ======================================================================
+# fix.txt: Dashboard focus hub + expandable sections
+# ======================================================================
+class TestDashboardFocusHub:
+    def test_focus_hub_core_metrics_present(self, client):
+        text = _html(client, "/dashboard")
+        assert "focus-hub" in text
+        assert "focus-card" in text
+        assert "المباراة القادمة" in text
+        assert "ثقة مجلس الإدارة" in text
+        assert "المركز في الدوري" in text
+        assert "critical-alerts" in text
+
+    def test_board_confidence_value_from_db(self, client):
+        state = _state()
+        text = _html(client, "/dashboard")
+        assert f"{state.board_confidence or 60}%" in text
+
+    def test_critical_alert_for_low_board_confidence(self, client):
+        state = _state()
+        state.board_confidence = 15
+        for p in _player_team().players:
+            p.injury_days = 0
+        db.session.commit()
+        text = _html(client, "/dashboard")
+        assert "critical-alerts" in text
+        assert "ثقة مجلس الإدارة منخفضة" in text
+
+    def test_critical_alert_for_injury(self, client):
+        p = _player_team().players[0]
+        p.injury_days = 6
+        db.session.commit()
+        text = _html(client, "/dashboard")
+        assert "critical-alerts" in text
+        assert "لاعب مصاب" in text
+
+    def test_heavy_sections_are_expandable_and_keep_db_content(self, client):
+        team = _player_team()
+        text = _html(client, "/dashboard")
+        assert "<details" in text
+        assert "dash-fold" in text
+        # Folded content is still in the DOM (readable by taps/tests).
+        for p in team.players[:3]:
+            assert p.name in text, p.name
+
+    def test_quick_action_forms_survive_redesign(self, client):
+        text = _html(client, "/dashboard")
+        assert 'action="/continue"' in text
+        assert 'action="/advance_week"' in text
+
+
+# ======================================================================
+# fix.txt: Navigation hubs
+# ======================================================================
+class TestNavigationHubs:
+    def test_sidebar_grouped_into_hubs(self, client):
+        text = _html(client, "/dashboard")
+        for hub in ("مركز النادي", "مركز الإدارة", "مركز الكشافة", "مركز المنافسات"):
+            assert hub in text, hub
+
+    def test_hub_links_still_reachable(self, client):
+        text = _html(client, "/dashboard")
+        for href in ("/squad", "/staff", "/medical", "/training", "/formation",
+                     "/board", "/finances", "/facilities", "/scouting",
+                     "/standings", "/cups"):
+            assert href in text, href
+
+
+# ======================================================================
+# fix.txt: Inbox notification priority
+# ======================================================================
+class TestInboxPriority:
+    def test_priority_badges_and_filter_present(self, client):
+        Message.query.delete()
+        db.session.add(Message(title="Prio One", content="body", type="info",
+                               read=False, created_day=1, urgent=True))
+        db.session.commit()
+        text = _html(client, "/messages")
+        assert "prio-badge" in text
+        assert "data-priority" in text
+        assert 'id="inboxPriority"' in text
+        assert "حرِج" in text  # CRITICAL label
+
+    def test_urgent_message_is_critical_priority(self, client):
+        Message.query.delete()
+        db.session.add(Message(title="Urgent P", content="body", type="info",
+                               read=False, created_day=1, urgent=True))
+        db.session.commit()
+        text = _html(client, "/messages")
+        assert 'data-priority="critical"' in text
+
+    def test_info_message_is_optional_priority(self, client):
+        Message.query.delete()
+        db.session.add(Message(title="Info P", content="body", type="info",
+                               read=True, created_day=2))
+        db.session.commit()
+        text = _html(client, "/messages")
+        assert 'data-priority="optional"' in text
+
+
+# ======================================================================
+# fix.txt: Match centre — pre-match narrative
+# ======================================================================
+class TestMatchStorylines:
+    def test_pre_match_storylines_card_rendered(self, client):
+        state = _state()
+        state.board_confidence = 80
+        db.session.commit()
+        text = _html(client, "/match")
+        assert "match-storylines" in text
+        assert "storyline-feed" in text
+        assert "حكاية المباراة" in text

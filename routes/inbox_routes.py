@@ -7,6 +7,7 @@ bp = Blueprint("inbox", __name__)
 from models import db, GameState, Message, Team, TransferOffer
 from services import process_offer_accept, process_offer_reject
 from simulation import get_unread_count, mark_message_read
+from narrative import PRIORITY_META, notification_priority, priority_meta
 
 
 @bp.route("/messages")
@@ -35,6 +36,11 @@ def messages():
 
     first_msg = msgs[0] if msgs else None
 
+    try:
+        priorities = {m.id: notification_priority(m) for m in msgs}
+    except Exception:
+        priorities = {}
+
     return render_template(
         "messages.html",
         state=state,
@@ -42,6 +48,9 @@ def messages():
         messages=msgs,
         pending_offers=offers,
         first_msg=first_msg,
+        priorities=priorities,
+        priority_meta=priority_meta,
+        priority_levels=PRIORITY_META,
     )
 
 

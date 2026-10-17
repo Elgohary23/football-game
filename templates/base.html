@@ -21,15 +21,14 @@
                 <span>مدير كرة القدم</span>
             </div>
             <nav aria-label="التنقل الرئيسي">
-                <div class="side-group-label">الإدارة</div>
+                <div class="side-group-label">الرئيسية</div>
                 <ul class="side-menu">
                     <li><a href="{{ url_for('main.dashboard') }}" class="side-link"><i class="fas fa-tachometer-alt"></i><span>اللوحة</span></a></li>
                     <li><a href="{{ url_for('inbox.messages') }}" class="side-link"><i class="fas fa-envelope"></i><span>الرسائل</span><span id="unreadBadge" class="badge{% if unread_count == 0 %} badge-hidden{% endif %}">{{ unread_count }}</span></a></li>
-                    <li><a href="{{ url_for('main.board_center') }}" class="side-link"><i class="fas fa-clipboard-check"></i><span>الإدارة والأهداف</span></a></li>
-                    <li><a href="{{ url_for('main.finances_center') }}" class="side-link"><i class="fas fa-coins"></i><span>المالية</span></a></li>
-                    <li><a href="{{ url_for('main.club_center') }}" class="side-link"><i class="fas fa-shield-alt"></i><span>النادي</span></a></li>
+                    <li><a href="{{ url_for('main.calendar') }}" class="side-link"><i class="fas fa-calendar-alt"></i><span>التقويم</span></a></li>
+                    <li><a href="{{ url_for('main.match_view') }}" class="side-link"><i class="fas fa-futbol"></i><span>المباراة</span></a></li>
                 </ul>
-                <div class="side-group-label">الفريق</div>
+                <div class="side-group-label">مركز النادي</div>
                 <ul class="side-menu">
                     <li><a href="{{ url_for('team.squad') }}" class="side-link"><i class="fas fa-users"></i><span>الفريق</span></a></li>
                     <li><a href="{{ url_for('team.formation') }}" class="side-link"><i class="fas fa-chess-board"></i><span>التكتيكات</span></a></li>
@@ -37,23 +36,27 @@
                     <li><a href="{{ url_for('team.training') }}" class="side-link"><i class="fas fa-dumbbell"></i><span>التدريب</span></a></li>
                     <li><a href="{{ url_for('team.medical') }}" class="side-link"><i class="fas fa-hospital"></i><span>المركز الطبي</span></a></li>
                     <li><a href="{{ url_for('team.staff') }}" class="side-link"><i class="fas fa-user-tie"></i><span>الطاقم التدريبي</span></a></li>
-                    <li><a href="{{ url_for('team.facilities') }}" class="side-link"><i class="fas fa-building"></i><span>المرافق</span></a></li>
                     <li><a href="{{ url_for('team.compare') }}" class="side-link"><i class="fas fa-balance-scale"></i><span>مقارنة اللاعبين</span></a></li>
                 </ul>
-                <div class="side-group-label">المنافسات</div>
+                <div class="side-group-label">مركز الإدارة</div>
                 <ul class="side-menu">
-                    <li><a href="{{ url_for('main.calendar') }}" class="side-link"><i class="fas fa-calendar-alt"></i><span>التقويم</span></a></li>
-                    <li><a href="{{ url_for('main.match_view') }}" class="side-link"><i class="fas fa-futbol"></i><span>المباراة</span></a></li>
-                    <li><a href="{{ url_for('main.match_history') }}" class="side-link"><i class="fas fa-history"></i><span>تاريخ المباريات</span></a></li>
-                    <li><a href="{{ url_for('main.standings') }}" class="side-link"><i class="fas fa-list-ol"></i><span>جدول الترتيب</span></a></li>
-                    <li><a href="{{ url_for('stats.stats_center') }}" class="side-link"><i class="fas fa-chart-bar"></i><span>مركز الإحصائيات</span></a></li>
-                    <li><a href="/cups" class="side-link"><i class="fas fa-trophy"></i><span>الكؤوس والبطولات</span></a></li>
-                    <li><a href="{{ url_for('main.world_overview') }}" class="side-link"><i class="fas fa-globe"></i><span>العالم</span></a></li>
+                    <li><a href="{{ url_for('main.board_center') }}" class="side-link"><i class="fas fa-clipboard-check"></i><span>الإدارة والأهداف</span></a></li>
+                    <li><a href="{{ url_for('main.finances_center') }}" class="side-link"><i class="fas fa-coins"></i><span>المالية</span></a></li>
+                    <li><a href="{{ url_for('team.facilities') }}" class="side-link"><i class="fas fa-building"></i><span>المرافق</span></a></li>
+                    <li><a href="{{ url_for('main.club_center') }}" class="side-link"><i class="fas fa-shield-alt"></i><span>النادي</span></a></li>
                 </ul>
-                <div class="side-group-label">السوق</div>
+                <div class="side-group-label">مركز الكشافة</div>
                 <ul class="side-menu">
                     <li><a href="{{ url_for('main.transfers_center') }}" class="side-link"><i class="fas fa-exchange-alt"></i><span>مركز الانتقالات</span></a></li>
                     <li><a href="{{ url_for('team.scouting') }}" class="side-link"><i class="fas fa-search"></i><span>سوق الانتقالات</span></a></li>
+                </ul>
+                <div class="side-group-label">مركز المنافسات</div>
+                <ul class="side-menu">
+                    <li><a href="{{ url_for('main.standings') }}" class="side-link"><i class="fas fa-list-ol"></i><span>جدول الترتيب</span></a></li>
+                    <li><a href="{{ url_for('stats.stats_center') }}" class="side-link"><i class="fas fa-chart-bar"></i><span>مركز الإحصائيات</span></a></li>
+                    <li><a href="/cups" class="side-link"><i class="fas fa-trophy"></i><span>الكؤوس والبطولات</span></a></li>
+                    <li><a href="{{ url_for('main.match_history') }}" class="side-link"><i class="fas fa-history"></i><span>تاريخ المباريات</span></a></li>
+                    <li><a href="{{ url_for('main.world_overview') }}" class="side-link"><i class="fas fa-globe"></i><span>العالم</span></a></li>
                 </ul>
                 <div class="side-group-label">النظام</div>
                 <ul class="side-menu">

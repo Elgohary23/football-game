@@ -3,15 +3,94 @@
 
 {% block content %}
 <section class="calendar-page-wrapper">
-    <div class="calendar-header-panel">
-        <div class="header-info">
-            <h1>تقويم مباريات الفريق</h1>
-            {% set next_year = (state.current_date[:4]|int + 1)|string %}
-            <p class="season-badge">موسم {{ state.current_date[:4] }}/{{ next_year[2:4] }}</p>
+    <!-- ================= Season Overview Panel ================= -->
+    <div class="season-overview-panel" id="seasonOverview">
+        <div class="season-overview-head">
+            <div>
+                <h1>الخط الزمني للموسم</h1>
+                {% set next_year = (state.current_date[:4]|int + 1)|string %}
+                <p class="season-badge">موسم {{ state.current_date[:4] }}/{{ next_year[2:4] }}</p>
+            </div>
+            <div class="current-date-badge">
+                <span class="label">تاريخ اليوم في اللعبة:</span>
+                <span class="value" id="gameDateDisplay">{{ state.current_date }}</span>
+            </div>
         </div>
-        <div class="current-date-badge">
-            <span class="label">تاريخ اليوم في اللعبة:</span>
-            <span class="value" id="gameDateDisplay">{{ state.current_date }}</span>
+
+        <div class="season-stats-grid">
+            <div class="season-stat">
+                <span class="ss-label">تقدم الموسم</span>
+                <span class="ss-value">{{ season_overview.progress|default(0) }}%</span>
+                <div class="ss-bar"><div class="ss-bar-fill" style="width:{{ season_overview.progress|default(0) }}%"></div></div>
+            </div>
+            <div class="season-stat">
+                <span class="ss-label">المركز في الدوري</span>
+                <span class="ss-value">{{ season_overview.position_display|default('—') }}</span>
+            </div>
+            <div class="season-stat">
+                <span class="ss-label">مباريات متبقية</span>
+                <span class="ss-value">{{ season_overview.matches_remaining|default(0) }}</span>
+            </div>
+            <div class="season-stat">
+                <span class="ss-label">الحالة الفنية</span>
+                <span class="ss-value form-mini">
+                    {% if season_overview.form %}
+                        {% for r in season_overview.form|reverse %}<span class="form-badge form-{{ r }}">{{ r }}</span>{% endfor %}
+                    {% else %}—{% endif %}
+                </span>
+            </div>
+            <div class="season-stat">
+                <span class="ss-label">نافذة الانتقالات</span>
+                <span class="ss-value {{ 'ss-good' if season_overview.window == 'open' else 'ss-muted' }}">{{ season_overview.window_label|default('مغلقة') }}</span>
+            </div>
+            <div class="season-stat">
+                <span class="ss-label">ثقة مجلس الإدارة</span>
+                <span class="ss-value ss-{{ season_overview.board_tone|default('mid') }}">{{ season_overview.board_label|default('متوسطة') }} ({{ season_overview.board_value|default(60) }}%)</span>
+            </div>
+            <div class="season-stat season-stat-wide">
+                <span class="ss-label">أهم حدث قادم</span>
+                {% if season_overview.next_event %}
+                <span class="ss-value">
+                    <i class="fas {{ season_overview.next_event.icon }}"></i>
+                    {{ season_overview.next_event.title }}
+                    {% if season_overview.next_event.days_away is not none %}
+                    <span class="ss-days">خلال {{ season_overview.next_event.days_away }} يوم</span>
+                    {% endif %}
+                </span>
+                {% else %}
+                <span class="ss-value ss-muted">لا أحداث قادمة</span>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if top_story %}
+        <div class="storyline-strip story-{{ top_story.tone|default('neutral') }}">
+            <i class="fas {{ top_story.icon }}"></i>
+            <div>
+                <strong>{{ top_story.title }}</strong>
+                <span>{{ top_story.body }}</span>
+            </div>
+            <a href="{{ url_for('main.dashboard') }}" class="story-link">القصة كاملة</a>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="calendar-toolbar">
+        <div class="view-tabs" id="viewTabs" role="tablist">
+            <button class="view-tab active" data-view="month" role="tab" aria-selected="true"><i class="fas fa-calendar-alt"></i> شهري</button>
+            <button class="view-tab" data-view="week" role="tab" aria-selected="false"><i class="fas fa-calendar-week"></i> أسبوعي</button>
+            <button class="view-tab" data-view="agenda" role="tab" aria-selected="false"><i class="fas fa-list-ul"></i> الأحداث</button>
+        </div>
+        <div class="event-legend" id="eventLegend">
+            <span class="legend-item"><span class="legend-dot" style="background:#3498db"></span>الدوري</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#9b59b6"></span>الكؤوس</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#f1c40f"></span>قارية</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#e67e22"></span>انتقالات</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#27ae60"></span>الإدارة</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#e74c3c"></span>طبية</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#2ecc71"></span>عقود</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#95a5a6"></span>تدريب</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#f39c12"></span>محطات</span>
         </div>
     </div>
 
@@ -30,23 +109,35 @@
                 </div>
             </div>
             <div class="calendar-nav">
-                <button class="nav-btn" id="prevMonthBtn"><i class="fas fa-chevron-right"></i></button>
+                <button class="nav-btn" id="prevMonthBtn" aria-label="السابق"><i class="fas fa-chevron-right"></i></button>
                 <h2 class="month-title" id="monthTitleDisplay">يونيو 2026</h2>
-                <button class="nav-btn" id="nextMonthBtn"><i class="fas fa-chevron-left"></i></button>
+                <button class="nav-btn" id="nextMonthBtn" aria-label="التالي"><i class="fas fa-chevron-left"></i></button>
             </div>
-            
-            <div class="calendar-weekdays">
-                <div>الإثنين</div>
-                <div>الثلاثاء</div>
-                <div>الأربعاء</div>
-                <div>الخميس</div>
-                <div>الجمعة</div>
-                <div>السبت</div>
-                <div>الأحد</div>
+
+            <!-- Month view -->
+            <div id="monthView">
+                <div class="calendar-weekdays">
+                    <div>الإثنين</div>
+                    <div>الثلاثاء</div>
+                    <div>الأربعاء</div>
+                    <div>الخميس</div>
+                    <div>الجمعة</div>
+                    <div>السبت</div>
+                    <div>الأحد</div>
+                </div>
+                <div class="calendar-days" id="calendarDaysGrid">
+                    <!-- Days will be rendered here dynamically by JS -->
+                </div>
             </div>
-            
-            <div class="calendar-days" id="calendarDaysGrid">
-                <!-- Days will be rendered here dynamically by JS -->
+
+            <!-- Week view -->
+            <div id="weekView" hidden>
+                <div class="week-grid" id="weekGrid"></div>
+            </div>
+
+            <!-- Agenda view -->
+            <div id="agendaView" hidden>
+                <div class="agenda-list" id="agendaList"></div>
             </div>
         </div>
 
@@ -56,7 +147,7 @@
                 <h3>تفاصيل اليوم المحدد</h3>
                 <span class="selected-date-badge" id="selectedDateDisplay">---</span>
             </div>
-            <div class="card-content" id="detailsContent">
+            <div class="card-body" id="detailsContent">
                 <!-- Will be dynamically populated -->
                 <div class="empty-state">
                     <i class="far fa-calendar-alt"></i>
@@ -73,8 +164,29 @@
     </form>
 </section>
 
+<!-- ================= Simulation Warning Modal ================= -->
+<div class="modal-overlay" id="simWarningModal" aria-hidden="true">
+    <div class="modal-content sim-warning-content" role="dialog" aria-modal="true" aria-labelledby="simWarnTitle">
+        <div class="modal-header">
+            <h2 id="simWarnTitle"><i class="fas fa-exclamation-triangle"></i> تأكيد المحاكاة</h2>
+            <button class="modal-close" id="simWarnClose" aria-label="إغلاق">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="sim-warn-target">أنت على وشك التقدم إلى: <strong id="simWarnDate">---</strong></p>
+            <p class="sim-warn-sub">ستتخطى:</p>
+            <ul class="sim-warn-list" id="simWarnList"></ul>
+            <p class="sim-warn-continue">هل تريد المتابعة؟</p>
+        </div>
+        <div class="modal-footer sim-warn-actions">
+            <button class="btn btn-primary" id="simWarnContinue"><i class="fas fa-play"></i> متابعة</button>
+            <button class="btn btn-secondary" id="simWarnReview"><i class="fas fa-list-ul"></i> مراجعة الأحداث أولاً</button>
+            <button class="btn btn-secondary" id="simWarnCancel"><i class="fas fa-times"></i> إلغاء</button>
+        </div>
+    </div>
+</div>
+
 <style>
-/* CSS Styling for Interactive Calendar */
+/* CSS Styling for the Season Timeline (fix.txt calendar redesign) */
 :root {
     --primary-neon: #e94560;
     --primary-neon-glow: rgba(233, 69, 96, 0.4);
@@ -87,29 +199,35 @@
 .calendar-page-wrapper {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 1.25rem;
     padding: 1rem 0;
     direction: rtl;
 }
 
-.calendar-header-panel {
+/* Season overview */
+.season-overview-panel {
+    background: linear-gradient(135deg, rgba(15, 52, 96, 0.5), rgba(22, 33, 62, 0.5));
+    border: 1px solid var(--glass-border);
+    border-radius: 18px;
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+.season-overview-head {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: linear-gradient(135deg, rgba(15, 52, 96, 0.4), rgba(22, 33, 62, 0.4));
-    padding: 1.25rem 2rem;
-    border-radius: 15px;
-    border: 1px solid var(--glass-border);
+    flex-wrap: wrap;
+    gap: 0.75rem;
 }
-
-.calendar-header-panel h1 {
-    font-size: 1.8rem;
+.season-overview-panel h1 {
+    font-size: 1.55rem;
     margin: 0 0 0.25rem 0;
     background: linear-gradient(to left, #fff, #b4c3d8);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
-
 .season-badge {
     background: var(--primary-neon);
     color: #fff;
@@ -119,24 +237,87 @@
     font-weight: bold;
     display: inline-block;
 }
-
-.current-date-badge {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-}
-
-.current-date-badge .label {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-}
-
+.current-date-badge { display: flex; flex-direction: column; align-items: flex-end; }
+.current-date-badge .label { font-size: 0.8rem; color: var(--text-muted); }
 .current-date-badge .value {
-    font-size: 1.3rem;
+    font-size: 1.25rem;
     font-weight: bold;
     color: var(--primary-neon);
     text-shadow: 0 0 8px var(--primary-neon-glow);
 }
+.season-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.75rem;
+}
+.season-stat {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 0.65rem 0.8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+.season-stat-wide { grid-column: span 2; }
+@media (max-width: 640px) { .season-stat-wide { grid-column: span 1; } }
+.ss-label { font-size: 0.72rem; color: var(--text-muted); }
+.ss-value { font-size: 1.05rem; font-weight: bold; color: #fff; display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; }
+.ss-value.ss-good { color: #2ecc71; }
+.ss-value.ss-mid { color: #f39c12; }
+.ss-value.ss-bad { color: #e74c3c; }
+.ss-muted { color: var(--text-muted) !important; }
+.ss-days { font-size: 0.72rem; color: var(--text-muted); font-weight: normal; }
+.ss-bar { height: 6px; background: rgba(255, 255, 255, 0.08); border-radius: 99px; overflow: hidden; }
+.ss-bar-fill { height: 100%; background: linear-gradient(90deg, #e94560, #f39c12); border-radius: 99px; transition: width 0.5s ease; }
+.form-mini { gap: 0.15rem; }
+
+/* Storyline strip */
+.storyline-strip {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--glass-border);
+    border-right: 4px solid #f39c12;
+    border-radius: 12px;
+    padding: 0.7rem 1rem;
+}
+.storyline-strip i { font-size: 1.4rem; color: #f39c12; }
+.storyline-strip > div { display: flex; flex-direction: column; gap: 0.1rem; }
+.storyline-strip strong { color: #fff; font-size: 0.95rem; }
+.storyline-strip span { color: var(--text-muted); font-size: 0.82rem; }
+.storyline-strip.story-positive { border-right-color: #2ecc71; }
+.storyline-strip.story-positive i { color: #2ecc71; }
+.storyline-strip.story-negative { border-right-color: #e74c3c; }
+.storyline-strip.story-negative i { color: #e74c3c; }
+.story-link { margin-right: auto; font-size: 0.78rem; color: var(--primary-neon); text-decoration: none; white-space: nowrap; }
+
+/* Toolbar: views + legend */
+.calendar-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+.view-tabs { display: flex; gap: 0.35rem; }
+.view-tab {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--glass-border);
+    color: var(--text-muted);
+    padding: 0.4rem 0.9rem;
+    border-radius: 20px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.82rem;
+    transition: all 0.25s ease;
+}
+.view-tab:hover { color: #fff; border-color: rgba(255, 255, 255, 0.25); }
+.view-tab.active { background: var(--primary-neon); color: #fff; border-color: var(--primary-neon); box-shadow: 0 0 12px var(--primary-neon-glow); }
+.event-legend { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.legend-item { display: flex; align-items: center; gap: 0.3rem; font-size: 0.72rem; color: var(--text-muted); }
+.legend-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 
 .calendar-main-grid {
     display: grid;
@@ -145,9 +326,7 @@
 }
 
 @media (max-width: 992px) {
-    .calendar-main-grid {
-        grid-template-columns: 1fr;
-    }
+    .calendar-main-grid { grid-template-columns: 1fr; }
 }
 
 .glass-panel {
@@ -161,11 +340,7 @@
 }
 
 /* Calendar Card */
-.calendar-card {
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
-}
+.calendar-card { display: flex; flex-direction: column; gap: 1.25rem; }
 
 .calendar-nav {
     display: flex;
@@ -188,20 +363,9 @@
     cursor: pointer;
     transition: all 0.3s ease;
 }
+.nav-btn:hover { background: var(--primary-neon); border-color: var(--primary-neon); transform: scale(1.1); box-shadow: 0 0 10px var(--primary-neon-glow); }
 
-.nav-btn:hover {
-    background: var(--primary-neon);
-    border-color: var(--primary-neon);
-    transform: scale(1.1);
-    box-shadow: 0 0 10px var(--primary-neon-glow);
-}
-
-.month-title {
-    font-size: 1.4rem;
-    margin: 0;
-    font-weight: bold;
-    color: #fff;
-}
+.month-title { font-size: 1.4rem; margin: 0; font-weight: bold; color: #fff; }
 
 .calendar-weekdays {
     display: grid;
@@ -213,350 +377,202 @@
     padding-bottom: 0.5rem;
 }
 
-.calendar-days {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 0.6rem;
-}
+.calendar-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.6rem; }
 
 .day-cell {
-    aspect-ratio: 1.2;
+    aspect-ratio: 1.05;
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
-    padding: 0.5rem;
+    justify-content: flex-start;
+    gap: 0.2rem;
+    padding: 0.4rem;
     border-radius: 12px;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid transparent;
     cursor: pointer;
     position: relative;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
 }
+.day-cell:hover { background: rgba(255, 255, 255, 0.07); border-color: rgba(255, 255, 255, 0.15); transform: translateY(-2px); }
+.day-cell.inactive { color: rgba(255, 255, 255, 0.15); cursor: not-allowed; background: transparent; }
+.day-cell.inactive:hover { transform: none; background: transparent; border-color: transparent; }
+.day-num { font-weight: bold; font-size: 1rem; line-height: 1; }
+.day-events { display: flex; flex-wrap: wrap; gap: 3px; margin-top: auto; }
+.event-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.day-more { font-size: 0.62rem; color: var(--text-muted); }
 
-.day-cell:hover {
-    background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(255, 255, 255, 0.15);
-    transform: translateY(-2px);
-}
-
-.day-cell.inactive {
-    color: rgba(255, 255, 255, 0.15);
-    cursor: not-allowed;
-    background: transparent;
-}
-
-.day-cell.inactive:hover {
-    transform: none;
-    background: transparent;
-    border-color: transparent;
-}
-
-.day-num {
-    font-weight: bold;
-    font-size: 1.1rem;
-}
-
-/* Today Highlighter */
+/* TODAY + current-day visibility */
 .day-cell.today {
-    background: rgba(15, 52, 96, 0.6);
-    border: 1.5px dashed var(--primary-neon);
-    box-shadow: inset 0 0 10px rgba(233, 69, 96, 0.2);
+    background: rgba(233, 69, 96, 0.12) !important;
+    border: 2px solid var(--primary-neon) !important;
+    box-shadow: 0 0 0 1px var(--primary-neon), 0 0 18px var(--primary-neon-glow);
+    animation: todayPulse 2s ease-in-out infinite;
 }
-
-.day-cell.today .day-num {
-    color: var(--primary-neon);
-    text-shadow: 0 0 8px var(--primary-neon-glow);
-}
-
-/* Circled Match Indicator */
-.day-cell.has-match {
-    background: rgba(233, 69, 96, 0.05);
-}
-
-.day-cell.has-match::after {
-    content: '';
+.day-cell.today .day-num { color: var(--primary-neon); text-shadow: 0 0 10px var(--primary-neon-glow); }
+.today-badge {
     position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 38px;
-    height: 38px;
-    border: 2px solid var(--primary-neon);
-    border-radius: 50%;
-    box-shadow: 0 0 12px var(--primary-neon-glow);
-    animation: pulseGlow 2s infinite alternate;
-    pointer-events: none;
-}
-
-@keyframes pulseGlow {
-    from {
-        opacity: 0.5;
-        transform: translate(-50%, -50%) scale(0.9);
-    }
-    to {
-        opacity: 1;
-        transform: translate(-50%, -50%) scale(1.05);
-    }
-}
-
-.day-cell.has-match.played::after {
-    border-color: #2ecc71;
-    box-shadow: 0 0 12px rgba(46, 204, 113, 0.4);
-}
-
-.day-cell.selected {
-    background: rgba(255, 255, 255, 0.12) !important;
-    border-color: rgba(255, 255, 255, 0.3) !important;
-}
-
-.match-dot {
-    width: 6px;
-    height: 6px;
+    top: 0.25rem;
+    left: 0.25rem;
     background: var(--primary-neon);
-    border-radius: 50%;
-    margin: 0 auto;
+    color: #fff;
+    font-size: 0.55rem;
+    font-weight: bold;
+    padding: 0.05rem 0.3rem;
+    border-radius: 8px;
+    letter-spacing: 0.5px;
+}
+@keyframes todayPulse {
+    0%, 100% { box-shadow: 0 0 0 1px var(--primary-neon), 0 0 12px var(--primary-neon-glow); }
+    50% { box-shadow: 0 0 0 2px var(--primary-neon), 0 0 26px var(--primary-neon-glow); }
 }
 
-.match-dot.played {
-    background: #2ecc71;
+.day-cell.has-match { background: rgba(233, 69, 96, 0.05); }
+.day-cell.selected { background: rgba(255, 255, 255, 0.12) !important; border-color: rgba(255, 255, 255, 0.35) !important; }
+
+/* Week view */
+.week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.5rem; }
+.week-col {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 0.5rem 0.4rem;
+    min-height: 180px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
 }
+.week-col.is-today { border-color: var(--primary-neon); background: rgba(233, 69, 96, 0.1); }
+.week-col-head { text-align: center; border-bottom: 1px solid var(--glass-border); padding-bottom: 0.35rem; }
+.week-col-head .wd { font-size: 0.68rem; color: var(--text-muted); }
+.week-col-head .dd { font-weight: bold; font-size: 0.95rem; }
+.week-col.is-today .week-col-head .dd { color: var(--primary-neon); }
+.week-event {
+    font-size: 0.7rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-right: 3px solid #888;
+    border-radius: 6px;
+    padding: 0.3rem 0.4rem;
+    cursor: pointer;
+    line-height: 1.25;
+}
+.week-event .we-title { font-weight: bold; color: #fff; display: block; }
+.week-event .we-detail { color: var(--text-muted); font-size: 0.65rem; }
+
+/* Agenda view */
+.agenda-list { display: flex; flex-direction: column; gap: 0.6rem; max-height: 520px; overflow-y: auto; padding-left: 0.2rem; }
+.agenda-group { display: flex; gap: 0.75rem; }
+.agenda-date {
+    min-width: 78px;
+    text-align: center;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    padding: 0.4rem 0.3rem;
+    height: fit-content;
+}
+.agenda-date .ad-day { font-size: 1.15rem; font-weight: bold; color: #fff; }
+.agenda-date .ad-mon { font-size: 0.68rem; color: var(--text-muted); }
+.agenda-group.is-today .agenda-date { border-color: var(--primary-neon); background: rgba(233, 69, 96, 0.12); }
+.agenda-group.is-today .ad-day { color: var(--primary-neon); }
+.agenda-items { flex: 1; display: flex; flex-direction: column; gap: 0.35rem; }
+.agenda-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+    border-right: 3px solid #888;
+    border-radius: 8px;
+    padding: 0.45rem 0.6rem;
+    cursor: pointer;
+}
+.agenda-item:hover { background: rgba(255, 255, 255, 0.07); }
+.agenda-item i { font-size: 0.9rem; }
+.agenda-item .ai-body { display: flex; flex-direction: column; }
+.agenda-item .ai-title { font-size: 0.85rem; font-weight: bold; color: #fff; }
+.agenda-item .ai-detail { font-size: 0.72rem; color: var(--text-muted); }
+.agenda-empty { color: var(--text-muted); text-align: center; padding: 2rem 0; }
 
 /* Details Card */
-.match-details-card {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-}
-
+.match-details-card { display: flex; flex-direction: column; gap: 1.25rem; }
 .match-details-card .card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 1px solid var(--glass-border);
-    padding-bottom: 0.75rem;
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid var(--glass-border); padding-bottom: 0.75rem;
 }
-
-.match-details-card h3 {
-    margin: 0;
-    font-size: 1.2rem;
-    color: #fff;
-}
-
-.selected-date-badge {
-    color: var(--primary-neon);
-    font-weight: bold;
-    font-size: 0.95rem;
-}
-
-.details-wrapper {
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
-}
+.match-details-card h3 { margin: 0; font-size: 1.2rem; color: #fff; }
+.selected-date-badge { color: var(--primary-neon); font-weight: bold; font-size: 0.95rem; }
+.details-wrapper { display: flex; flex-direction: column; gap: 1.25rem; }
 
 .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 3rem 0;
-    color: var(--text-muted);
-    text-align: center;
-    gap: 0.75rem;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 3rem 0; color: var(--text-muted); text-align: center; gap: 0.75rem;
 }
-
-.empty-state i {
-    font-size: 2.5rem;
-    opacity: 0.4;
-}
-
-.empty-state p {
-    margin: 0;
-    font-size: 0.9rem;
-}
+.empty-state i { font-size: 2.5rem; opacity: 0.4; }
+.empty-state p { margin: 0; font-size: 0.9rem; }
 
 /* Premium Match Info UI */
 .match-info-box {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
+    display: flex; flex-direction: column; gap: 1rem;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid var(--glass-border);
-    border-radius: 15px;
-    padding: 1.25rem;
+    border-radius: 15px; padding: 1.25rem;
 }
-
-.match-teams-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-}
-
-.team-block {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.5rem;
-    text-align: center;
-}
-
-.team-block.player-team {
-    color: var(--primary-neon);
-}
-
+.match-teams-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.team-block { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-align: center; }
+.team-block.player-team { color: var(--primary-neon); }
 .team-logo-mock {
-    width: 50px;
-    height: 50px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid var(--glass-border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.4rem;
-    color: #fff;
+    width: 50px; height: 50px; border-radius: 50%;
+    background: rgba(255, 255, 255, 0.05); border: 1px solid var(--glass-border);
+    display: flex; align-items: center; justify-content: center; font-size: 1.4rem; color: #fff;
 }
-
-.team-block.player-team .team-logo-mock {
-    border-color: var(--primary-neon);
-    box-shadow: 0 0 10px var(--primary-neon-glow);
-}
-
-.team-name {
-    font-weight: bold;
-    font-size: 0.95rem;
-}
-
-.match-score-block {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-width: 80px;
-}
-
-.score-display {
-    font-size: 1.8rem;
-    font-weight: 800;
-    letter-spacing: 2px;
-}
-
-.vs-badge {
-    background: rgba(255, 255, 255, 0.08);
-    padding: 0.15rem 0.5rem;
-    border-radius: 10px;
-    font-size: 0.75rem;
-    color: var(--text-muted);
-}
-
+.team-block.player-team .team-logo-mock { border-color: var(--primary-neon); box-shadow: 0 0 10px var(--primary-neon-glow); }
+.team-name { font-weight: bold; font-size: 0.95rem; }
+.match-score-block { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 80px; }
+.score-display { font-size: 1.8rem; font-weight: 800; letter-spacing: 2px; }
+.vs-badge { background: rgba(255, 255, 255, 0.08); padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.75rem; color: var(--text-muted); }
 .match-meta-info {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 0.75rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
-    padding-top: 0.75rem;
-    font-size: 0.85rem;
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 0.75rem; font-size: 0.85rem;
 }
+.meta-item { display: flex; flex-direction: column; gap: 0.15rem; }
+.meta-item .lbl { color: var(--text-muted); }
+.meta-item .val { font-weight: bold; color: #fff; }
 
-.meta-item {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-}
+.sim-actions { margin-top: 1.25rem; }
+.btn-wide { width: 100%; justify-content: center; }
+.btn-success { background: #2ecc71; border-color: #2ecc71; }
+.btn-success:hover { background: #27ae60; border-color: #27ae60; box-shadow: 0 0 12px rgba(46, 204, 113, 0.4); }
+.sim-note { font-size: 0.8rem; color: var(--text-muted); line-height: 1.4; margin-top: 0.5rem; text-align: center; }
 
-.meta-item .lbl {
-    color: var(--text-muted);
-}
+.comp-row { display: flex; justify-content: center; margin-bottom: 0.25rem; }
+.comp-badge { color: #fff; padding: 0.15rem 0.7rem; border-radius: 20px; font-size: 0.78rem; font-weight: bold; }
 
-.meta-item .val {
-    font-weight: bold;
-    color: #fff;
+.day-event-list { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.75rem; }
+.day-event-item {
+    display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem;
+    background: rgba(255, 255, 255, 0.03); border-radius: 8px; padding: 0.4rem 0.6rem;
+    border-right: 3px solid #888;
 }
-
-.sim-actions {
-    margin-top: 1.25rem;
-}
-
-.btn-wide {
-    width: 100%;
-    justify-content: center;
-}
-
-.btn-success {
-    background: #2ecc71;
-    border-color: #2ecc71;
-}
-
-.btn-success:hover {
-    background: #27ae60;
-    border-color: #27ae60;
-    box-shadow: 0 0 12px rgba(46, 204, 113, 0.4);
-}
-
-.sim-note {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    line-height: 1.4;
-    margin-top: 0.5rem;
-    text-align: center;
-}
-
-/* Competition badges: Blue = league, Red = FA Cup, Gold = UCL, ... */
-.comp-row {
-    display: flex;
-    justify-content: center;
-    margin-bottom: 0.25rem;
-}
-
-.comp-badge {
-    color: #fff;
-    padding: 0.15rem 0.7rem;
-    border-radius: 20px;
-    font-size: 0.78rem;
-    font-weight: bold;
-}
-
-.match-count {
-    font-size: 0.7rem;
-    font-weight: bold;
-    color: var(--primary-neon);
-    margin: 0 auto;
-}
+.day-event-item i { font-size: 0.85rem; }
+.day-event-item .dei-title { color: #fff; font-weight: bold; }
+.day-event-item .dei-detail { color: var(--text-muted); font-size: 0.72rem; }
 
 /* Inline simulation sweep HUD */
 .sim-hud {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    background: rgba(233, 69, 96, 0.07);
-    border: 1px solid rgba(233, 69, 96, 0.35);
-    border-radius: 12px;
-    padding: 0.6rem 0.9rem;
+    display: flex; flex-direction: column; gap: 0.5rem;
+    background: rgba(233, 69, 96, 0.07); border: 1px solid rgba(233, 69, 96, 0.35);
+    border-radius: 12px; padding: 0.6rem 0.9rem;
 }
 .sim-hud[hidden] { display: none; }
-.sim-hud-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    font-size: 0.85rem;
-}
+.sim-hud-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; font-size: 0.85rem; }
 .sim-hud-label { font-weight: bold; color: #fff; }
 .sim-hud-label i { color: var(--primary-neon); margin-left: 0.3rem; }
 .sim-hud-date { color: var(--primary-neon); font-weight: bold; }
 .sim-hud-count { color: var(--text-muted); font-size: 0.8rem; }
-.sim-hud-bar {
-    height: 8px;
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 99px;
-    overflow: hidden;
-}
+.sim-hud-bar { height: 8px; background: rgba(255, 255, 255, 0.08); border-radius: 99px; overflow: hidden; }
 .sim-hud-fill {
-    height: 100%;
-    width: 0%;
-    border-radius: 99px;
+    height: 100%; width: 0%; border-radius: 99px;
     background: linear-gradient(90deg, #e94560, #f39c12);
     box-shadow: 0 0 10px var(--primary-neon-glow);
     transition: width 0.12s linear;
@@ -565,47 +581,50 @@
 /* Calendar sweep: outline + light that runs over the days */
 .calendar-card.sim-running .day-cell { pointer-events: none; }
 .calendar-card.sim-running .nav-btn { opacity: 0.4; pointer-events: none; }
-.day-cell.sim-passed {
-    background: rgba(233, 69, 96, 0.10) !important;
-    border-color: rgba(233, 69, 96, 0.35) !important;
-}
+.day-cell.sim-passed { background: rgba(233, 69, 96, 0.10) !important; border-color: rgba(233, 69, 96, 0.35) !important; }
 .day-cell.sim-scan {
     background: rgba(255, 255, 255, 0.14) !important;
     border: 2px solid #fff !important;
     box-shadow: 0 0 0 2px var(--primary-neon), 0 0 18px var(--primary-neon-glow), 0 0 32px rgba(233, 69, 96, 0.35);
     transform: translateY(-2px) scale(1.07);
-    z-index: 3;
-    overflow: hidden;
+    z-index: 3; overflow: hidden;
     animation: simSweepPulse 0.45s ease-in-out infinite alternate;
 }
 .day-cell.sim-scan::before {
-    content: '';
-    position: absolute;
-    inset: 0;
+    content: ''; position: absolute; inset: 0;
     background: linear-gradient(115deg, transparent 20%, rgba(255, 255, 255, 0.38) 50%, transparent 80%);
-    animation: simShine 0.6s linear infinite;
-    pointer-events: none;
+    animation: simShine 0.6s linear infinite; pointer-events: none;
 }
-.day-cell.sim-scan.has-match::after { opacity: 1; }
-.day-cell.sim-target {
-    border-style: dashed !important;
-    animation: simTargetPulse 0.5s ease-in-out infinite alternate;
-}
+.day-cell.sim-target { border-style: dashed !important; animation: simTargetPulse 0.5s ease-in-out infinite alternate; }
 @keyframes simSweepPulse {
     from { box-shadow: 0 0 0 2px var(--primary-neon), 0 0 10px var(--primary-neon-glow); }
     to { box-shadow: 0 0 0 2px var(--primary-neon), 0 0 24px var(--primary-neon-glow), 0 0 40px rgba(233, 69, 96, 0.45); }
 }
-@keyframes simShine {
-    from { transform: translateX(-60%); }
-    to { transform: translateX(60%); }
-}
+@keyframes simShine { from { transform: translateX(-60%); } to { transform: translateX(60%); } }
 @keyframes simTargetPulse {
     from { transform: translateY(-2px) scale(1.07); }
     to { transform: translateY(-2px) scale(1.12); }
 }
+
+/* Simulation warning modal */
+.sim-warning-content { width: 460px; max-width: 94vw; }
+.sim-warn-target { font-size: 0.95rem; color: #ddd; }
+.sim-warn-target strong { color: var(--primary-neon); }
+.sim-warn-sub { margin-top: 0.9rem; font-size: 0.85rem; color: var(--text-muted); }
+.sim-warn-list { list-style: none; margin: 0.5rem 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.sim-warn-list li {
+    display: flex; align-items: center; gap: 0.5rem;
+    background: rgba(255, 255, 255, 0.04); border-radius: 8px; padding: 0.45rem 0.7rem;
+    font-size: 0.85rem; color: #fff;
+}
+.sim-warn-list li i { width: 16px; text-align: center; }
+.sim-warn-list li .sw-count { margin-right: auto; font-weight: bold; }
+.sim-warn-continue { margin-top: 0.75rem; font-size: 0.88rem; color: #fff; }
+.sim-warn-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: flex-end; }
+
 @media (prefers-reduced-motion: reduce) {
-    .day-cell.sim-scan, .day-cell.sim-scan::before, .day-cell.sim-target { animation: none; }
-    .sim-hud-fill { transition: none; }
+    .day-cell.sim-scan, .day-cell.sim-scan::before, .day-cell.sim-target, .day-cell.today { animation: none; }
+    .sim-hud-fill, .ss-bar-fill { transition: none; }
 }
 </style>
 {% endblock %}
@@ -614,8 +633,9 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const matchData = {{ player_matches_json|safe }};
+    const calendarEvents = {{ calendar_events_json|safe }};
     const gameDateStr = "{{ state.current_date }}";
-    
+
     // Elements
     const monthTitleDisplay = document.getElementById('monthTitleDisplay');
     const calendarDaysGrid = document.getElementById('calendarDaysGrid');
@@ -631,9 +651,34 @@ document.addEventListener('DOMContentLoaded', function() {
     const simHudCount = document.getElementById('simHudCount');
     const simHudFill = document.getElementById('simHudFill');
     const simHudLabel = document.getElementById('simHudLabel');
+    const monthView = document.getElementById('monthView');
+    const weekView = document.getElementById('weekView');
+    const agendaView = document.getElementById('agendaView');
+    const weekGrid = document.getElementById('weekGrid');
+    const agendaList = document.getElementById('agendaList');
+    const simModal = document.getElementById('simWarningModal');
+    const simWarnDate = document.getElementById('simWarnDate');
+    const simWarnList = document.getElementById('simWarnList');
 
     // Sweep state: which dates the outline/light has already passed.
     const simState = { running: false, scanned: new Set(), current: null };
+    let currentView = 'month';
+    let pendingSimDate = null;
+
+    // Group the narrative event feed by date for fast lookup.
+    const eventsByDate = {};
+    const allEvents = Array.isArray(calendarEvents) ? calendarEvents.slice() : [];
+    allEvents.sort(function(a, b) { return (a.date || '').localeCompare(b.date || ''); });
+    allEvents.forEach(function(ev) {
+        if (!ev || !ev.date) return;
+        (eventsByDate[ev.date] = eventsByDate[ev.date] || []).push(ev);
+    });
+
+    const CATEGORY_LABEL = {
+        match: 'الدوري', cup: 'الكؤوس', continental: 'قارية',
+        transfer: 'انتقالات', injury: 'إصابات', contract: 'عقود',
+        board: 'الإدارة', training: 'تدريب', milestone: 'محطات'
+    };
 
     function sleep(ms) { return new Promise(function(res) { setTimeout(res, ms); }); }
     function parseIsoDate(s) {
@@ -646,263 +691,352 @@ document.addEventListener('DOMContentLoaded', function() {
         const day = String(d.getUTCDate()).padStart(2, '0');
         return y + '-' + m + '-' + day;
     }
+    function localIso(y, m0, d) {
+        return y + '-' + String(m0 + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+    }
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
 
-    // Parse current date (timezone-independent split)
     const dateParts = gameDateStr.split('-');
     let displayedYear = parseInt(dateParts[0]);
-    let displayedMonth = parseInt(dateParts[1]) - 1; // 0-indexed
+    let displayedMonth = parseInt(dateParts[1]) - 1;
+    let selectedDate = gameDateStr;
 
-    // Months of the year in Arabic
     const ARABIC_MONTHS = [
         "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
         "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
     ];
 
-    function renderCalendar() {
-        // Clear grid
-        calendarDaysGrid.innerHTML = '';
-        
-        // Update header
-        monthTitleDisplay.textContent = ARABIC_MONTHS[displayedMonth] + " " + displayedYear;
+    function eventsFor(dateStr) { return eventsByDate[dateStr] || []; }
 
-        // Get first day of the month and number of days
+    function renderDots(dateStr) {
+        const evs = eventsFor(dateStr);
+        if (!evs.length) return '';
+        const seen = {};
+        const dots = [];
+        evs.forEach(function(ev) {
+            const c = ev.color || '#888';
+            if (seen[c]) { seen[c] += 1; return; }
+            seen[c] = 1;
+            dots.push('<span class="event-dot" style="background:' + c + '" title="' + esc(CATEGORY_LABEL[ev.category] || '') + '"></span>');
+            if (dots.length >= 4) return;
+        });
+        const extra = evs.length - Object.keys(seen).length;
+        let html = '<div class="day-events">' + dots.join('') + '</div>';
+        if (evs.length > 4) html += '<span class="day-more">+' + (evs.length - 4) + '</span>';
+        return html;
+    }
+
+    function renderCalendar() {
+        monthTitleDisplay.textContent = ARABIC_MONTHS[displayedMonth] + " " + displayedYear;
+        calendarDaysGrid.innerHTML = '';
+
         const firstDayIndex = new Date(displayedYear, displayedMonth, 1).getDay();
-        // Convert JS Sunday-first index to Monday-first (0 = Monday, 6 = Sunday)
         const adjustedFirstDayIndex = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
-        
         const totalDays = new Date(displayedYear, displayedMonth + 1, 0).getDate();
-        
-        // Days in previous month
         const prevMonthTotalDays = new Date(displayedYear, displayedMonth, 0).getDate();
 
-        // 1. Render days of previous month (inactive padding)
         for (let i = adjustedFirstDayIndex - 1; i >= 0; i--) {
-            const dayNum = prevMonthTotalDays - i;
             const cell = document.createElement('div');
             cell.className = 'day-cell inactive';
-            cell.innerHTML = `<span class="day-num">${dayNum}</span>`;
+            cell.innerHTML = '<span class="day-num">' + (prevMonthTotalDays - i) + '</span>';
             calendarDaysGrid.appendChild(cell);
         }
 
-        // 2. Render actual days of the current month
         for (let day = 1; day <= totalDays; day++) {
             const cell = document.createElement('div');
             cell.className = 'day-cell';
-            
-            // Format cell date
-            const mStr = String(displayedMonth + 1).padStart(2, '0');
-            const dStr = String(day).padStart(2, '0');
-            const cellDateStr = `${displayedYear}-${mStr}-${dStr}`;
-            
+            const cellDateStr = localIso(displayedYear, displayedMonth, day);
             cell.dataset.date = cellDateStr;
-            
-            // Check if cell is the game date (today)
+
             if (cellDateStr === gameDateStr) {
                 cell.classList.add('today');
             }
-            
-            // Check if there's a match scheduled for the player's team.
-            // Each date holds one fixture (unplayed wins the slot) plus an
-            // optional "more" overflow when a cup midweek shares the date.
-            // The competition badge is colour-coded: Blue = league,
-            // Red = FA Cup, Gold = Champions League, ...
+            if (cellDateStr === selectedDate) {
+                cell.classList.add('selected');
+            }
+
             const match = matchData[cellDateStr];
-            let cellContent = `<span class="day-num">${day}</span>`;
-
-            if (match) {
-                cell.classList.add('has-match');
-                if (match.played) {
-                    cell.classList.add('played');
-                    cellContent += `<div class="match-dot played"></div>`;
-                } else {
-                    const dotColor = match.comp_color || 'var(--primary-neon)';
-                    cellContent += `<div class="match-dot" style="background:${dotColor}"></div>`;
-                }
-                const extraCount = (match.more && match.more.length) || 0;
-                if (extraCount) {
-                    cellContent += `<div class="match-count">+${extraCount}</div>`;
-                }
+            let cellContent = '';
+            if (cellDateStr === gameDateStr) {
+                cellContent += '<span class="today-badge">TODAY</span>';
             }
-            
+            cellContent += '<span class="day-num">' + day + '</span>';
+            if (match) cell.classList.add('has-match');
+            cellContent += renderDots(cellDateStr);
             cell.innerHTML = cellContent;
-            
-            // Re-apply sweep progress so the outline trail survives
-            // month switches while the simulation runs.
-            if (simState.scanned.has(cellDateStr)) {
-                cell.classList.add('sim-passed');
-            }
-            if (simState.current === cellDateStr) {
-                cell.classList.add('sim-scan');
-            }
 
-            // Add click listener
+            if (simState.scanned.has(cellDateStr)) cell.classList.add('sim-passed');
+            if (simState.current === cellDateStr) cell.classList.add('sim-scan');
+
             cell.addEventListener('click', function() {
                 if (simState.running) return;
+                selectedDate = cellDateStr;
                 document.querySelectorAll('.day-cell').forEach(c => c.classList.remove('selected'));
                 cell.classList.add('selected');
                 showDayDetails(cellDateStr);
             });
-            
             calendarDaysGrid.appendChild(cell);
         }
 
-        // 3. Render padding days of the next month
         const totalRenderedCells = adjustedFirstDayIndex + totalDays;
         const nextMonthPadding = totalRenderedCells % 7 === 0 ? 0 : 7 - (totalRenderedCells % 7);
         for (let day = 1; day <= nextMonthPadding; day++) {
             const cell = document.createElement('div');
             cell.className = 'day-cell inactive';
-            cell.innerHTML = `<span class="day-num">${day}</span>`;
+            cell.innerHTML = '<span class="day-num">' + day + '</span>';
             calendarDaysGrid.appendChild(cell);
         }
+    }
+
+    function renderWeek() {
+        if (!weekGrid) return;
+        weekGrid.innerHTML = '';
+        const base = parseIsoDate(selectedDate || gameDateStr);
+        const baseIdx = (base.getUTCDay() + 6) % 7; // Monday-first
+        const monday = new Date(base.getTime());
+        monday.setUTCDate(monday.getUTCDate() - baseIdx);
+        const wdNames = ['الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الأحد'];
+
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(monday.getTime());
+            d.setUTCDate(d.getUTCDate() + i);
+            const iso = toIsoDate(d);
+            const col = document.createElement('div');
+            col.className = 'week-col' + (iso === gameDateStr ? ' is-today' : '');
+            let head = '<div class="week-col-head"><div class="wd">' + wdNames[i] + '</div><div class="dd">' + d.getUTCDate() + '</div></div>';
+            const evs = eventsFor(iso).filter(function(e) { return e.category !== 'training'; });
+            let body = '';
+            evs.forEach(function(ev) {
+                body += '<div class="week-event" style="border-right-color:' + (ev.color || '#888') + '" data-date="' + iso + '">' +
+                    '<span class="we-title"><i class="fas ' + (ev.icon || 'fa-circle') + '" style="color:' + (ev.color || '#888') + '"></i> ' + esc(ev.title) + '</span>' +
+                    '<span class="we-detail">' + esc(ev.detail || '') + '</span></div>';
+            });
+            if (!evs.length) body = '<div class="day-more" style="text-align:center;padding-top:1rem;">لا أحداث</div>';
+            col.innerHTML = head + body;
+            col.addEventListener('click', function() {
+                selectedDate = iso;
+                showDayDetails(iso);
+                renderWeek();
+            });
+            weekGrid.appendChild(col);
+        }
+        monthTitleDisplay.textContent = 'أسبوع ' + ARABIC_MONTHS[monday.getUTCMonth()] + ' ' + monday.getUTCDate();
+    }
+
+    function renderAgenda() {
+        if (!agendaList) return;
+        agendaList.innerHTML = '';
+        const from = gameDateStr;
+        const groups = {};
+        const order = [];
+        allEvents.forEach(function(ev) {
+            if (!ev.date || ev.date < from) return;
+            if (!groups[ev.date]) { groups[ev.date] = []; order.push(ev.date); }
+            groups[ev.date].push(ev);
+        });
+        if (!order.length) {
+            agendaList.innerHTML = '<div class="agenda-empty"><i class="far fa-calendar-check"></i><p>لا أحداث قادمة</p></div>';
+            monthTitleDisplay.textContent = 'الأحداث القادمة';
+            return;
+        }
+        order.slice(0, 60).forEach(function(dateStr) {
+            const d = parseIsoDate(dateStr);
+            const group = document.createElement('div');
+            group.className = 'agenda-group' + (dateStr === gameDateStr ? ' is-today' : '');
+            let items = '';
+            groups[dateStr].forEach(function(ev) {
+                items += '<div class="agenda-item" style="border-right-color:' + (ev.color || '#888') + '" data-date="' + dateStr + '">' +
+                    '<i class="fas ' + (ev.icon || 'fa-circle') + '" style="color:' + (ev.color || '#888') + '"></i>' +
+                    '<div class="ai-body"><span class="ai-title">' + esc(ev.title) + '</span><span class="ai-detail">' + esc(ev.detail || '') + '</span></div></div>';
+            });
+            group.innerHTML = '<div class="agenda-date"><div class="ad-day">' + d.getUTCDate() + '</div><div class="ad-mon">' + ARABIC_MONTHS[d.getUTCMonth()] + '</div></div><div class="agenda-items">' + items + '</div>';
+            agendaList.appendChild(group);
+        });
+        agendaList.querySelectorAll('.agenda-item').forEach(function(el) {
+            el.addEventListener('click', function() {
+                selectedDate = el.dataset.date;
+                showDayDetails(el.dataset.date);
+            });
+        });
+        monthTitleDisplay.textContent = 'الأحداث القادمة';
+    }
+
+    function setView(view) {
+        currentView = view;
+        monthView.hidden = view !== 'month';
+        weekView.hidden = view !== 'week';
+        agendaView.hidden = view !== 'agenda';
+        document.querySelectorAll('.view-tab').forEach(function(t) {
+            const on = t.dataset.view === view;
+            t.classList.toggle('active', on);
+            t.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        if (view === 'month') renderCalendar();
+        else if (view === 'week') renderWeek();
+        else renderAgenda();
+    }
+
+    document.querySelectorAll('.view-tab').forEach(function(tab) {
+        tab.addEventListener('click', function() { if (!simState.running) setView(tab.dataset.view); });
+    });
+
+    function renderEventItems(dateStr) {
+        const evs = eventsFor(dateStr);
+        if (!evs.length) return '';
+        let html = '<div class="day-event-list">';
+        evs.forEach(function(ev) {
+            html += '<div class="day-event-item" style="border-right-color:' + (ev.color || '#888') + '">' +
+                '<i class="fas ' + (ev.icon || 'fa-circle') + '" style="color:' + (ev.color || '#888') + '"></i>' +
+                '<div><div class="dei-title">' + esc(ev.title) + '</div><div class="dei-detail">' + esc(ev.detail || '') + '</div></div></div>';
+        });
+        return html + '</div>';
     }
 
     function showDayDetails(dateStr) {
         selectedDateDisplay.textContent = dateStr;
         const match = matchData[dateStr];
+        const eventHtml = renderEventItems(dateStr);
 
         if (!match) {
-            // Is it a future date?
             const isFuture = dateStr > gameDateStr;
-
             let actionsHtml = '';
             if (isFuture) {
-                actionsHtml = `
-                    <div class="sim-actions">
-                        <button class="btn btn-primary btn-wide" onclick="simulateToDate('${dateStr}')">
-                            <i class="fas fa-fast-forward"></i> محاكاة حتى هذا اليوم
-                        </button>
-                        <p class="sim-note">سيقوم النظام بمحاكاة الأيام تلقائياً للوصول لهذا التاريخ.</p>
-                    </div>
-                `;
+                actionsHtml = '<div class="sim-actions">' +
+                    '<button class="btn btn-primary btn-wide" onclick="requestSimulation(\'' + dateStr + '\')">' +
+                    '<i class="fas fa-fast-forward"></i> محاكاة حتى هذا اليوم</button>' +
+                    '<p class="sim-note">سيتم عرض ملخص الأحداث قبل التقدم.</p></div>';
             }
-
-            detailsContent.innerHTML = `
-                <div class="empty-state">
-                    <i class="far fa-calendar"></i>
-                    <p>لا توجد مباريات مقررة لفريقك في هذا اليوم.</p>
-                    ${actionsHtml}
-                </div>
-            `;
+            detailsContent.innerHTML = '<div class="empty-state">' +
+                '<i class="far fa-calendar"></i>' +
+                '<p>لا توجد مباريات مقررة لفريقك في هذا اليوم.</p>' + actionsHtml + '</div>' + eventHtml;
             return;
         }
 
-        // The day's fixture with its colour-coded competition badge,
-        // plus any same-date overflow (cup midweek sharing the date).
         const primary = match;
-        let blocksHtml = '';
-        {
-            const isFuture = !primary.played;
-
-            let scoreDisplay = '<span class="vs-badge">VS</span>';
-            if (primary.played) {
-                scoreDisplay = `
-                    <div class="score-display">${primary.home_score} - ${primary.away_score}</div>
-                    <span class="vs-badge success">انتهت</span>
-                `;
-            }
-
-            let actionBtnHtml = '';
-            if (isFuture) {
-                actionBtnHtml = `
-                    <div class="sim-actions">
-                        <button class="btn btn-primary btn-wide" onclick="simulateToDate('${dateStr}')">
-                            <i class="fas fa-play"></i> محاكاة ولعب هذه المباراة
-                        </button>
-                    </div>
-                `;
-            } else {
-                actionBtnHtml = `
-                    <div class="sim-actions">
-                        <a href="/match_report/${primary.id}" class="btn btn-success btn-wide">
-                            <i class="fas fa-file-alt"></i> تقرير المباراة بالتفصيل
-                        </a>
-                    </div>
-                `;
-            }
-
-            const compBadge = `<span class="comp-badge" style="background:${primary.comp_color || '#3498db'}">${primary.competition || 'الدوري'}${primary.comp_round ? ' — ' + primary.comp_round : ''}</span>`;
-
-            blocksHtml += `
-                <div class="match-info-box">
-                    <div class="comp-row">${compBadge}</div>
-                    <div class="match-teams-row">
-                        <div class="team-block ${primary.home_is_player ? 'player-team' : ''}">
-                            <div class="team-logo-mock">${primary.home[0]}</div>
-                            <span class="team-name">${primary.home}</span>
-                        </div>
-                        <div class="match-score-block">
-                            ${scoreDisplay}
-                        </div>
-                        <div class="team-block ${primary.away_is_player ? 'player-team' : ''}">
-                            <div class="team-logo-mock">${primary.away[0]}</div>
-                            <span class="team-name">${primary.away}</span>
-                        </div>
-                    </div>
-
-                    <div class="match-meta-info">
-                        <div class="meta-item">
-                            <span class="lbl">الملعب:</span>
-                            <span class="val">${primary.home_is_player ? 'أرضك' : 'خارج أرضك'}</span>
-                        </div>
-                        <div class="meta-item">
-                            <span class="lbl">الجولة:</span>
-                            <span class="val">${primary.week === 0 ? 'كأس' : 'الأسبوع ' + primary.week}</span>
-                        </div>
-                    </div>
-                </div>
-                ${actionBtnHtml}
-            `;
+        const isFuture = !primary.played;
+        let scoreDisplay = '<span class="vs-badge">VS</span>';
+        if (primary.played) {
+            scoreDisplay = '<div class="score-display">' + primary.home_score + ' - ' + primary.away_score + '</div><span class="vs-badge success">انتهت</span>';
         }
-        for (const extra of (match.more || [])) {
-            blocksHtml += `
-                <div class="match-info-box">
-                    <div class="comp-row"><span class="comp-badge" style="background:${extra.comp_color || '#3498db'}">${extra.competition || ''}</span></div>
-                    <p class="sim-note">مباراة إضافية بنفس اليوم — <a href="/match_report/${extra.id}">التقرير</a></p>
-                </div>
-            `;
+        let actionBtnHtml = '';
+        if (isFuture) {
+            actionBtnHtml = '<div class="sim-actions">' +
+                '<button class="btn btn-primary btn-wide" onclick="requestSimulation(\'' + dateStr + '\')">' +
+                '<i class="fas fa-play"></i> محاكاة ولعب هذه المباراة</button></div>';
+        } else {
+            actionBtnHtml = '<div class="sim-actions">' +
+                '<a href="/match_report/' + primary.id + '" class="btn btn-success btn-wide">' +
+                '<i class="fas fa-file-alt"></i> تقرير المباراة بالتفصيل</a></div>';
         }
+        const compBadge = '<span class="comp-badge" style="background:' + (primary.comp_color || '#3498db') + '">' + (primary.competition || 'الدوري') + (primary.comp_round ? ' — ' + primary.comp_round : '') + '</span>';
 
-        detailsContent.innerHTML = `
-            <div class="details-wrapper">
-                ${blocksHtml}
-            </div>
-        `;
+        let blocksHtml = '<div class="match-info-box">' +
+            '<div class="comp-row">' + compBadge + '</div>' +
+            '<div class="match-teams-row">' +
+            '<div class="team-block ' + (primary.home_is_player ? 'player-team' : '') + '">' +
+            '<div class="team-logo-mock">' + (primary.home || '?')[0] + '</div><span class="team-name">' + primary.home + '</span></div>' +
+            '<div class="match-score-block">' + scoreDisplay + '</div>' +
+            '<div class="team-block ' + (primary.away_is_player ? 'player-team' : '') + '">' +
+            '<div class="team-logo-mock">' + (primary.away || '?')[0] + '</div><span class="team-name">' + primary.away + '</span></div>' +
+            '</div>' +
+            '<div class="match-meta-info">' +
+            '<div class="meta-item"><span class="lbl">الملعب:</span><span class="val">' + (primary.home_is_player ? 'أرضك' : 'خارج أرضك') + '</span></div>' +
+            '<div class="meta-item"><span class="lbl">الجولة:</span><span class="val">' + (primary.week === 0 ? 'كأس' : 'الأسبوع ' + primary.week) + '</span></div>' +
+            '</div></div>' + actionBtnHtml;
+
+        (match.more || []).forEach(function(extra) {
+            blocksHtml += '<div class="match-info-box"><div class="comp-row"><span class="comp-badge" style="background:' + (extra.comp_color || '#3498db') + '">' + (extra.competition || '') + '</span></div>' +
+                '<p class="sim-note">مباراة إضافية بنفس اليوم — <a href="/match_report/' + extra.id + '">التقرير</a></p></div>';
+        });
+
+        detailsContent.innerHTML = '<div class="details-wrapper">' + blocksHtml + '</div>' + eventHtml;
     }
 
-    // Navigation listeners
+    // --- view navigation ---
     prevMonthBtn.addEventListener('click', function() {
         if (simState.running) return;
-        displayedMonth--;
-        if (displayedMonth < 0) {
-            displayedMonth = 11;
-            displayedYear--;
+        if (currentView === 'agenda') return;
+        if (currentView === 'week') {
+            const d = parseIsoDate(selectedDate || gameDateStr); d.setUTCDate(d.getUTCDate() - 7); selectedDate = toIsoDate(d); renderWeek();
+        } else {
+            displayedMonth--;
+            if (displayedMonth < 0) { displayedMonth = 11; displayedYear--; }
+            renderCalendar();
         }
-        renderCalendar();
     });
-
     nextMonthBtn.addEventListener('click', function() {
         if (simState.running) return;
-        displayedMonth++;
-        if (displayedMonth > 11) {
-            displayedMonth = 0;
-            displayedYear++;
+        if (currentView === 'agenda') return;
+        if (currentView === 'week') {
+            const d = parseIsoDate(selectedDate || gameDateStr); d.setUTCDate(d.getUTCDate() + 7); selectedDate = toIsoDate(d); renderWeek();
+        } else {
+            displayedMonth++;
+            if (displayedMonth > 11) { displayedMonth = 0; displayedYear++; }
+            renderCalendar();
         }
-        renderCalendar();
+    });
+
+    // --- simulation warning modal ---
+    function summariseSkip(targetDateStr) {
+        const categories = {};
+        const from = gameDateStr;
+        (Array.isArray(calendarEvents) ? calendarEvents : []).forEach(function(ev) {
+            if (!ev.date || ev.date <= from || ev.date > targetDateStr) return;
+            const c = ev.category || 'milestone';
+            categories[c] = (categories[c] || 0) + 1;
+        });
+        return categories;
+    }
+
+    window.requestSimulation = function(dateStr) {
+        if (simState.running) return;
+        if (!dateStr || dateStr <= gameDateStr) { targetDateInput.value = dateStr || ''; simulateForm.submit(); return; }
+        pendingSimDate = dateStr;
+        simWarnDate.textContent = dateStr;
+        const cats = summariseSkip(dateStr);
+        const order = ['match', 'cup', 'continental', 'transfer', 'injury', 'contract', 'board', 'milestone', 'training'];
+        let items = '';
+        order.forEach(function(c) {
+            if (!cats[c]) return;
+            items += '<li><i class="fas ' + ({match:'fa-futbol',cup:'fa-trophy',continental:'fa-globe-europe',transfer:'fa-exchange-alt',injury:'fa-briefcase-medical',contract:'fa-file-signature',board:'fa-clipboard-check',milestone:'fa-star',training:'fa-dumbbell'}[c] || 'fa-circle') + '"></i>' +
+                '<span>' + (CATEGORY_LABEL[c] || c) + '</span><span class="sw-count">' + cats[c] + '</span></li>';
+        });
+        if (!items) items = '<li><i class="fas fa-circle"></i><span>لا أحداث بارزة</span></li>';
+        simWarnList.innerHTML = items;
+        simModal.classList.add('active');
+        simModal.setAttribute('aria-hidden', 'false');
+    };
+
+    function closeSimModal() {
+        simModal.classList.remove('active');
+        simModal.setAttribute('aria-hidden', 'true');
+    }
+    document.getElementById('simWarnClose').addEventListener('click', closeSimModal);
+    document.getElementById('simWarnCancel').addEventListener('click', closeSimModal);
+    simModal.addEventListener('click', function(e) { if (e.target === simModal) closeSimModal(); });
+    document.getElementById('simWarnReview').addEventListener('click', function() {
+        closeSimModal();
+        if (pendingSimDate) { selectedDate = pendingSimDate; }
+        setView('agenda');
+    });
+    document.getElementById('simWarnContinue').addEventListener('click', function() {
+        const d = pendingSimDate;
+        closeSimModal();
+        if (d) window.simulateToDate(d);
     });
 
     function paintSweepCell(dateStr) {
         document.querySelectorAll('.day-cell.sim-scan').forEach(function(el) {
-            el.classList.remove('sim-scan');
-            el.classList.add('sim-passed');
+            el.classList.remove('sim-scan'); el.classList.add('sim-passed');
         });
         const cell = calendarDaysGrid.querySelector('.day-cell[data-date="' + dateStr + '"]');
         if (cell) {
-            cell.classList.remove('sim-passed');
-            cell.classList.add('sim-scan');
-            if (cell.scrollIntoView) {
-                cell.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-            }
+            cell.classList.remove('sim-passed'); cell.classList.add('sim-scan');
+            if (cell.scrollIntoView) cell.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
     }
 
@@ -910,17 +1044,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const cur = path[idx];
         simState.current = cur;
         simState.scanned.add(cur);
-
         const parts = cur.split('-');
         const y = parseInt(parts[0], 10);
         const m = parseInt(parts[1], 10) - 1;
         if (y !== displayedYear || m !== displayedMonth) {
-            displayedYear = y;
-            displayedMonth = m;
-            renderCalendar();
+            displayedYear = y; displayedMonth = m;
+            if (currentView === 'month') renderCalendar();
         }
         paintSweepCell(cur);
-
         const pct = Math.round(((idx + 1) / path.length) * 100);
         if (simHudFill) simHudFill.style.width = pct + '%';
         if (simHudDate) simHudDate.textContent = cur;
@@ -937,25 +1068,16 @@ document.addEventListener('DOMContentLoaded', function() {
             if (simHudLabel) simHudLabel.textContent = errorMsg;
             if (simHudCount) simHudCount.textContent = '';
             setTimeout(function() { if (simHud) simHud.hidden = true; renderCalendar(); }, 2500);
-        } else if (simHud) {
-            simHud.hidden = true;
-        }
-        renderCalendar();
+        } else if (simHud) { simHud.hidden = true; }
+        if (currentView === 'month') renderCalendar();
     }
 
     // Server-synced calendar sweep: the POST runs on the server immediately
-    // via fetch while the outline/light glides day-by-day. The sweep is
-    // paced asymptotically so it only lands on the final day when the
-    // server actually finishes (slow sweep, synced arrival).
+    // via fetch while the outline/light glides day-by-day.
     window.simulateToDate = async function(dateStr) {
-        if (simState.running) return; // double-click guard
-        if (!dateStr || dateStr <= gameDateStr) {
-            targetDateInput.value = dateStr || '';
-            simulateForm.submit();
-            return;
-        }
+        if (simState.running) return;
+        if (!dateStr || dateStr <= gameDateStr) { targetDateInput.value = dateStr || ''; simulateForm.submit(); return; }
 
-        // Build the day-by-day path (exclusive of today, inclusive of target).
         const start = parseIsoDate(gameDateStr);
         const end = parseIsoDate(dateStr);
         const path = [];
@@ -965,11 +1087,7 @@ document.addEventListener('DOMContentLoaded', function() {
             path.push(toIsoDate(cursor));
             cursor.setUTCDate(cursor.getUTCDate() + 1);
         }
-        if (!path.length) {
-            targetDateInput.value = dateStr;
-            simulateForm.submit();
-            return;
-        }
+        if (!path.length) { targetDateInput.value = dateStr; simulateForm.submit(); return; }
 
         simState.running = true;
         simState.scanned = new Set();
@@ -979,8 +1097,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (simHudLabel) simHudLabel.innerHTML = '<i class="fas fa-fast-forward"></i> جاري المحاكاة على الخادم...';
         if (simHudFill) simHudFill.style.width = '0%';
 
-        // Fire the real simulation at once; the sweep below runs in parallel
-        // and is paced to arrive exactly when this resolves.
         targetDateInput.value = dateStr;
         const formData = new FormData(simulateForm);
         formData.set('target_date', dateStr);
@@ -988,36 +1104,18 @@ document.addEventListener('DOMContentLoaded', function() {
         let serverDone = false;
         let serverError = null;
         const serverPromise = fetch(simulateForm.action, {
-            method: 'POST',
-            body: formData,
-            credentials: 'same-origin',
+            method: 'POST', body: formData, credentials: 'same-origin',
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
         }).then(function(r) {
             return r.json().then(function(data) {
-                if (!r.ok || !data || data.ok === false) {
-                    throw new Error((data && data.message) || ('HTTP ' + r.status));
-                }
+                if (!r.ok || !data || data.ok === false) throw new Error((data && data.message) || ('HTTP ' + r.status));
                 return data;
             });
-        }).then(function(data) {
-            serverResult = data;
-            serverDone = true;
-        }).catch(function(err) {
-            // Network/CSRF failure: fall back to a native submit so the
-            // classic flash + redirect path still completes the sim.
-            if (!err || !err.message) {
-                targetDateInput.value = dateStr;
-                simulateForm.submit();
-                return new Promise(function() {});
-            }
-            serverError = err;
-            serverDone = true;
+        }).then(function(data) { serverResult = data; serverDone = true; }).catch(function(err) {
+            if (!err || !err.message) { targetDateInput.value = dateStr; simulateForm.submit(); return new Promise(function() {}); }
+            serverError = err; serverDone = true;
         });
 
-        // FIX 9: named time-based throttle — one sweep-step per N ms, so day
-        // advancement speed is controllable instead of flat-out.
-        // FIX 10: the wait loop below is now bounded (max-wait guard), so it
-        // can never spin forever stuck on one day if the server hangs.
         const SIM_SWEEP_STEP_MS = 70;
         const SIM_SWEEP_POLL_MS = 60;
         const SIM_SWEEP_FINISH_MIN_MS = 60;
@@ -1029,20 +1127,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
         let shown = -1;
         let timedOut = false;
-        const now = function() {
-            return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-        };
+        const now = function() { return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(); };
         while (!serverDone && !timedOut) {
-            if (now() - t0 > SIM_SWEEP_MAX_WAIT_MS) {
-                timedOut = true;
-                break;
-            }
+            if (now() - t0 > SIM_SWEEP_MAX_WAIT_MS) { timedOut = true; break; }
             const elapsed = now() - t0;
             const p = 1 - Math.exp(-elapsed / tau);
             const idx = Math.min(holdIdx, Math.floor(p * path.length));
             while (shown < idx) {
-                shown += 1;
-                showSweepDay(shown, path);
+                shown += 1; showSweepDay(shown, path);
                 await sleep(SIM_SWEEP_STEP_MS);
                 if (serverDone || timedOut) break;
             }
@@ -1050,27 +1142,13 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         await serverPromise;
 
-        if (timedOut) {
-            // Graceful stop: no resubmit (the server may still finish on its
-            // own), no state reset — just park the UI with a message.
-            resetSweep('استغرقت المحاكاة وقتاً طويلاً — حدّث الصفحة لرؤية التقدم');
-            return;
-        }
+        if (timedOut) { resetSweep('استغرقت المحاكاة وقتاً طويلاً — حدّث الصفحة لرؤية التقدم'); return; }
+        if (serverError) { resetSweep(serverError.message || 'تعذرت المحاكاة'); return; }
 
-        if (serverError) {
-            resetSweep(serverError.message || 'تعذرت المحاكاة');
-            return;
-        }
-
-        // Server finished: glide the last day(s) into the target, then go.
         if (simHudLabel) simHudLabel.innerHTML = '<i class="fas fa-check"></i> اكتملت المحاكاة';
         const remaining = (path.length - 1) - shown;
         const finishStep = remaining <= 0 ? 0 : Math.max(SIM_SWEEP_FINISH_MIN_MS, Math.min(SIM_SWEEP_FINISH_MAX_MS, Math.round(900 / remaining)));
-        while (shown < path.length - 1) {
-            shown += 1;
-            showSweepDay(shown, path);
-            await sleep(finishStep);
-        }
+        while (shown < path.length - 1) { shown += 1; showSweepDay(shown, path); await sleep(finishStep); }
 
         const targetCell = calendarDaysGrid.querySelector('.day-cell[data-date="' + dateStr + '"]');
         if (targetCell) targetCell.classList.add('sim-target');
@@ -1082,8 +1160,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Initial render
     renderCalendar();
-    
-    // Load today's details by default
     showDayDetails(gameDateStr);
 });
 </script>

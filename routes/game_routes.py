@@ -13,8 +13,10 @@ from models import (
     GameState,
     League,
     Match,
+    Message,
     Player,
     Team,
+    TransferOffer,
 )
 from simulation import (
     get_current_match,
@@ -43,6 +45,19 @@ from live_match import (
     run_auto_match,
     start_live,
     substitute_player,
+)
+from narrative import (
+    EVENT_CATEGORY_META,
+    PRIORITY_CRITICAL,
+    PRIORITY_META,
+    build_calendar_events,
+    compute_form,
+    critical_notifications,
+    notification_priority,
+    pre_match_storylines,
+    priority_meta,
+    season_overview,
+    season_storylines,
 )
 
 
@@ -299,6 +314,21 @@ def dashboard():
     except Exception:
         pass
 
+    # --- Narrative layer (fix.txt): storylines + focus alerts ---
+    try:
+        form_recent = list(form_guide[::-1])  # most-recent-first for streaks
+        storylines = season_storylines(
+            state, player_team, team_rank=team_rank,
+            league_size=len(league_table), squad=players, form=form_recent,
+        )
+    except Exception:
+        storylines = []
+    top_story = storylines[0] if storylines else None
+    try:
+        alerts = critical_notifications(state, player_team)
+    except Exception:
+        alerts = []
+
     return render_template(
         "dashboard.html",
         state=state,
@@ -319,6 +349,10 @@ def dashboard():
         pending_actions=pending_actions,
         board_objectives=board_objectives,
         cup_statuses=cup_statuses,
+        storylines=storylines,
+        top_story=top_story,
+        critical_alerts=alerts,
+        priority_meta=priority_meta,
     )
 
 
@@ -432,11 +466,63 @@ def calendar():
             existing.setdefault("more", []).append(extra)
             existing["more"].extend(entry.get("more", []))
 
+    # --- Calendar redesigned as a Season Timeline (fix.txt) ---
+    # Full narrative event feed (matches + transfers + injuries + contracts
+    # + board + training + milestones) plus the season-overview snapshot and
+    # the top storyline. All best-effort: a narrative failure leaves the
+    # calendar fully functional with just the fixtures.
+    league_id = player_team.league_id
+    team_rank = get_team_rank(league_id, player_team)
+    try:
+        played_matches = (
+            Match.query.filter(
+                (Match.home_team_id == player_team.id)
+                | (Match.away_team_id == player_team.id),
+                Match.played.is_(True),
+            )
+            .order_by(Match.week.desc())
+            .limit(5)
+            .all()
+        )
+        form = compute_form(played_matches, player_team.id, 5)
+    except Exception:
+        form = []
+
+    try:
+        calendar_events = build_calendar_events(
+            state, player_team, player_matches, competition_for=fixture_competition
+        )
+    except Exception:
+        calendar_events = []
+
+    try:
+        overview = season_overview(
+            state, player_team, team_rank, form, calendar_events
+        )
+    except Exception:
+        overview = {}
+
+    try:
+        squad = Player.query.filter_by(team_id=player_team.id).all()
+        storylines = season_storylines(
+            state, player_team, team_rank=team_rank,
+            league_size=len(get_league_table(league_id)), squad=squad, form=form,
+        )
+    except Exception:
+        storylines = []
+    top_story = storylines[0] if storylines else None
+
     return render_template(
         "calendar.html",
         state=state,
         player_team=player_team,
         player_matches_json=json.dumps(player_matches_json),
+        calendar_events_json=json.dumps(calendar_events),
+        event_categories=EVENT_CATEGORY_META,
+        season_overview=overview,
+        storylines=storylines,
+        top_story=top_story,
+        team_rank=team_rank,
         current_date=state.current_date,
     )
 
@@ -449,6 +535,7 @@ def match_view():
     state = safe_state()
     match = get_current_match(state)
     scouting = None
+    player_team = safe_player_team()
 
     if match:
         opp = (
@@ -478,7 +565,18 @@ def match_view():
                 ),
             }
 
-    return render_template("match.html", match=match, state=state, scouting=scouting)
+    try:
+        match_storylines = pre_match_storylines(match, state, player_team) if match else []
+    except Exception:
+        match_storylines = []
+
+    return render_template(
+        "match.html",
+        match=match,
+        state=state,
+        scouting=scouting,
+        match_storylines=match_storylines,
+    )
 
 
 @bp.route("/advance_day", methods=["GET", "POST"])

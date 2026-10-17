@@ -9,6 +9,12 @@
     <div class="card" style="margin-bottom:1rem;">
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.6rem;">
             <input type="text" id="inboxSearch" class="filter-input" placeholder="بحث في الرسائل..." style="flex:1;min-width:160px;">
+            <select id="inboxPriority" class="filter-input" style="max-width:150px;">
+                <option value="">كل الأولويات</option>
+                <option value="critical">حرِج</option>
+                <option value="important">مهم</option>
+                <option value="optional">اختياري</option>
+            </select>
             <select id="inboxRead" class="filter-input" style="max-width:150px;">
                 <option value="">الكل (مقروء/غير مقروء)</option>
                 <option value="unread">غير المقروء</option>
@@ -35,10 +41,12 @@
         <div class="messages-list-pane" id="messageListPane">
             {% if messages %}
                 {% for msg in messages %}
-                <div class="message-list-item {% if not msg.read %}unread{% endif %} {% if msg.urgent %}urgent{% endif %}" data-id="{{ msg.id }}" data-type="{{ msg.type }}" data-title="{{ msg.title }}" data-body="{{ msg.content[:120] }}">
+                {% set pm = priority_meta(priorities.get(msg.id, 'optional')) %}
+                {% set prio = priorities.get(msg.id, 'optional') %}
+                <div class="message-list-item {% if not msg.read %}unread{% endif %} {% if msg.urgent %}urgent{% endif %}" data-id="{{ msg.id }}" data-type="{{ msg.type }}" data-priority="{{ prio }}" data-title="{{ msg.title }}" data-body="{{ msg.content[:120] }}">
                     <div class="ml-title"><span class="msg-star" data-star="{{ msg.id }}" title="تثبيت">★</span>{{ msg.title }}</div>
                     <div class="ml-preview">{{ msg.content[:60] }}{% if msg.content|length > 60 %}...{% endif %}</div>
-                    <div class="ml-day">اليوم {{ msg.created_day }}{% if msg.urgent %} • <span style="color:#e94560;">عاجل</span>{% endif %} • {{ msg.type }}</div>
+                    <div class="ml-day"><span class="prio-badge prio-{{ prio }}" style="background:{{ pm.color }};"><i class="fas {{ pm.icon }}"></i> {{ pm.label }}</span> اليوم {{ msg.created_day }}{% if msg.urgent %} • <span style="color:#e94560;">عاجل</span>{% endif %} • {{ msg.type }}</div>
                 </div>
                 {% endfor %}
             {% else %}
@@ -49,8 +57,9 @@
         <!-- Reading Pane -->
         <div class="message-read-pane" id="messageReadPane">
             {% if first_msg %}
+            {% set fpm = priority_meta(priorities.get(first_msg.id, 'optional')) %}
             <div class="msg-title">{{ first_msg.title }}</div>
-            <div class="msg-meta">اليوم {{ first_msg.created_day }}{% if first_msg.urgent %} • <span style="color:#e94560;">عاجل</span>{% endif %} • {{ first_msg.type }}</div>
+            <div class="msg-meta"><span class="prio-badge" style="background:{{ fpm.color }};"><i class="fas {{ fpm.icon }}"></i> {{ fpm.label }}</span> اليوم {{ first_msg.created_day }}{% if first_msg.urgent %} • <span style="color:#e94560;">عاجل</span>{% endif %} • {{ first_msg.type }}</div>
             <div class="msg-body">{{ first_msg.content }}</div>
             {% else %}
             <div class="empty-state">اختر رسالة لقراءتها</div>
@@ -112,12 +121,14 @@ document.addEventListener('DOMContentLoaded', function() {
     function applyInboxFilters() {
         const q = ((document.getElementById('inboxSearch') || {}).value || '').trim();
         const mode = (document.getElementById('inboxRead') || {}).value || '';
+        const prio = (document.getElementById('inboxPriority') || {}).value || '';
         document.querySelectorAll('.message-list-item').forEach(function(item) {
             const type = (item.dataset.type || '').toLowerCase();
             const hay = ((item.dataset.title || '') + ' ' + (item.dataset.body || '')).toLowerCase();
             let show = true;
             if (activeCat && type.indexOf(activeCat) === -1 && hay.indexOf(activeCat) === -1) show = false;
             if (q && hay.indexOf(q.toLowerCase()) === -1) show = false;
+            if (prio && (item.dataset.priority || 'optional') !== prio) show = false;
             if (mode === 'unread' && !item.classList.contains('unread')) show = false;
             if (mode === 'read' && item.classList.contains('unread')) show = false;
             if (mode === 'urgent' && !item.classList.contains('urgent')) show = false;
@@ -144,6 +155,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (si) si.addEventListener('input', applyInboxFilters);
     const ri = document.getElementById('inboxRead');
     if (ri) ri.addEventListener('change', applyInboxFilters);
+    const pi = document.getElementById('inboxPriority');
+    if (pi) pi.addEventListener('change', applyInboxFilters);
     document.querySelectorAll('.msg-star').forEach(function(s) {
         s.addEventListener('click', function(e) {
             e.stopPropagation();

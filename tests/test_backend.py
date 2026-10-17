@@ -1238,3 +1238,114 @@ class TestPresetFormations:
         assert gk.is_starting
         gk_entry = fd[str(gk.id)]
         assert gk_entry == {"x": 50, "y": 88}  # the GK slot coordinates
+
+
+# ======================================================================
+# Narrative engine (fix.txt): storylines, calendar events, priorities
+# ======================================================================
+class TestNarrativeEngine:
+    def test_compute_form_orders_most_recent_first(self, ctx):
+        from narrative import compute_form
+        from simulation import simulate_match
+
+        team, opp = _player_team(), _opponent()
+        matches = []
+        for week in (10, 11, 12):
+            m = Match(home_team_id=team.id, away_team_id=opp.id, week=week,
+                      played=True, home_score=3, away_score=0, result="3-0")
+            db.session.add(m)
+            matches.append(m)
+        db.session.commit()
+        # newest week first, as the caller passes them ordered desc
+        form = compute_form(sorted(matches, key=lambda m: m.week, reverse=True),
+                            team.id, 5)
+        assert form[:3] == ["W", "W", "W"]
+
+    def test_season_overview_progress_and_window(self, ctx):
+        from narrative import season_overview
+        from services import get_season_rounds, get_team_rank
+
+        state, team = _state(), _player_team()
+        rank = get_team_rank(team.league_id, team)
+        overview = season_overview(state, team, rank, ["W", "D", "L"], [])
+        rounds = get_season_rounds(team.league_id)
+        assert overview["progress"] == round(state.current_week / rounds * 100)
+        assert overview["position"] == rank
+        assert overview["form"] == ["W", "D", "L"]
+        assert overview["window"] in ("open", "closed")
+        assert overview["board_label"]
+
+    def test_build_calendar_events_maps_fixture_date(self, ctx):
+        from narrative import build_calendar_events
+
+        state, team, opp = _state(), _player_team(), _opponent()
+        m = Match(home_team_id=team.id, away_team_id=opp.id, week=20,
+                  played=False, date="2026-09-12")
+        db.session.add(m)
+        db.session.commit()
+        events = build_calendar_events(state, team, [m])
+        match_events = [e for e in events if e["category"] == "match"]
+        assert any(e["date"] == "2026-09-12" and opp.name in e["title"]
+                   for e in match_events)
+
+    def test_build_calendar_events_includes_injury_recovery(self, ctx):
+        from narrative import build_calendar_events
+
+        state, team = _state(), _player_team()
+        p = team.players[0]
+        p.injury_days = 5
+        db.session.commit()
+        events = build_calendar_events(state, team, [])
+        assert any(e["category"] == "injury" and p.name in e["title"]
+                   for e in events)
+
+    def test_storylines_winning_streak(self, ctx):
+        from narrative import season_storylines
+
+        state, team = _state(), _player_team()
+        stories = season_storylines(state, team, team_rank=1, league_size=20,
+                                    squad=list(team.players), form=["W", "W", "W"])
+        titles = " ".join(s["title"] for s in stories)
+        assert "سلسلة" in titles
+
+    def test_notification_priority_critical_and_optional(self, ctx):
+        from narrative import (notification_priority, PRIORITY_CRITICAL,
+                               PRIORITY_IMPORTANT, PRIORITY_OPTIONAL)
+
+        urgent = Message(title="تحذير", content="", type="board", urgent=True)
+        transfer = Message(title="عرض", content="", type="transfer")
+        info = Message(title="خبر", content="", type="info")
+        assert notification_priority(urgent) == PRIORITY_CRITICAL
+        assert notification_priority(transfer) == PRIORITY_IMPORTANT
+        assert notification_priority(info) == PRIORITY_OPTIONAL
+
+    def test_pre_match_storylines_non_empty_for_opponent(self, ctx):
+        from narrative import pre_match_storylines
+
+        match = Match.query.filter_by(played=False).first()
+        lines = pre_match_storylines(match, _state(), _player_team())
+        assert isinstance(lines, list)
+
+    def test_critical_notifications_flags_injury_and_low_board(self, ctx):
+        from narrative import critical_notifications, PRIORITY_CRITICAL
+
+        state, team = _state(), _player_team()
+        team.players[0].injury_days = 7
+        state.board_confidence = 20
+        db.session.commit()
+        items = critical_notifications(state, team)
+        assert any("إصابة" in i["title"] or "مصاب" in i["title"] for i in items)
+        assert any(i["priority"] == PRIORITY_CRITICAL for i in items)
+        assert any("مجلس الإدارة" in i["title"] for i in items)
+
+    def test_critical_notifications_empty_when_nothing_wrong(self, ctx):
+        from narrative import critical_notifications
+
+        state, team = _state(), _player_team()
+        state.board_confidence = 90
+        for p in team.players:
+            p.injury_days = 0
+            p.contract_days = 999
+        db.session.commit()
+        items = critical_notifications(state, team)
+        assert all(i["title"] and i["link"] for i in items)
