@@ -2,7 +2,7 @@
 
 import json
 
-from flask import Blueprint, flash, jsonify, redirect, render_template, request
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, session
 
 bp = Blueprint("team", __name__)
 
@@ -141,42 +141,48 @@ def toggle_starter(player_id):
 
 @bp.route("/formation")
 def formation():
-    state = safe_state()
-    player_team = safe_player_team()
-    players = Player.query.filter_by(team_id=player_team.id).all()
+    from tactics import get_team_tactics
+    from models import TacticPreset, Player
+    from config import PRESET_FORMATIONS
 
+    state = safe_state()
+    if not state:
+        return redirect("/setup")
+    if not session.get("active_save"):
+        return redirect("/load")
+    player_team = safe_player_team()
+    if not player_team:
+        return redirect("/select_team")
+    try:
+        tactics_data = get_team_tactics(player_team)
+    except Exception:
+        tactics_data = {"mentality": 3}
+    presets = TacticPreset.query.filter_by(team_id=player_team.id).all()
+    players = Player.query.filter_by(team_id=player_team.id).all()
     players_data = []
     for p in players:
-        players_data.append(
-            {
-                "id": p.id,
-                "name": p.name,
-                "position": p.position,
-                "detailed_position": p.detailed_position or p.position,
-                "attack": p.attack,
-                "defense": p.defense,
-                "overall": p.overall,
-                "injury_days": p.injury_days,
-                "fitness": p.fitness,
-                "is_starting": p.is_starting,
-            }
-        )
-
+        players_data.append({
+            "id": p.id,
+            "name": p.name,
+            "position": p.position,
+            "detailed_position": p.detailed_position or p.position,
+            "attack": p.attack,
+            "defense": p.defense,
+            "overall": p.overall,
+            "injury_days": p.injury_days,
+            "fitness": p.fitness,
+            "is_starting": p.is_starting,
+            "role": getattr(p, "role", "") or "",
+            "role_suitability": getattr(p, "role_suitability", 0) or 0,
+            "role_fit": getattr(p, "role_fit", 0) or 0,
+        })
     formation_data = player_team.formation_data
     if not isinstance(formation_data, dict):
         formation_data = {}
-
-    presets = TacticPreset.query.filter_by(team_id=player_team.id).all()
-
-    return render_template(
-        "formation.html",
-        state=state,
-        player_team=player_team,
-        players=players_data,
-        formation_data=json.dumps(formation_data),
-        formations=PRESET_FORMATIONS,
-        presets=presets,
-    )
+    return render_template("tactics.html", state=state, player_team=player_team,
+                           tactics_data=tactics_data, presets=presets, players=players_data,
+                           formation_data=json.dumps(formation_data),
+                           formations=PRESET_FORMATIONS)
 
 
 @bp.route("/formation/save", methods=["POST"])
@@ -237,9 +243,9 @@ def save_tactics():
     except Exception:
         db.session.rollback()
         flash("فشل في حفظ التعليمات التكتيكية!")
-        return redirect("/formation")
+        return redirect("/tactics")
     flash("تم حفظ التعليمات التكتيكية!")
-    return redirect("/formation")
+    return redirect("/tactics")
 
 
 # --- FM: set-piece takers ---------------------------------------------
@@ -263,7 +269,7 @@ def save_takers():
         return redirect("/formation")
     if pid_f is not None and pid_f not in squad:
         flash("مسدد الركلات الحرة المختار ليس من فريقك!")
-        return redirect("/formation")
+        return redirect("/tactics")
     player_team.penalty_taker_id = pid_p
     player_team.freekick_taker_id = pid_f
     try:
@@ -271,9 +277,9 @@ def save_takers():
     except Exception:
         db.session.rollback()
         flash("فشل في تحديث منفذي الكرات الثابتة!")
-        return redirect("/formation")
+        return redirect("/tactics")
     flash("تم تحديث منفذي الكرات الثابتة!")
-    return redirect("/formation")
+    return redirect("/tactics")
 
 
 # --- FM: tactical presets ---------------------------------------------
@@ -287,7 +293,7 @@ def save_preset():
         positions = player_team.formation_data
     if not positions:
         flash("احفظ التشكيلة على اللوحة أولاً قبل حفظها كخطة!")
-        return redirect("/formation")
+        return redirect("/tactics")
     existing = TacticPreset.query.filter_by(
         team_id=player_team.id, name=name
     ).first()
@@ -301,9 +307,9 @@ def save_preset():
         except Exception:
             db.session.rollback()
             flash("فشل في تحديث الخطة!")
-            return redirect("/formation")
+            return redirect("/tactics")
         flash(f"تم تحديث الخطة «{existing.name}»!")
-        return redirect("/formation")
+        return redirect("/tactics")
     preset = TacticPreset(
         team_id=player_team.id,
         preset_type=preset_type if preset_type in PRESET_TYPES else "standard",
@@ -318,9 +324,9 @@ def save_preset():
     except Exception:
         db.session.rollback()
         flash("فشل في حفظ الخطة!")
-        return redirect("/formation")
+        return redirect("/tactics")
     flash(f"تم حفظ الخطة «{preset.name}»!")
-    return redirect("/formation")
+    return redirect("/tactics")
 
 
 @bp.route("/formation/preset/<int:preset_id>/load", methods=["POST"])
@@ -329,17 +335,17 @@ def load_preset(preset_id):
     preset = db.session.get(TacticPreset, preset_id)
     if not preset or preset.team_id != player_team.id:
         flash("الخطة غير موجودة!")
-        return redirect("/formation")
+        return redirect("/tactics")
 
     if isinstance(preset.formation_data, dict) and preset.formation_data:
         ok, error = validate_formation(player_team, preset.formation_data)
         if not ok:
             flash(f"لا يمكن تطبيق الخطة: {error}")
-            return redirect("/formation")
+            return redirect("/tactics")
         apply_formation(player_team, preset.formation_data)
     else:
         flash("الخطة المحفوظة لا تحتوي على تشكيلة صالحة!")
-        return redirect("/formation")
+        return redirect("/tactics")
     player_team.pressing_style = preset.pressing_style or "normal"
     player_team.match_tactic = preset.match_tactic or "balanced"
     try:
@@ -347,9 +353,9 @@ def load_preset(preset_id):
     except Exception:
         db.session.rollback()
         flash("فشل في تطبيق الخطة!")
-        return redirect("/formation")
+        return redirect("/tactics")
     flash(f"تم تطبيق الخطة «{preset.name}»!")
-    return redirect("/formation")
+    return redirect("/tactics")
 
 
 @bp.route("/formation/preset/<int:preset_id>/delete", methods=["POST"])
@@ -360,7 +366,7 @@ def delete_preset(preset_id):
         db.session.delete(preset)
         db.session.commit()
         flash("تم حذف الخطة!")
-    return redirect("/formation")
+    return redirect("/tactics")
 
 
 # --- FM: mentoring (veteran develops a young player) ------------------

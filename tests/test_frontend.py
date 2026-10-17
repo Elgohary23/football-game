@@ -61,10 +61,10 @@ def _money(value):
 # Templates on disk
 # ======================================================================
 class TestTemplatesExist:
-    REQUIRED = ["base.html", "dashboard.html", "squad.html", "formation.html",
+    REQUIRED = ["base.html", "dashboard.html", "squad.html", "tactics.html",
                 "match.html", "calendar.html", "standings.html", "stats.html"]
 
-    ALL_PAGES = ["base.html", "dashboard.html", "squad.html", "formation.html",
+    ALL_PAGES = ["base.html", "dashboard.html", "squad.html", "tactics.html",
                  "match.html", "calendar.html", "standings.html", "stats.html",
                  "top_scorers.html", "top_assists.html", "messages.html",
                  "training.html", "staff.html", "facilities.html", "medical.html",
@@ -87,7 +87,7 @@ class TestTemplatesExist:
             assert os.path.getsize(path) > 100, name
 
     def test_pages_extend_base(self):
-        for name in ["dashboard.html", "squad.html", "formation.html", "match.html"]:
+        for name in ["dashboard.html", "squad.html", "tactics.html", "match.html"]:
             with open(os.path.join(TEMPLATES_DIR, name), encoding="utf-8") as f:
                 content = f.read()
             assert 'extends "base.html"' in content or "extends 'base.html'" in content, name
@@ -133,7 +133,7 @@ class TestRtlArabicUi:
         assert 'lang="ar"' in text
 
     def test_every_page_is_rtl_arabic(self, client):
-        for url in ("/dashboard", "/squad", "/formation", "/calendar", "/match",
+        for url in ("/dashboard", "/squad", "/formation", "/tactics", "/calendar", "/match",
                     "/standings", "/stats", "/messages", "/training", "/staff",
                     "/facilities", "/medical", "/scouting", "/compare",
                     "/match_history"):
@@ -150,7 +150,7 @@ class TestRtlArabicUi:
 
     def test_nav_links_present(self, client):
         text = _html(client, "/dashboard")
-        for href in ["/dashboard", "/squad", "/formation", "/calendar", "/match", "/standings"]:
+        for href in ["/dashboard", "/squad", "/tactics", "/calendar", "/match", "/standings"]:
             assert href in text, href
 
     def test_nav_has_every_feature_link(self, client):
@@ -484,7 +484,9 @@ class TestFormationPresetsUI:
     def test_fill_by_ability_controls(self, client):
         text = _html(client, "/formation")
         assert 'id="fillByAbilityBtn"' in text
-        assert "/formation/ability-fill" in text
+        with open(os.path.join(STATIC_DIR, "free_formation.js"), encoding="utf-8") as f:
+            js = f.read()
+        assert "/formation/ability-fill" in js
         assert "تعبئة بالقدرة" in text
 
     def test_overall_embedded_for_ability_fill(self, client):
@@ -1414,7 +1416,7 @@ class TestNoEmptySuccess:
     PAGES_WITH_DB_MARKERS = [
         ("/dashboard", lambda: [_player_team().name, _state().manager_name]),
         ("/squad", lambda: [_player_team().players[0].name]),
-        ("/formation", lambda: [_player_team().players[0].name]),
+        ("/tactics", lambda: [_player_team().players[0].name]),
         ("/standings", lambda: [_player_team().name]),
         ("/calendar", lambda: [_state().current_date]),
         ("/match", lambda: [_player_team().name]),
@@ -1655,7 +1657,7 @@ class TestFormationSaveAndPresets:
         assert {p.id: p.is_starting for p in _player_team().players} == before
 
     def test_dnd_and_save_wiring_in_template(self, client):
-        with open(os.path.join(TEMPLATES_DIR, "formation.html"), encoding="utf-8") as f:
+        with open(os.path.join(STATIC_DIR, "free_formation.js"), encoding="utf-8") as f:
             content = f.read()
         assert "dragstart" in content and "dataTransfer" in content
         assert "drop" in content and "saveFormationBtn" in content
@@ -2406,7 +2408,7 @@ class TestNavigationHubs:
 
     def test_hub_links_still_reachable(self, client):
         text = _html(client, "/dashboard")
-        for href in ("/squad", "/staff", "/medical", "/training", "/formation",
+        for href in ("/squad", "/staff", "/medical", "/training", "/tactics",
                      "/board", "/finances", "/facilities", "/scouting",
                      "/standings", "/cups"):
             assert href in text, href

@@ -1192,6 +1192,9 @@ def finances_center():
 @bp.route("/tactics")
 def tactics_center():
     from tactics import get_team_tactics
+    from models import TacticPreset, Player
+    from config import PRESET_FORMATIONS
+    import json
     redir = _setup_redirect()
     if redir:
         return redir
@@ -1201,8 +1204,32 @@ def tactics_center():
         tactics_data = get_team_tactics(player_team)
     except Exception:
         tactics_data = {"mentality": 3}
+    presets = TacticPreset.query.filter_by(team_id=player_team.id).all()
+    players = Player.query.filter_by(team_id=player_team.id).all()
+    players_data = []
+    for p in players:
+        players_data.append({
+            "id": p.id,
+            "name": p.name,
+            "position": p.position,
+            "detailed_position": p.detailed_position or p.position,
+            "attack": p.attack,
+            "defense": p.defense,
+            "overall": p.overall,
+            "injury_days": p.injury_days,
+            "fitness": p.fitness,
+            "is_starting": p.is_starting,
+            "role": getattr(p, "role", "") or "",
+            "role_suitability": getattr(p, "role_suitability", 0) or 0,
+            "role_fit": getattr(p, "role_fit", 0) or 0,
+        })
+    formation_data = player_team.formation_data
+    if not isinstance(formation_data, dict):
+        formation_data = {}
     return render_template("tactics.html", state=state, player_team=player_team,
-                           tactics_data=tactics_data)
+                           tactics_data=tactics_data, presets=presets, players=players_data,
+                           formation_data=json.dumps(formation_data),
+                           formations=PRESET_FORMATIONS)
 
 
 @bp.route("/transfers")
