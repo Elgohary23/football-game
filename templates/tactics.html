@@ -407,11 +407,11 @@ document.addEventListener('DOMContentLoaded', function() {
 .mark.pen-spot.bottom { bottom: 10.5%; }
 .mark.center-spot { top: 50%; left: 50%; transform: translate(-50%, -50%); }
 
-/* Halfway line */
+/* Halfway line (runs horizontally across the middle of the pitch, y=50) */
 .mark.halfway {
-    left: 50%; top: 0; bottom: 0;
-    width: 2px;
-    background: linear-gradient(to bottom, #fff 0%, #fff 55%, rgba(255,255,255,0.35) 100%);
+    top: 50%; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(to right, #fff 0%, #fff 55%, rgba(255,255,255,0.35) 100%);
 }
 
 /* Center circle */
