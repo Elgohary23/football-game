@@ -98,7 +98,7 @@
                         <option value="">— حر (بدون خطة) —</option>
                         {% for prefix, gname in [('3-', 'الدفاع الثلاثي'), ('4-', 'الدفاع الرباعي'), ('5-', 'الدفاع الخماسي')] %}
                         <optgroup label="{{ gname }}">
-                            {% for f in formations if f.key.startswith(prefix) %}
+                            {% for f in (formations or []) if f.key and f.key.startswith(prefix) %}
                             <option value="{{ f.key }}">{{ f.label }}</option>
                             {% endfor %}
                         </optgroup>
@@ -109,9 +109,9 @@
                     </button>
                 </div>
                 <div id="pitch" class="free-pitch"
-                     data-players='{{ players|tojson }}'
-                     data-formation-data='{{ formation_data|safe }}'
-                     data-formations='{{ formations|tojson }}'>
+                     data-players='{{ (players or [])|tojson }}'
+                     data-formation-data='{{ formation_data|default("{}", true)|safe }}'
+                     data-formations='{{ (formations or [])|tojson }}'>
                     <div class="bench-area">
                         <h4><i class="fas fa-chair"></i> دكة الاحتياط</h4>
                         <div id="bench" class="bench"></div>
