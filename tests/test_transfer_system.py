@@ -587,4 +587,4 @@ class TestRivalsAndFFP:
 
     def test_squad_transfer_card_renders(self, client):
         text = client.get("/squad").get_data(as_text=True)
-        assert "قائمة الانتقال" in text
+        assert "قائمة اللاعبين" in text

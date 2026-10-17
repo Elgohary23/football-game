@@ -47,37 +47,6 @@
     <div class="squad-layout">
         <!-- Player Table Column -->
         <div class="squad-main-col">
-            <div class="card" style="margin-bottom:1rem;">
-                <div class="card-header"><h3><i class="fas fa-exchange-alt"></i> قائمة الانتقال وطلبات الرحيل</h3></div>
-                <p style="color:#777;font-size:0.75rem;">اختر لاعباً ثم نفّذ: العرض للبيع يجلب عروضاً تلقائية • طلب الرحيل يخفض المعنويات ويلفت الأنظار</p>
-                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
-                    <select id="transferPlayerSelect" class="filter-input" style="flex:1;min-width:160px;">
-                        {% for p in players %}
-                        <option value="{{ p.id }}">{{ p.name }} ({{ p.position }}){% if p.transfer_listed %} — للبيع{% endif %}{% if p.transfer_requested %} — طلب رحيل{% endif %}{% if p.loan_to_team_id %} — مُعار{% endif %}</option>
-                        {% endfor %}
-                    </select>
-                    <button class="btn btn-sm btn-primary" onclick="transferAction('list')">عرض للبيع</button>
-                    <button class="btn btn-sm btn-danger" onclick="transferAction('unlist')">سحب من القائمة</button>
-                    <button class="btn btn-sm btn-primary" onclick="transferAction('request_transfer')">طلب رحيل</button>
-                    <button class="btn btn-sm btn-success" onclick="transferAction('withdraw_request')">سحب الطلب</button>
-                    <button class="btn btn-sm btn-success" onclick="transferAction('buy')">تفعيل بند الشراء (معار)</button>
-                </div>
-                <script>
-                function transferAction(action) {
-                    var sel = document.getElementById('transferPlayerSelect');
-                    if (!sel || !sel.value) return;
-                    var pid = sel.value;
-                    var url = '/player/' + pid + '/' + action;
-                    if (action === 'buy') url = '/loan/' + pid + '/buy';
-                    var f = document.createElement('form');
-                    f.method = 'POST'; f.action = url;
-                    var t = document.createElement('input');
-                    t.type = 'hidden'; t.name = 'csrf_token'; t.value = "{{ csrf_token() }}";
-                    f.appendChild(t);
-                    document.body.appendChild(f); f.submit();
-                }
-                </script>
-            </div>
             <div class="card">
                 <div class="card-header">
                     <h3><i class="fas fa-users"></i> قائمة اللاعبين</h3>
