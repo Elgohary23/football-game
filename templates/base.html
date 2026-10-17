@@ -191,31 +191,6 @@
                     </div>
                     {% endif %}
                 </nav>
-                {% if session.get('active_save') and player_team_name %}
-                <div class="sub-nav">
-                    <div class="sub-nav-inner">
-                        <span class="sub-nav-team"><i class="fas fa-shield-alt"></i> {{ player_team_name }}</span>
-                        <span class="sub-nav-divider">|</span>
-                        <span class="sub-nav-chip" data-tooltip="الموسم الحالي"><i class="fas fa-flag"></i> الموسم {{ season_number }}</span>
-                        <span class="sub-nav-divider">|</span>
-                        <span class="sub-nav-chip" data-tooltip="التاريخ الحالي">{{ current_date }}</span>
-                        <span class="sub-nav-divider">|</span>
-                        <span class="sub-nav-week">الأسبوع {{ current_week }}</span>
-                        <span class="sub-nav-divider">|</span>
-                        <span class="sub-nav-day">اليوم {{ current_day }}</span>
-                        <span class="sub-nav-divider">|</span>
-                        <span class="sub-nav-chip money-text" data-tooltip="ميزانية الانتقالات">${{ "{:,}".format(club_budget) }}</span>
-                        <span class="sub-nav-divider">|</span>
-                        <span class="sub-nav-chip" data-tooltip="ميزانية الأجور السنوية">${{ "{:,}".format(club_wage_budget) }} أجور</span>
-                        <span class="sub-nav-divider">|</span>
-                        <span class="sub-nav-chip {{ 'morale-good' if board_confidence >= 70 else ('morale-mid' if board_confidence >= 40 else 'morale-bad') }}" data-tooltip="ثقة الإدارة">ثقة {{ board_confidence }}%</span>
-                        <span class="sub-nav-divider">|</span>
-                        <span class="sub-nav-chip" data-tooltip="ملف الحفظ النشط"><i class="fas fa-save"></i> حفظ {{ active_slot }}</span>
-                        <span class="sub-nav-divider">|</span>
-                        <a href="{{ url_for('inbox.messages') }}" class="sub-nav-chip" data-tooltip="الرسائل غير المقروءة"><i class="fas fa-envelope"></i> <span class="subnav-unread">{{ unread_count }}</span></a>
-                    </div>
-                </div>
-                {% endif %}
             </header>
 
             {% with messages = get_flashed_messages() %}
