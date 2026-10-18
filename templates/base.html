@@ -39,7 +39,6 @@
                 <div class="side-group-label">مركز الإدارة</div>
                 <ul class="side-menu">
                     <li><a href="{{ url_for('main.board_center') }}" class="side-link"><i class="fas fa-clipboard-check"></i><span>الإدارة والأهداف</span></a></li>
-                    <li><a href="{{ url_for('main.finances_center') }}" class="side-link"><i class="fas fa-coins"></i><span>المالية</span></a></li>
                     <li><a href="{{ url_for('main.club_center') }}" class="side-link"><i class="fas fa-shield-alt"></i><span>النادي</span></a></li>
                 </ul>
                 <div class="side-group-label">مركز الكشافة</div>
@@ -50,10 +49,8 @@
                 <div class="side-group-label">مركز المنافسات</div>
                 <ul class="side-menu">
                     <li><a href="{{ url_for('main.standings') }}" class="side-link"><i class="fas fa-list-ol"></i><span>جدول الترتيب</span></a></li>
-                    <li><a href="{{ url_for('stats.stats_center') }}" class="side-link"><i class="fas fa-chart-bar"></i><span>مركز الإحصائيات</span></a></li>
                     <li><a href="/cups" class="side-link"><i class="fas fa-trophy"></i><span>الكؤوس والبطولات</span></a></li>
                     <li><a href="{{ url_for('main.match_history') }}" class="side-link"><i class="fas fa-history"></i><span>تاريخ المباريات</span></a></li>
-                    <li><a href="{{ url_for('main.world_overview') }}" class="side-link"><i class="fas fa-globe"></i><span>العالم</span></a></li>
                 </ul>
                 <div class="side-group-label">النظام</div>
                 <ul class="side-menu">
@@ -125,13 +122,10 @@
                             </a>
                             <ul class="dropdown-menu">
                                 <li><a href="{{ url_for('main.board_center') }}" class="dropdown-link"><i class="fas fa-clipboard-check"></i> الإدارة والأهداف</a></li>
-                                <li><a href="{{ url_for('main.finances_center') }}" class="dropdown-link"><i class="fas fa-coins"></i> المالية</a></li>
                                 <li><a href="{{ url_for('main.club_center') }}" class="dropdown-link"><i class="fas fa-shield-alt"></i> النادي</a></li>
                                 <li><a href="{{ url_for('main.transfers_center') }}" class="dropdown-link"><i class="fas fa-exchange-alt"></i> مركز الانتقالات</a></li>
                                 <li><a href="{{ url_for('main.tactics_center') }}" class="dropdown-link"><i class="fas fa-sliders-h"></i> التكتيك</a></li>
-                                <li><a href="{{ url_for('main.world_overview') }}" class="dropdown-link"><i class="fas fa-globe"></i> العالم</a></li>
                                 <li><a href="{{ url_for('main.standings') }}" class="dropdown-link"><i class="fas fa-list-ol"></i> جدول الترتيب</a></li>
-                                <li><a href="{{ url_for('stats.stats_center') }}" class="dropdown-link"><i class="fas fa-chart-bar"></i> مركز الإحصائيات</a></li>
                                 <li><a href="{{ url_for('inbox.messages') }}" class="dropdown-link" id="messagesLink"><i class="fas fa-envelope"></i> الرسائل<span id="unreadBadgeTop" class="badge{% if unread_count == 0 %} badge-hidden{% endif %}">{{ unread_count }}</span></a></li>
                                 <li><a href="{{ url_for('team.scouting') }}" class="dropdown-link"><i class="fas fa-search"></i> سوق الانتقالات</a></li>
                                 <li><a href="{{ url_for('team.training') }}" class="dropdown-link"><i class="fas fa-dumbbell"></i> التدريب</a></li>
@@ -154,8 +148,6 @@
                                 <li><a href="{{ url_for('team.scouting') }}" class="dropdown-link"><i class="fas fa-search"></i> نتائج الكشافة</a></li>
                                 <li><a href="{{ url_for('main.board_center') }}" class="dropdown-link"><i class="fas fa-clipboard-check"></i> رسائل الإدارة</a></li>
                                 <li><a href="{{ url_for('team.medical') }}" class="dropdown-link"><i class="fas fa-hospital"></i> تقارير الإصابات</a></li>
-                                <li><a href="{{ url_for('main.finances_center') }}" class="dropdown-link"><i class="fas fa-coins"></i> التحديثات المالية</a></li>
-                                <li><a href="{{ url_for('main.world_overview') }}" class="dropdown-link"><i class="fas fa-globe"></i> أخبار العالم</a></li>
                             </ul>
                         </li>
                         <li class="nav-item">

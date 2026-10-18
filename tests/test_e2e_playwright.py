@@ -174,9 +174,9 @@ class TestElementsShowDbData:
         assert any("E2E Away FC" in r for r in text)
 
     def test_top_scorers_row_match_db(self, browser_page, live_server):
-        browser_page.goto(BASE_URL + "/stats/top-scorers")
-        first_row = browser_page.locator("table tbody tr").first.inner_text()
-        assert "E2E Star" in first_row
+        browser_page.goto(BASE_URL + "/standings")
+        scorers = browser_page.locator("li", has_text="هدف").all_text_contents()
+        assert any("E2E Star" in s for s in scorers)
 
     def test_squad_lists_db_players(self, browser_page):
         browser_page.goto(BASE_URL + "/squad")
@@ -225,10 +225,10 @@ from playwright.sync_api import expect
 
 
 class TestStandingsDetails:
-    def test_league_tab_and_title(self, browser_page):
+    def test_league_card_and_title(self, browser_page):
         browser_page.goto(BASE_URL + "/standings")
-        expect(browser_page.locator("h1").first).to_contain_text("E2E Premier League")
-        expect(browser_page.locator(".league-tab.active").first).to_contain_text("E2E Premier League")
+        expect(browser_page.locator("h1").first).to_contain_text("الجدول والإحصائيات")
+        expect(browser_page.locator(".league-card").first).to_contain_text("E2E Premier League")
 
     def test_player_row_highlighted_with_badge(self, browser_page):
         browser_page.goto(BASE_URL + "/standings")
@@ -258,31 +258,19 @@ class TestStandingsDetails:
         assert "المركز الحالي لفريقك" in body
 
 
-class TestStatsCenterDetails:
-    def test_center_tables_show_db_names(self, browser_page):
+class TestMergedStandingsPage:
+    def test_stats_urls_redirect_to_standings(self, browser_page):
         browser_page.goto(BASE_URL + "/stats")
         body = _body(browser_page)
-        assert "مركز الإحصائيات" in body
+        assert "الجدول والإحصائيات" in body
+        assert "E2E Premier League" in body
+
+    def test_merged_page_lists_scorers_and_assists(self, browser_page):
+        browser_page.goto(BASE_URL + "/standings")
+        body = _body(browser_page)
+        assert "الهدافون" in body
+        assert "صنّاع اللعب" in body
         assert "E2E Star" in body
-        assert "E2E Premier League" in body
-
-    def test_center_links_to_detail_pages(self, browser_page):
-        browser_page.goto(BASE_URL + "/stats")
-        expect(browser_page.locator('a[href*="/stats/top-scorers"]').first).to_be_visible()
-        hrefs = browser_page.eval_on_selector_all(
-            "a", "els => els.map(e => e.getAttribute('href'))")
-        assert any("/stats/top-assists" in (h or "") for h in hrefs)
-
-    def test_top_assists_row(self, browser_page):
-        browser_page.goto(BASE_URL + "/stats/top-assists")
-        expect(browser_page.locator("h1")).to_contain_text("صنّاع اللعب")
-        expect(browser_page.locator("table tbody tr").first).to_contain_text("E2E Star")
-
-    def test_scorer_rate_column(self, browser_page):
-        browser_page.goto(BASE_URL + "/stats/top-scorers")
-        body = _body(browser_page)
-        assert "معدل/مباراة" in body
-        assert "E2E Premier League" in body
 
 
 class TestSquadDetails:
@@ -943,39 +931,3 @@ class TestFormationPresetSlots:
         expect(browser_page.locator("#pitch-grid .pitch-box")).to_have_count(11)
         expect(browser_page.locator("#pitch-grid .pitch-slot")).to_have_count(0)
         self._restore_baseline_xi(browser_page)
-
-
-class TestWorldSimInteraction:
-    def test_world_sim_advances_calendar_and_inbox(self, browser_page, live_server):
-        with _e2e_db(live_server):
-            from models import db, GameState, Match, Message, Team
-            state = GameState.query.first()
-            pt = Team.query.filter_by(is_player_team=True).first()
-            for m in Match.query.filter_by(played=False).all():
-                if ((m.home_team and m.home_team.id == pt.id)
-                        or (m.away_team and m.away_team.id == pt.id)):
-                    m.played = True
-            try:
-                state.world_sim_last_week = (state.current_week or 1) - 1
-            except Exception:
-                pass
-            date0 = state.current_date
-            n0 = Message.query.filter_by(type="world").count()
-            db.session.commit()
-        browser_page.goto(BASE_URL + "/world")
-        expect(browser_page.locator("body")).to_contain_text("محاكاة العالم")
-        btn = browser_page.locator('form[action="/world"] button[type="submit"]')
-        expect(btn).to_be_enabled()
-        with browser_page.expect_navigation():
-            btn.click()
-        body = _body(browser_page)
-        assert "تمت محاكاة العالم" in body
-        assert "ملخص أسبوع العالم" in body
-        browser_page.goto(BASE_URL + "/messages")
-        expect(browser_page.locator("body")).to_contain_text("world")
-        with _e2e_db(live_server):
-            from models import db, GameState, Message
-            state = GameState.query.first()
-            assert state.current_date != date0
-            assert Message.query.filter_by(type="world").count() > n0
-            db.session.remove()

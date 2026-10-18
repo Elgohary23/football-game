@@ -196,11 +196,6 @@ class TestSimLevels:
                   for i in range(30))
         assert hs > aws
 
-    def test_world_route(self, client):
-        assert client.get("/world").status_code == 200
-        r = client.post("/world")
-        assert r.status_code in (200, 302)
-
     def test_world_sim_rejects_when_player_fixture_unplayed(self, ctx):
         from sim_levels import simulate_world_week
         state = GameState.query.first()

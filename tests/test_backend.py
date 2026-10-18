@@ -508,8 +508,8 @@ class TestRoutes:
         assert client.get("/match").status_code == 200
 
     def test_stats_pages_ok(self, client):
-        for url in ("/stats", "/stats/top-scorers", "/stats/top-assists"):
-            assert client.get(url).status_code == 200, url
+        # /stats and its leaderboard sub-pages are merged into /standings.
+        assert client.get("/standings").status_code == 200
 
     def test_messages_and_inbox(self, client):
         assert client.get("/messages").status_code == 200

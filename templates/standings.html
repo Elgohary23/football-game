@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}جدول ترتيب الدوري{% endblock %}
+{% block title %}الجدول والإحصائيات{% endblock %}
 
 {% block content %}
 <section class="standings-page">
@@ -7,146 +7,135 @@
         <div>
             <h1 style="color: #e0e0e0; font-size: 1.8rem; margin-bottom: 0.3rem;">
                 <i class="fas fa-trophy" style="color: #f1c40f; margin-left: 8px;"></i>
-                {{ league.name if league else 'جدول ترتيب الدوري الكامل' }}
+                الجدول والإحصائيات
             </h1>
             <p style="color: #888; font-size: 0.9rem;">
-                موسم {{ state.current_date[:4] }} &bull; المركز الحالي لفريقك: 
-                <strong style="color: #e94560;">{{ team_rank if team_rank else 'غير محدد' }}</strong>
+                موسم {{ state.current_date[:4] }} &bull; جداول الدوريات، الهدافون، وصنّاع اللعب لكل بلد
             </p>
         </div>
         <div style="display:flex;gap:0.5rem;align-items:center;">
-            <a href="{{ url_for('stats.stats_center') }}" class="btn btn-secondary">
-                <i class="fas fa-chart-bar"></i> مركز الإحصائيات
-            </a>
             <a href="{{ url_for('main.dashboard') }}" class="btn btn-secondary">
                 <i class="fas fa-arrow-right" style="margin-left: 5px;"></i> اللوحة
             </a>
         </div>
     </div>
 
-    <!-- League tabs -->
-    <div class="league-tabs" style="margin-bottom: 1rem;">
-        {% for l in leagues %}
-        <a href="{{ url_for('main.standings', league_id=l.id) }}" class="league-tab {{ 'active' if selected_league_id == l.id }}">
-            <i class="fas {{ 'fa-trophy' if l.tier == 1 else 'fa-medal' if l.tier == 2 else 'fa-award' if l.tier == 3 else 'fa-star' }}" style="margin-left:4px;"></i>
-            {{ l.name }}
-        </a>
+    {% if not countries %}
+    <div class="empty-state" style="text-align:center;padding:3rem 0;color:#888;">
+        <i class="fas fa-trophy" style="opacity:0.4;"></i>
+        <p>لا توجد دوريات لعرض جداولها.</p>
+    </div>
+    {% endif %}
+
+    {% for country, divs in countries.items() %}
+    <div class="country-section" style="margin-bottom: 2rem;">
+        <h2 style="color:#e94560;border-bottom:2px solid #e94560;display:inline-block;padding-bottom:0.3rem;margin-bottom:1rem;">
+            {{ country }}
+        </h2>
+        {% for lg in divs %}
+        <div class="league-card" style="margin:1rem 0;border:1px solid #2a2a4a;border-radius:10px;overflow:hidden;">
+            <div style="background:#1a1a2e;padding:0.7rem 1rem;color:#fff;font-weight:bold;">
+                <i class="fas {{ 'fa-trophy' if lg.tier == 1 else 'fa-medal' if lg.tier == 2 else 'fa-award' if lg.tier == 3 else 'fa-star' }}" style="margin-left:6px;"></i>
+                {{ lg.name }}
+                <span style="font-size:0.75rem;color:#888;background:#2a2a4a;padding:1px 6px;border-radius:8px;margin-left:6px;">الدوري {{ lg.tier }}</span>
+            </div>
+            <div style="padding:0.7rem 1rem;">
+                <table class="standings-table">
+                    <thead>
+                        <tr>
+                            <th style="width:40px;text-align:center;">#</th>
+                            <th style="text-align:right;">الفريق</th>
+                            <th title="المباريات الملعوبة">لعب</th>
+                            <th title="فوز">ف</th>
+                            <th title="تعادل">ت</th>
+                            <th title="خسارة">خ</th>
+                            <th title="أهداف له">له</th>
+                            <th title="أهداف عليه">عليه</th>
+                            <th title="فارق الأهداف">فارق</th>
+                            <th title="النقاط">نقاط</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set data = league_data[lg.id] %}
+                        {% for team in data.table %}
+                        {% set played = team.wins + team.losses + team.draws %}
+                        {% set gd = team.goals_for - team.goals_against %}
+                        <tr class="{{ 'row-highlight' if team.id == player_team.id else '' }}">
+                            <td style="text-align:center;font-weight:bold;">{{ loop.index }}</td>
+                            <td style="text-align:right;font-weight:600;">
+                                {{ team.name }}
+                                {% if team.id == player_team.id %}
+                                    <span style="background:#e94560;color:#fff;margin-right:6px;font-size:0.7rem;padding:2px 6px;border-radius:4px;">فريقك</span>
+                                {% endif %}
+                                {% if loop.index <= (continental_spots | default(4)) %}
+                                    <span style="background:#f1c40f;color:#111;margin-right:6px;font-size:0.7rem;padding:2px 6px;border-radius:4px;">🏆 قاري</span>
+                                {% endif %}
+                            </td>
+                            <td style="text-align:center;">{{ played }}</td>
+                            <td style="text-align:center;color:#2ecc71;">{{ team.wins }}</td>
+                            <td style="text-align:center;color:#f39c12;">{{ team.draws }}</td>
+                            <td style="text-align:center;color:#e74c3c;">{{ team.losses }}</td>
+                            <td style="text-align:center;">{{ team.goals_for }}</td>
+                            <td style="text-align:center;">{{ team.goals_against }}</td>
+                            <td style="text-align:center;font-weight:500;color:{{ '#2ecc71' if gd > 0 else '#e74c3c' if gd < 0 else '#888' }};">
+                                {{ '+' if gd > 0 else '' }}{{ gd }}
+                            </td>
+                            <td style="text-align:center;"><strong style="font-size:1.1rem;color:{{ '#e94560' if team.id == player_team.id else '#fff' }}">{{ team.points }}</strong></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div style="display:flex;gap:1rem;padding:0.7rem 1rem;background:#16213e;border-top:1px solid #2a2a4a;">
+                <div style="flex:1;">
+                    <div style="color:#e94560;font-weight:bold;margin-bottom:0.3rem;">الهدافون</div>
+                    {% if data.scorers %}
+                    <ul style="margin:0;padding:0;list-style:none;">
+                    {% for sid, name, pos, tid, goals, matches in data.scorers %}
+                    <li style="margin-bottom:0.2rem;font-size:0.9rem;color:#e0e0e0;">{{ name }}
+                        <span style="color:#888;font-size:0.8rem;">({{ data.teams_dict.get(tid, '?') }})</span>
+                        <span style="color:#e94560;font-weight:bold;"> - {{ goals }} هدف</span>
+                    </li>
+                    {% endfor %}
+                    </ul>
+                    {% else %}
+                    <div style="font-size:0.9rem;color:#888;">لا بيانات هدافين بعد.</div>
+                    {% endif %}
+                </div>
+                <div style="flex:1;">
+                    <div style="color:#2ecc71;font-weight:bold;margin-bottom:0.3rem;">صنّاع اللعب</div>
+                    {% if data.assists %}
+                    <ul style="margin:0;padding:0;list-style:none;">
+                    {% for sid, name, pos, tid, assists, matches in data.assists %}
+                    <li style="margin-bottom:0.2rem;font-size:0.9rem;color:#e0e0e0;">{{ name }}
+                        <span style="color:#888;font-size:0.8rem;">({{ data.teams_dict.get(tid, '?') }})</span>
+                        <span style="color:#2ecc71;font-weight:bold;"> - {{ assists }} تمريرة</span>
+                    </li>
+                    {% endfor %}
+                    </ul>
+                    {% else %}
+                    <div style="font-size:0.9rem;color:#888;">لا بيانات صنّاع لعب بعد.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
         {% endfor %}
     </div>
-
-    <div class="card" style="padding: 0; overflow: hidden;">
-        <div class="table-container">
-            <table class="standings-table">
-                <thead>
-                    <tr>
-                        <th style="width: 50px; text-align: center;">#</th>
-                        <th style="text-align: right;">الفريق</th>
-                        <th title="المباريات الملعوبة">لعب</th>
-                        <th title="فوز">ف</th>
-                        <th title="تعادل">ت</th>
-                        <th title="خسارة">خ</th>
-                        <th title="أهداف له">له</th>
-                        <th title="أهداف عليه">عليه</th>
-                        <th title="فارق الأهداف">فارق</th>
-                        <th title="النقاط">نقاط</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for team in league_table %}
-                    {% set played = team.wins + team.losses + team.draws %}
-                    {% set gd = team.goals_for - team.goals_against %}
-                    {% set spots = continental_spots | default(4) %}
-                    <tr class="{{ 'row-highlight' if team.id == player_team.id else '' }} {{ 'top-tier' if loop.index <= 4 else 'bottom-tier' if loop.index > (league_table|length - 3) else '' }} {{ 'continental-spot' if loop.index <= spots else '' }}">
-                        <td style="text-align: center; font-weight: bold;">
-                            {% if loop.index == 1 %}
-                                <i class="fas fa-crown" style="color: #f1c40f; font-size: 0.85rem;" title="المتصدر"></i> 1
-                            {% else %}
-                                {{ loop.index }}
-                            {% endif %}
-                        </td>
-                        <td style="text-align: right; font-weight: 600;">
-                            {{ team.name }}
-                            {% if team.id == player_team.id %}
-                                <span class="badge" style="background: #e94560; color: #fff; margin-right: 6px; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px;">فريقك</span>
-                            {% endif %}
-                            {% if loop.index <= (continental_spots | default(4)) %}
-                                <span class="badge continental-badge" style="background: #f1c40f; color: #111; margin-right: 6px; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px;">🏆 قاري</span>
-                            {% endif %}
-                        </td>
-                        <td>{{ played }}</td>
-                        <td style="color: #2ecc71;">{{ team.wins }}</td>
-                        <td style="color: #f39c12;">{{ team.draws }}</td>
-                        <td style="color: #e74c3c;">{{ team.losses }}</td>
-                        <td>{{ team.goals_for }}</td>
-                        <td>{{ team.goals_against }}</td>
-                        <td style="color: {{ '#2ecc71' if gd > 0 else '#e74c3c' if gd < 0 else '#888' }}; font-weight: 500;">
-                            {{ '+' if gd > 0 else '' }}{{ gd }}
-                        </td>
-                        <td><strong style="font-size: 1.1rem; color: {{ '#e94560' if team.id == player_team.id else '#fff' }}">{{ team.points }}</strong></td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- Standings Legend -->
-    <div style="display: flex; gap: 1.5rem; margin-top: 1rem; padding: 0.8rem 1rem; background: rgba(22, 33, 62, 0.5); border-radius: 8px; font-size: 0.85rem; color: #aaa; flex-wrap: wrap;">
-        <div style="display: flex; align-items: center; gap: 6px;">
-            <span style="width: 12px; height: 12px; background: #2ecc71; border-radius: 3px; display: inline-block;"></span>
-            <span>مؤهل لدوري الأبطال (1-4)</span>
-        </div>
-        <div style="display: flex; align-items: center; gap: 6px;">
-            <span style="width: 12px; height: 12px; background: #f1c40f; border-radius: 3px; display: inline-block;"></span>
-            <span>مقعد قاري (أول {{ continental_spots | default(4) }})</span>
-        </div>
-        <div style="display: flex; align-items: center; gap: 6px;">
-            <span style="width: 12px; height: 12px; background: #e74c3c; border-radius: 3px; display: inline-block;"></span>
-            <span>منطقة الهبوط (آخر 3 مراكز)</span>
-        </div>
-        <div style="display: flex; align-items: center; gap: 6px;">
-            <span style="width: 12px; height: 12px; background: rgba(233, 69, 96, 0.4); border-radius: 3px; display: inline-block;"></span>
-            <span>فريقك الحالي</span>
-        </div>
-    </div>
+    {% endfor %}
 </section>
 
 <style>
+.standings-table { width: 100%; border-collapse: collapse; }
 .standings-table th, .standings-table td {
     text-align: center;
-    padding: 0.75rem 0.6rem;
+    padding: 0.6rem 0.5rem;
+    font-size: 0.85rem;
 }
-.standings-table tbody tr {
-    transition: background 0.15s ease;
-}
-.standings-table tbody tr:hover {
-    background: rgba(255, 255, 255, 0.04);
-}
-.standings-table tbody tr.row-highlight {
-    background: rgba(233, 69, 96, 0.18) !important;
-    border-right: 4px solid #e94560;
-}
-.standings-table tbody tr.top-tier td:first-child {
-    border-right: 3px solid #2ecc71;
-}
-.standings-table tbody tr.continental-spot td:first-child {
-    border-left: 3px solid #f1c40f;
-}
-.standings-table tbody tr.bottom-tier td:first-child {
-    border-right: 3px solid #e74c3c;
-}
-.league-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; }
-.league-tab {
-    padding: 0.4rem 0.8rem;
-    background: #1a1a2e;
-    border: 1px solid #2a2a4a;
-    border-radius: 6px;
-    color: #888;
-    text-decoration: none;
-    font-size: 0.8rem;
-    transition: all 0.15s;
-}
-.league-tab:hover { border-color: #e94560; color: #fff; }
-.league-tab.active { background: #e94560; color: #fff; border-color: #e94560; }
+.standings-table th { background: #1a1a2e; color: #ccc; border-bottom: 2px solid #2a2a4a; }
+.standings-table tbody tr { transition: background 0.15s ease; }
+.standings-table tbody tr:hover { background: rgba(255, 255, 255, 0.04); }
+.standings-table tbody tr.row-highlight { background: rgba(233, 69, 96, 0.18) !important; border-right: 4px solid #e94560; }
+.country-section { animation: fadeIn 0.4s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 </style>
 {% endblock %}

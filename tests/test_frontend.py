@@ -62,11 +62,11 @@ def _money(value):
 # ======================================================================
 class TestTemplatesExist:
     REQUIRED = ["base.html", "dashboard.html", "squad.html", "tactics.html",
-                "match.html", "calendar.html", "standings.html", "stats.html"]
+                "match.html", "calendar.html", "standings.html"]
 
     ALL_PAGES = ["base.html", "dashboard.html", "squad.html", "tactics.html",
-                 "match.html", "calendar.html", "standings.html", "stats.html",
-                 "top_scorers.html", "top_assists.html", "messages.html",
+                 "match.html", "calendar.html", "standings.html",
+                 "messages.html",
                  "training.html", "staff.html", "medical.html",
                  "scouting.html", "live.html", "load.html",
                  "setup.html", "select_division.html", "select_team.html",
@@ -134,7 +134,7 @@ class TestRtlArabicUi:
 
     def test_every_page_is_rtl_arabic(self, client):
         for url in ("/dashboard", "/squad", "/formation", "/tactics", "/calendar", "/match",
-                    "/standings", "/stats", "/messages", "/training", "/staff",
+                    "/standings", "/messages", "/training", "/staff",
                     "/medical", "/scouting",
                     "/match_history"):
             text = _html(client, url)
@@ -155,7 +155,7 @@ class TestRtlArabicUi:
 
     def test_nav_has_every_feature_link(self, client):
         text = _html(client, "/dashboard")
-        for href in ["/stats", "/messages", "/scouting",
+        for href in ["/messages", "/scouting",
                      "/training", "/staff", "/medical", "/match_history", "/exit"]:
             assert href in text, href
 
@@ -194,9 +194,10 @@ class TestRtlArabicUi:
         assert team.name in text or opp.name in text or "المباراة" in text
 
     def test_stats_pages_render(self, client):
-        for url in ("/stats", "/stats/top-scorers", "/stats/top-assists"):
-            text = _html(client, url)
-            assert "html" in text
+        # /stats and its leaderboard sub-pages are merged into /standings.
+        text = _html(client, "/standings")
+        assert "html" in text
+        assert "الجدول والإحصائيات" in text
 
     def test_messages_page_renders(self, client):
         assert _html(client, "/messages")
@@ -682,12 +683,12 @@ class TestStatsDb:
         sid, sname, _, _, sgoals, _ = scorers[0]
         aid, aname, _, _, aassists, _ = assists[0]
         assert db.session.get(Player, sid).name == sname
-        for url in ("/stats", "/stats/top-scorers", "/stats/top-assists"):
-            text = _html(client, url)
-            assert sname in text, url  # DB leader visible, not an empty table
-            assert aname in text, url
-        assert str(sgoals) in _html(client, "/stats/top-scorers")
-        assert str(aassists) in _html(client, "/stats/top-assists")
+        # /stats and leaderboards are merged into /standings.
+        text = _html(client, "/standings")
+        assert sname in text
+        assert aname in text
+        assert str(sgoals) in text
+        assert str(aassists) in text
 
     def test_team_names_in_leaderboards(self, client):
         from simulation import get_top_scorers, simulate_match
@@ -695,12 +696,12 @@ class TestStatsDb:
         simulate_match(m, mode="deep")
         db.session.commit()
         team_ids = {row[3] for row in get_top_scorers(_player_team().league_id)}
-        text = _html(client, "/stats/top-scorers")
+        text = _html(client, "/standings")
         for tid in team_ids:
             assert db.session.get(Team, tid).name in text
 
     def test_league_selector_from_db(self, client):
-        text = _html(client, "/stats")
+        text = _html(client, "/standings")
         for league in League.query.all():
             assert league.name in text
 
@@ -1353,9 +1354,6 @@ class TestNoEmptySuccess:
         ("/standings", lambda: [_player_team().name]),
         ("/calendar", lambda: [_state().current_date]),
         ("/match", lambda: [_player_team().name]),
-        ("/stats", lambda: [League.query.first().name]),
-        ("/stats/top-scorers", lambda: [League.query.first().name]),
-        ("/stats/top-assists", lambda: [League.query.first().name]),
         ("/training", lambda: [_player_team().players[0].name]),
         ("/staff", lambda: [_money(_player_team().budget)]),
         ("/medical", lambda: [_player_team().players[1].name]),
@@ -2014,20 +2012,20 @@ class TestCalendarSimEdgeCases:
 class TestLeagueFilterAndFallback:
     def test_stats_league_filter_shows_selected(self, client):
         league = League.query.first()
-        text = _html(client, f"/stats?league_id={league.id}")
+        text = _html(client, f"/standings?league_id={league.id}")
         assert league.name in text
 
     def test_stats_invalid_league_falls_back(self, client):
         team = _player_team()
         league = db.session.get(League, team.league_id)
-        r = client.get("/stats?league_id=999999")
+        r = client.get("/standings?league_id=999999")
         assert r.status_code == 200
         assert league.name in r.get_data(as_text=True)
 
     def test_top_scorers_invalid_league_falls_back(self, client):
         team = _player_team()
         league = db.session.get(League, team.league_id)
-        r = client.get("/stats/top-scorers?league_id=999999")
+        r = client.get("/standings?league_id=999999")
         assert r.status_code == 200
         assert league.name in r.get_data(as_text=True)
 
@@ -2202,79 +2200,15 @@ class TestEuropeanPages:
 
 
 # ======================================================================
-# World simulation hub — DB-backed (fix.txt acceptance 2 + 6 + 7)
-# ======================================================================
-class TestWorldHubDb:
-    def test_world_renders_all_tabs(self, client):
-        text = _html(client, "/world")
-        for tab in ("صراع اللقب", "الهبوط", "الهدافون", "الفورمة",
-                    "المقاعد القارية", "مفاجآت الأسبوع"):
-            assert tab in text, tab
-
-    def test_world_button_disabled_until_week_resolved(self, client):
-        # Fresh seed: the manager's week-1 fixture is unplayed -> cooldown.
-        text = _html(client, "/world")
-        assert "disabled" in text
-        assert "حل أسبوعك أولاً" in text
-
-    def test_world_sim_produces_summary_card(self, client):
-        from simulation import simulate_match
-        m = Match.query.filter_by(played=False).first()
-        simulate_match(m, mode="quick")
-        db.session.commit()
-        r = client.post("/world", follow_redirects=True)
-        assert r.status_code == 200
-        text = r.get_data(as_text=True)
-        assert "ملخص أسبوع العالم" in text
-        for section in ("الهدافون هذا الأسبوع", "مفاجآت الجولة",
-                        "انتقالات الذكاء الاصطناعي"):
-            assert section in text, section
-
-    def test_world_post_rejected_when_pending(self, client):
-        r = client.post("/world", follow_redirects=True)
-        assert r.status_code == 200
-        assert "حل أسبوعك أولاً" in r.get_data(as_text=True)
-
-    def test_standings_continental_badge(self, client):
-        text = _html(client, "/standings")
-        assert "قاري" in text
-        assert "مقعد قاري" in text
-
-
-# ======================================================================
-# Calendar season timeline (fix.txt): overview, events, views, warning
+# Calendar page (timeline removed per fix.txt): views + today badge
 # ======================================================================
 class TestCalendarSeasonTimeline:
-    def test_season_overview_panel_from_db(self, client):
-        from services import get_season_rounds
-        state, team = _state(), _player_team()
-        text = _html(client, "/calendar")
-        assert "season-overview-panel" in text
-        assert "تقدم الموسم" in text
-        assert "نافذة الانتقالات" in text
-        assert "ثقة مجلس الإدارة" in text
-        expected = round(state.current_week / get_season_rounds(team.league_id) * 100)
-        assert f"{expected}%" in text
-
-    def test_calendar_events_json_embedded(self, client):
-        text = _html(client, "/calendar")
-        m = re.search(r"const calendarEvents = (\[.*?\]);", text, re.S)
-        assert m, "calendar must embed the narrative event feed"
-        events = json.loads(m.group(1))
-        assert isinstance(events, list)
-
     def test_view_switcher_and_today_badge(self, client):
         text = _html(client, "/calendar")
         for view in ('data-view="month"', 'data-view="week"', 'data-view="agenda"'):
             assert view in text
         assert "TODAY" in text
         assert "today-badge" in text
-
-    def test_simulation_warning_modal_present(self, client):
-        text = _html(client, "/calendar")
-        assert "simWarningModal" in text
-        assert "مراجعة الأحداث أولاً" in text
-        assert "ستتخطى" in text
 
 
 # ======================================================================
@@ -2340,7 +2274,7 @@ class TestNavigationHubs:
     def test_hub_links_still_reachable(self, client):
         text = _html(client, "/dashboard")
         for href in ("/squad", "/staff", "/medical", "/training", "/tactics",
-                     "/board", "/finances", "/scouting",
+                     "/board", "/scouting",
                      "/standings", "/cups"):
             assert href in text, href
 

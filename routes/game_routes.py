@@ -23,6 +23,8 @@ from simulation import (
     get_match_report,
     get_pending_actions,
     get_recent_results,
+    get_top_assists,
+    get_top_scorers,
     is_match_day,
     process_promotion_relegation,
     simulate_calendar,
@@ -364,19 +366,45 @@ def standings():
     state = safe_state()
     player_team = safe_player_team()
     requested_league = request.args.get("league_id", type=int)
-    league_id = requested_league or (
-        player_team.league_id if player_team else None
+
+    # Merged standings + statistics page: list of countries, each with its
+    # league divisions, showing each division's table, top scorers and top
+    # assists.
+    leagues = League.query.order_by(League.country, League.tier).all()
+    countries = {}
+    for lg in leagues:
+        countries.setdefault(lg.country or "غير محدد", []).append(lg)
+
+    league_data = {}
+    for lg in leagues:
+        table = get_league_table(lg.id)
+        teams_dict = {
+            t.id: t.name
+            for t in Team.query.filter_by(league_id=lg.id).all()
+        }
+        league_data[lg.id] = {
+            "table": table,
+            "scorers": get_top_scorers(lg.id),
+            "assists": get_top_assists(lg.id),
+            "teams_dict": teams_dict,
+        }
+
+    selected_league = (
+        db.session.get(League, requested_league) if requested_league else None
     )
-
-    league = db.session.get(League, league_id) if league_id else None
-    if requested_league and league is None:
+    if requested_league and selected_league is None:
         flash("الدوري المطلوب غير موجود! يتم عرض دوريك الحالي.")
-        league_id = player_team.league_id if player_team else None
-        league = db.session.get(League, league_id) if league_id else None
-    league_table = get_league_table(league_id)
-    team_rank = get_team_rank(league_id, player_team)
+        selected_league = (
+            db.session.get(League, player_team.league_id) if player_team else None
+        )
+    if selected_league is None and player_team:
+        selected_league = db.session.get(League, player_team.league_id)
 
-    leagues = League.query.order_by(League.tier).all()
+    team_rank = (
+        get_team_rank(selected_league.id, player_team)
+        if selected_league and player_team
+        else None
+    )
     try:
         from config import WORLD_SIM_CONTINENTAL_SPOTS
         continental_spots = int(WORLD_SIM_CONTINENTAL_SPOTS)
@@ -387,11 +415,11 @@ def standings():
         "standings.html",
         state=state,
         player_team=player_team,
-        league_table=league_table,
-        team_rank=team_rank,
-        league=league,
+        countries=countries,
+        league_data=league_data,
         leagues=leagues,
-        selected_league_id=league_id,
+        selected_league=selected_league,
+        team_rank=team_rank,
         continental_spots=continental_spots,
     )
 
@@ -1025,123 +1053,8 @@ def season_end():
     return redirect("/dashboard")
 
 
-@bp.route("/world", methods=["GET", "POST"])
-def world_overview():
-    """World simulation hub: one connected week per player week + summary."""
-    import json
-    from sim_levels import _live_active, _player_week_pending, simulate_world_week
-
-    state = safe_state()
-    player_team = safe_player_team()
-    try:
-        from services import _ensure_schema_columns
-        _ensure_schema_columns()
-    except Exception:
-        pass
-    result = None
-    if request.method == "POST":
-        result = simulate_world_week(state)
-        try:
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-        if result.get("skipped"):
-            flash(result.get("reason") or "تعذر محاكاة العالم!")
-        else:
-            flash(f"تمت محاكاة العالم: {result.get('played', 0)} مباراة — "
-                  f"تقدم التاريخ إلى {state.current_date}")
-        return redirect("/world")
-    try:
-        last = int(getattr(state, "world_sim_last_week", 0) or 0)
-    except Exception:
-        last = 0
-    try:
-        pending = _player_week_pending(state)
-    except Exception:
-        pending = False
-    try:
-        live = _live_active()
-    except Exception:
-        live = False
-    can_sim = (not pending) and (not live) and \
-        (int(state.current_week or 1) > last)
-    summary = None
-    try:
-        raw = getattr(state, "world_last_summary", None)
-        if raw:
-            summary = json.loads(raw)
-    except Exception:
-        summary = None
-    leagues = League.query.order_by(League.tier).all()
-    leaders = []
-    title_races: list = []
-    relegations: list = []
-    continental: list = []
-    form_table: list = []
-    top_scorers: list = []
-    try:
-        from services import get_league_table
-        from config import WORLD_SIM_CONTINENTAL_SPOTS
-        for lg in leagues[:8]:
-            rows = get_league_table(lg.id)
-            leaders.append({"league": lg, "top": rows[:3]})
-            title_races.append({"league": lg, "top": rows[:5]})
-            relegations.append({"league": lg, "bottom": rows[-3:] if len(rows) >= 3 else rows})
-            continental.append({"league": lg,
-                                "spots": rows[:WORLD_SIM_CONTINENTAL_SPOTS]})
-        try:
-            from models import Match as _M, Player as _P
-            recent = (_M.query.filter_by(played=True)
-                      .order_by(_M.id.desc()).limit(20).all())
-            form_counts: dict = {}
-            for m in recent:
-                try:
-                    hs, aws = int(m.home_score or 0), int(m.away_score or 0)
-                    for tid, gf, ga in ((m.home_team_id, hs, aws),
-                                        (m.away_team_id, aws, hs)):
-                        e = form_counts.setdefault(tid, [])
-                        if len(e) < 5:
-                            e.append("W" if gf > ga else ("D" if gf == ga else "L"))
-                except Exception:
-                    continue
-            for lg in leagues[:4]:
-                rows = get_league_table(lg.id)
-                for r in rows[:5]:
-                    try:
-                        from models import Team as _T
-                        t = db.session.get(_T, r.id)
-                        form_table.append({"league": lg.name, "team": r.name,
-                                           "form": "".join(form_counts.get(r.id, ["-"] * 5)[:5]),
-                                           "points": r.points})
-                    except Exception:
-                        continue
-        except Exception:
-            pass
-        try:
-            from models import Player as _P, Team as _T
-            scorers = (_P.query.filter(_P.team_id.isnot(None))
-                       .order_by(_P.goals.desc()).limit(10).all())
-            for p in scorers:
-                try:
-                    t = db.session.get(_T, p.team_id)
-                    top_scorers.append({"name": p.name, "goals": int(p.goals or 0),
-                                        "team": t.name if t else "—"})
-                except Exception:
-                    continue
-        except Exception:
-            pass
-    except Exception:
-        pass
-    return render_template("world.html", state=state, player_team=player_team,
-                           leaders=leaders, result=result, summary=summary,
-                           can_sim=can_sim, pending=pending, live=live,
-                           title_races=title_races, relegations=relegations,
-                           continental=continental, form_table=form_table,
-                           top_scorers=top_scorers)
-
-
 # --------------------------------------------------------------------------
-# Management hubs (inhanceUI): board / finances / tactics / transfers /
+# Management hubs (inhanceUI): board / tactics / transfers /
 # club / settings + global search API. Thin glue only — data comes from
 # models/services, exactly like every other route in this blueprint.
 # --------------------------------------------------------------------------
@@ -1165,28 +1078,6 @@ def board_center():
     return render_template("board.html", state=state, player_team=player_team,
                            players=players, objectives=objectives,
                            avg_age=avg_age, team_rank=rank)
-
-
-@bp.route("/finances")
-def finances_center():
-    redir = _setup_redirect()
-    if redir:
-        return redir
-    state = safe_state()
-    player_team = safe_player_team()
-    players = Player.query.filter_by(team_id=player_team.id).all()
-    wage_bill = sum(p.wage or 0 for p in players)
-    debts = []
-    bonuses = []
-    try:
-        from models import InstallmentDebt, PerformanceBonus
-        debts = InstallmentDebt.query.filter_by(from_team_id=player_team.id, paid=False).all()
-        bonuses = PerformanceBonus.query.filter_by(payer_team_id=player_team.id, paid=False).all()
-    except Exception:
-        pass
-    return render_template("finances.html", state=state, player_team=player_team,
-                           players=players, wage_bill=wage_bill,
-                           debts=debts, bonuses=bonuses)
 
 
 @bp.route("/tactics")
