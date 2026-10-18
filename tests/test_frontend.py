@@ -67,8 +67,8 @@ class TestTemplatesExist:
     ALL_PAGES = ["base.html", "dashboard.html", "squad.html", "tactics.html",
                  "match.html", "calendar.html", "standings.html", "stats.html",
                  "top_scorers.html", "top_assists.html", "messages.html",
-                 "training.html", "staff.html", "facilities.html", "medical.html",
-                 "scouting.html", "compare.html", "live.html", "load.html",
+                 "training.html", "staff.html", "medical.html",
+                 "scouting.html", "live.html", "load.html",
                  "setup.html", "select_division.html", "select_team.html",
                  "manager_form.html", "new_manager.html", "match_report.html",
                  "match_history.html"]
@@ -135,7 +135,7 @@ class TestRtlArabicUi:
     def test_every_page_is_rtl_arabic(self, client):
         for url in ("/dashboard", "/squad", "/formation", "/tactics", "/calendar", "/match",
                     "/standings", "/stats", "/messages", "/training", "/staff",
-                    "/facilities", "/medical", "/scouting", "/compare",
+                    "/medical", "/scouting",
                     "/match_history"):
             text = _html(client, url)
             assert 'dir="rtl"' in text, url
@@ -155,7 +155,7 @@ class TestRtlArabicUi:
 
     def test_nav_has_every_feature_link(self, client):
         text = _html(client, "/dashboard")
-        for href in ["/stats", "/messages", "/scouting", "/compare", "/facilities",
+        for href in ["/stats", "/messages", "/scouting",
                      "/training", "/staff", "/medical", "/match_history", "/exit"]:
             assert href in text, href
 
@@ -890,43 +890,6 @@ class TestStaffDb:
         assert Staff.query.filter_by(team_id=None).count() >= n0
 
 
-class TestFacilitiesDb:
-    def test_levels_costs_budget_from_db(self, client):
-        from config import TRAINING_COST_PER_LEVEL, YOUTH_COST_PER_LEVEL
-        team = _player_team()
-        team.training_facilities = 4
-        team.youth_facilities = 5
-        db.session.commit()
-        text = _html(client, "/facilities")
-        assert "المستوى 4 / 10" in text
-        assert "المستوى 5 / 10" in text
-        assert "{:,}".format(4 * TRAINING_COST_PER_LEVEL) in text
-        assert "{:,}".format(5 * YOUTH_COST_PER_LEVEL) in text
-        assert _money(team.budget) in text
-
-    def test_upgrade_training_increments_db(self, client):
-        team = _player_team()
-        team.training_facilities = 3
-        team.budget = 50_000_000
-        db.session.commit()
-        client.post("/upgrade_facility/training", follow_redirects=True)
-        assert _player_team().training_facilities == 4
-        assert "المستوى 4 / 10" in _html(client, "/facilities")
-
-    def test_upgrade_youth_increments_db(self, client):
-        team = _player_team()
-        team.youth_facilities = 3
-        team.budget = 50_000_000
-        db.session.commit()
-        client.post("/upgrade_facility/youth", follow_redirects=True)
-        assert _player_team().youth_facilities == 4
-
-    def test_invalid_facility_type_redirects(self, client):
-        r = client.post("/upgrade_facility/bogus", follow_redirects=True)
-        assert r.status_code == 200
-        assert "المرافق" in r.get_data(as_text=True)
-
-
 class TestMedicalDb:
     def test_injured_and_fit_sections_from_db(self, client):
         team = _player_team()
@@ -1039,31 +1002,6 @@ class TestScoutingDb:
 # ======================================================================
 # Compare + player profile — DB-backed
 # ======================================================================
-class TestCompareDb:
-    def test_selector_lists_db_players(self, client):
-        team = _player_team()
-        text = _html(client, "/compare")
-        for p in team.players[:5]:
-            assert p.name in text, p.name
-
-    def test_comparison_table_from_db(self, client):
-        team = _player_team()
-        a, b = team.players[0], team.players[1]
-        text = _html(client, f"/compare?player_a={a.id}&player_b={b.id}")
-        assert a.name in text
-        assert b.name in text
-        assert str(a.attack) in text
-        assert str(b.attack) in text
-        assert str(a.defense) in text
-        assert str(b.defense) in text
-
-    def test_same_player_collapses_to_prompt(self, client):
-        team = _player_team()
-        a = team.players[0]
-        text = _html(client, f"/compare?player_a={a.id}&player_b={a.id}")
-        assert "اختر لاعبين" in text
-
-
 class TestPlayerProfileDb:
     def test_all_fields_match_db(self, client):
         p = _player_team().players[0]
@@ -1324,7 +1262,7 @@ class TestStaticAssets:
 class TestFormsAndTables:
     def test_mutation_forms_use_post_and_csrf(self, client):
         for url in ("/dashboard", "/squad", "/formation", "/training",
-                    "/staff", "/facilities", "/scouting", "/messages"):
+                    "/staff", "/scouting", "/messages"):
             text = _html(client, url)
             if "<form" in text:
                 assert 'method="POST"' in text, url
@@ -1334,11 +1272,6 @@ class TestFormsAndTables:
         for url in ("/dashboard", "/squad", "/standings", "/training",
                     "/scouting"):
             assert "<table" in _html(client, url), url
-        # /compare only renders its table once two DB players are chosen
-        team = _player_team()
-        a, b = team.players[0], team.players[1]
-        assert "<table" in _html(client, f"/compare?player_a={a.id}&player_b={b.id}")
-        assert a.name in _html(client, f"/compare?player_a={a.id}&player_b={b.id}")
 
     def test_scouting_filter_controls_present(self, client):
         text = _html(client, "/scouting")
@@ -1425,10 +1358,8 @@ class TestNoEmptySuccess:
         ("/stats/top-assists", lambda: [League.query.first().name]),
         ("/training", lambda: [_player_team().players[0].name]),
         ("/staff", lambda: [_money(_player_team().budget)]),
-        ("/facilities", lambda: [_money(_player_team().budget)]),
         ("/medical", lambda: [_player_team().players[1].name]),
         ("/scouting", lambda: [_opponent().players[0].name]),
-        ("/compare", lambda: [_player_team().players[0].name]),
         ("/match_history", lambda: ["تاريخ المباريات"]),
         ("/load", lambda: ["حفظ"]),
     ]
@@ -2409,7 +2340,7 @@ class TestNavigationHubs:
     def test_hub_links_still_reachable(self, client):
         text = _html(client, "/dashboard")
         for href in ("/squad", "/staff", "/medical", "/training", "/tactics",
-                     "/board", "/finances", "/facilities", "/scouting",
+                     "/board", "/finances", "/scouting",
                      "/standings", "/cups"):
             assert href in text, href
 

@@ -1,4 +1,4 @@
-"""Team management blueprint: squad, formation, staff, facilities, transfers."""
+"""Team management blueprint: squad, formation, staff, transfers."""
 
 import json
 
@@ -8,11 +8,8 @@ bp = Blueprint("team", __name__)
 
 from config import (
     FORMATION_LAYOUT_KEY,
-    MAX_FACILITY_LEVEL,
     PRESET_FORMATIONS,
     PRESET_TYPES,
-    TRAINING_COST_PER_LEVEL,
-    YOUTH_COST_PER_LEVEL,
 )
 from models import db, Player, PlayerRating, ScoutReport, Staff, Team, TacticPreset
 from services import (
@@ -501,59 +498,6 @@ def save_role():
     return jsonify({"success": True, "role": role, "player_id": player_id})
 
 
-# --- FM: player comparison ---------------------------------------------
-@bp.route("/compare")
-def compare():
-    state = safe_state()
-    player_team = safe_player_team()
-
-    players = Player.query.order_by(Player.attack.desc()).limit(200).all()
-    a_id = request.args.get("player_a", type=int)
-    b_id = request.args.get("player_b", type=int)
-    if a_id == b_id:
-        b_id = None
-
-    a = db.session.get(Player, a_id) if a_id else None
-    b = db.session.get(Player, b_id) if b_id else None
-
-    comparison = None
-    if a and b:
-        comparison = {
-            "a": {
-                "id": a.id, "name": a.name, "position": a.position,
-                "age": a.age, "rating": get_display_rating(a, player_team),
-                "attack": a.attack, "defense": a.defense,
-                "overall": (a.overall or max(a.attack or 0, a.defense or 0)),
-                "potential": a.potential,
-                "speed": a.speed or 50, "stamina": a.stamina or 50,
-                "technique": a.technique or 50, "sharpness": a.sharpness or 50,
-                "goals": a.goals or 0, "assists": a.assists or 0,
-                "market_value": a.market_value,
-            },
-            "b": {
-                "id": b.id, "name": b.name, "position": b.position,
-                "age": b.age, "rating": get_display_rating(b, player_team),
-                "attack": b.attack, "defense": b.defense,
-                "overall": (b.overall or max(b.attack or 0, b.defense or 0)),
-                "potential": b.potential,
-                "speed": b.speed or 50, "stamina": b.stamina or 50,
-                "technique": b.technique or 50, "sharpness": b.sharpness or 50,
-                "goals": b.goals or 0, "assists": b.assists or 0,
-                "market_value": b.market_value,
-            },
-        }
-
-    return render_template(
-        "compare.html",
-        state=state,
-        player_team=player_team,
-        players=players,
-        comparison=comparison,
-        a_id=a_id,
-        b_id=b_id,
-    )
-
-
 @bp.route("/player_profile/<int:player_id>")
 def player_profile(player_id):
     player = db.session.get(Player, player_id)
@@ -737,63 +681,6 @@ def generate_staff():
         return redirect("/staff")
     flash(message)
     return redirect("/staff")
-
-
-@bp.route("/facilities")
-def facilities():
-    state = safe_state()
-    player_team = safe_player_team()
-
-    upgrade_cost_training = (player_team.training_facilities or 3) * TRAINING_COST_PER_LEVEL
-    upgrade_cost_youth = (player_team.youth_facilities or 3) * YOUTH_COST_PER_LEVEL
-
-    return render_template(
-        "facilities.html",
-        state=state,
-        player_team=player_team,
-        upgrade_cost_training=upgrade_cost_training,
-        upgrade_cost_youth=upgrade_cost_youth,
-    )
-
-
-@bp.route("/upgrade_facility/<facility_type>", methods=["POST"])
-def upgrade_facility(facility_type):
-    state = safe_state()
-    player_team = safe_player_team()
-
-    if facility_type == "training":
-        level = player_team.training_facilities or 3
-        cost = level * TRAINING_COST_PER_LEVEL
-        if level >= MAX_FACILITY_LEVEL:
-            flash("مرافق التدريب في أقصى مستوى بالفعل!")
-        elif player_team.budget >= cost:
-            player_team.training_facilities = level + 1
-            player_team.budget -= cost
-            flash(f"تم ترقية مرافق التدريب إلى المستوى {level + 1}!")
-        else:
-            flash("الميزانية غير كافية!")
-    elif facility_type == "youth":
-        level = player_team.youth_facilities or 3
-        cost = level * YOUTH_COST_PER_LEVEL
-        if level >= MAX_FACILITY_LEVEL:
-            flash("أكاديمية الشباب في أقصى مستوى بالفعل!")
-        elif player_team.budget >= cost:
-            player_team.youth_facilities = level + 1
-            player_team.budget -= cost
-            flash(f"تم ترقية أكاديمية الشباب إلى المستوى {level + 1}!")
-        else:
-            flash("الميزانية غير كافية!")
-    else:
-        flash("نوع المرفق غير صالح!")
-        return redirect("/facilities")
-
-    try:
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        flash("حدث خطأ أثناء الترقية!")
-        return redirect("/facilities")
-    return redirect("/facilities")
 
 
 @bp.route("/medical")

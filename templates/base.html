@@ -35,13 +35,11 @@
                     <li><a href="{{ url_for('team.training') }}" class="side-link"><i class="fas fa-dumbbell"></i><span>التدريب</span></a></li>
                     <li><a href="{{ url_for('team.medical') }}" class="side-link"><i class="fas fa-hospital"></i><span>المركز الطبي</span></a></li>
                     <li><a href="{{ url_for('team.staff') }}" class="side-link"><i class="fas fa-user-tie"></i><span>الطاقم التدريبي</span></a></li>
-                    <li><a href="{{ url_for('team.compare') }}" class="side-link"><i class="fas fa-balance-scale"></i><span>مقارنة اللاعبين</span></a></li>
                 </ul>
                 <div class="side-group-label">مركز الإدارة</div>
                 <ul class="side-menu">
                     <li><a href="{{ url_for('main.board_center') }}" class="side-link"><i class="fas fa-clipboard-check"></i><span>الإدارة والأهداف</span></a></li>
                     <li><a href="{{ url_for('main.finances_center') }}" class="side-link"><i class="fas fa-coins"></i><span>المالية</span></a></li>
-                    <li><a href="{{ url_for('team.facilities') }}" class="side-link"><i class="fas fa-building"></i><span>المرافق</span></a></li>
                     <li><a href="{{ url_for('main.club_center') }}" class="side-link"><i class="fas fa-shield-alt"></i><span>النادي</span></a></li>
                 </ul>
                 <div class="side-group-label">مركز الكشافة</div>
@@ -136,8 +134,6 @@
                                 <li><a href="{{ url_for('stats.stats_center') }}" class="dropdown-link"><i class="fas fa-chart-bar"></i> مركز الإحصائيات</a></li>
                                 <li><a href="{{ url_for('inbox.messages') }}" class="dropdown-link" id="messagesLink"><i class="fas fa-envelope"></i> الرسائل<span id="unreadBadgeTop" class="badge{% if unread_count == 0 %} badge-hidden{% endif %}">{{ unread_count }}</span></a></li>
                                 <li><a href="{{ url_for('team.scouting') }}" class="dropdown-link"><i class="fas fa-search"></i> سوق الانتقالات</a></li>
-                                <li><a href="{{ url_for('team.compare') }}" class="dropdown-link"><i class="fas fa-balance-scale"></i> مقارنة اللاعبين</a></li>
-                                <li><a href="{{ url_for('team.facilities') }}" class="dropdown-link"><i class="fas fa-building"></i> المرافق</a></li>
                                 <li><a href="{{ url_for('team.training') }}" class="dropdown-link"><i class="fas fa-dumbbell"></i> التدريب</a></li>
                                 <li><a href="{{ url_for('team.staff') }}" class="dropdown-link"><i class="fas fa-user-tie"></i> الطاقم التدريبي</a></li>
                                 <li><a href="{{ url_for('team.medical') }}" class="dropdown-link"><i class="fas fa-hospital"></i> المركز الطبي</a></li>

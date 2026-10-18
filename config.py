@@ -482,10 +482,6 @@ MASK_RATING_OFFSET = 10
 SCOUT_WONDERKID_CHANCE_BASE = 0.10
 SCOUT_ASSIGNMENT_SALARY_PRICE = 20_000
 
-# --- Player comparison ---
-COMPARE_RATING_FIELDS = ("attack", "defense", "potential", "stamina",
-                         "technique", "speed", "fitness", "sharpness", "morale")
-
 # --- Board objectives / confidence ---
 BOARD_CONFIDENCE_START = 60
 BOARD_OBJECTIVES_MAX = 3

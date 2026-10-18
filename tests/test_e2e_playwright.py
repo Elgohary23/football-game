@@ -457,15 +457,6 @@ class TestClubPages:
         assert "الطاقم المتاح للتعاقد" in body
         assert browser_page.locator('form[action="/staff/generate"]').count() == 1
 
-    def test_facilities_levels_and_upgrades(self, browser_page):
-        browser_page.goto(BASE_URL + "/facilities")
-        body = _body(browser_page)
-        assert "المرافق" in body
-        assert "مرافق التدريب" in body
-        assert "أكاديمية الشباب" in body
-        assert browser_page.locator('form[action="/upgrade_facility/training"]').count() == 1
-        assert browser_page.locator('form[action="/upgrade_facility/youth"]').count() == 1
-
     def test_medical_empty_and_ready(self, browser_page):
         browser_page.goto(BASE_URL + "/medical")
         body = _body(browser_page)
@@ -493,14 +484,6 @@ class TestScoutingCompare:
         assert "E2E Star E2E Away FC 0" in body
         forms = browser_page.locator('#scoutTable form[action^="/buy_player/"]').count()
         assert forms >= 1
-
-    def test_compare_selects_and_result(self, browser_page):
-        browser_page.goto(BASE_URL + "/compare?player_a=1&player_b=16")
-        assert browser_page.locator('select[name="player_a"]').count() == 1
-        assert browser_page.locator('select[name="player_b"]').count() == 1
-        body = _body(browser_page)
-        assert "E2E Star E2E Home FC 0" in body
-        assert "E2E Star E2E Away FC 0" in body
 
 
 class TestNavLayout:
