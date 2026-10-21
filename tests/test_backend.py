@@ -1389,6 +1389,58 @@ class TestSeasonScheduling:
         assert dates[0] >= "2026-08-01"
         assert dates[-1] <= "2027-05-31"
 
+    def test_season_opener_is_21_august(self):
+        import datetime as dt
+
+        from services import season_opener_date
+
+        assert season_opener_date("2026-10-21") == dt.date(2026, 8, 21)
+        assert season_opener_date("2027-05-30", next_after=True) == dt.date(2027, 8, 21)
+        assert season_opener_date("2027-08-21", next_after=True) == dt.date(2028, 8, 21)
+
+    def test_opener_schedule_starts_on_21_august(self):
+        from services import season_fixture_dates, validate_fixture_dates
+
+        dates = season_fixture_dates("2026-08-21", 38)
+        assert dates[0] == "2026-08-21"
+        assert dates[1] == "2026-08-29"
+        assert "2026-08-22" not in dates
+        assert validate_fixture_dates(dates) == []
+
+    def test_new_season_starts_on_21_august(self, ctx):
+        from models import GameState, Match
+        from services import start_new_season
+
+        state = GameState.query.first()
+        state.current_date = "2027-05-30"
+        db.session.commit()
+
+        start_new_season(state)
+
+        assert state.current_date == "2027-08-21"
+        first = Match.query.filter(Match.week > 0).order_by(Match.date).first()
+        assert first is not None
+        assert first.date == "2027-08-21"
+
+    def test_legacy_first_season_reanchors_to_opener(self, ctx):
+        from models import GameState, Match
+        from services import align_first_season_to_opener
+
+        state = GameState.query.first()
+        state.current_date = "2026-10-21"
+        state.start_date = "2026-10-21"
+        state.current_week = 1
+        for m in Match.query.all():
+            m.played = False
+            m.date = "2026-10-23"
+        db.session.commit()
+
+        assert align_first_season_to_opener(state) is True
+        assert state.current_date == "2026-08-21"
+        first = Match.query.filter(Match.week > 0).order_by(Match.date).first()
+        assert first is not None
+        assert first.date == "2026-08-21"
+
     def test_lower_league_calendar_is_legal(self):
         from config import LOWER_LEAGUE_ROUNDS
         from services import season_fixture_dates, validate_fixture_dates

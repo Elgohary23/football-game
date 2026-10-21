@@ -87,6 +87,8 @@ from config import (
     SCOUT_KNOWLEDGE_GAIN,
     SCOUT_KNOWLEDGE_THRESHOLD,
     SCOUT_REGIONS,
+    SEASON_OPENER_DAY,
+    SEASON_OPENER_MONTH,
     SEED_STAR_PLAYERS,
     SELL_ON_CLAUSE_DISCOUNT_RATIO,
     SELL_ON_CLAUSE_MAX,
@@ -414,6 +416,9 @@ def switch_to_slot(slot_id: int) -> bool:
     db.create_all()
     ensure_indexes()
     set_active_slot(slot_id)
+    # Legacy first seasons were dated from "today"; move them to the fixed
+    # 21 August opener when no match has been played yet.
+    align_first_season_to_opener()
     return True
 
 
@@ -2847,8 +2852,9 @@ def start_new_season(state: GameState) -> int:
         base = datetime.strptime(state.current_date, "%Y-%m-%d").date()
     except Exception:
         base = _dt.date.today()
-    # Off-season break: new campaign kicks off ~10 weeks later.
-    new_start = base + _dt.timedelta(weeks=10)
+    # The next campaign always opens on 21 August (never a random
+    # "current date + 10 weeks" slot that can drift into October).
+    new_start = season_opener_date(base, next_after=True)
     state.start_date = new_start.isoformat()
     state.current_date = new_start.isoformat()
     state.season_phase = season_phase_for_date(new_start)
@@ -3015,6 +3021,23 @@ def _first_weekend_on_or_after(start):
     return start + _dt.timedelta(days=days_ahead)
 
 
+def season_opener_date(reference_date=None, next_after: bool = False):
+    """Return the league season opener (21 August) around ``reference_date``.
+
+    ``next_after`` rolls over to the following year when the reference date
+    is on/after the opener — used by the season-rollover path. Without it,
+    the opener of the reference year is returned even if it is in the past,
+    which is what a brand-new save needs (start the campaign from matchday 1).
+    """
+    import datetime as _dt
+
+    d = _coerce_date(reference_date) or _dt.date.today()
+    opener = _dt.date(d.year, SEASON_OPENER_MONTH, SEASON_OPENER_DAY)
+    if next_after and d >= opener:
+        opener = _dt.date(d.year + 1, SEASON_OPENER_MONTH, SEASON_OPENER_DAY)
+    return opener
+
+
 def _next_midweek_on_or_after(value, include_alt: bool = False):
     """Next Tuesday/Wednesday (optionally Thursday/Friday) on/after a date."""
     import datetime as _dt
@@ -3072,7 +3095,9 @@ def season_fixture_dates(start_date, total_rounds: int,
     weekends = []
     for i in range(target_weeks):
         sat = first + _dt.timedelta(weeks=i)
-        if is_fifa_break_date(sat) or is_fifa_break_date(sat + _dt.timedelta(days=3)):
+        # Only the Saturday itself must be outside the window; the weekend
+        # before an international break is a normal club matchday.
+        if is_fifa_break_date(sat):
             continue
         if is_winter_break_date(sat):
             continue
@@ -3103,6 +3128,23 @@ def season_fixture_dates(start_date, total_rounds: int,
                 weekends[boxing_idx + 1] = friday
 
     slots = sorted(set(weekends + extra))
+
+    # The campaign opens on 21 August, even when that is a Friday (or another
+    # weekday). Prepend the opener and drop any regular weekend slot inside
+    # the minimum-rest window so the first league match is really the opener.
+    opener = start
+    if (
+        opener not in slots
+        and not is_fifa_break_date(opener)
+        and not is_winter_break_date(opener)
+        and not is_boxing_day_date(opener)
+    ):
+        slots = [
+            d for d in slots
+            if d <= opener or (d - opener).days >= MIN_REST_DAYS
+        ]
+        slots.append(opener)
+        slots.sort()
 
     def _legal(candidate) -> bool:
         if candidate in slots:
@@ -3159,7 +3201,10 @@ def validate_fixture_dates(dates) -> list[str]:
     except Exception:
         pass
     for d in parsed:
-        if d.weekday() not in weekend:
+        if d.weekday() not in weekend and (d.month, d.day) != (
+            SEASON_OPENER_MONTH,
+            SEASON_OPENER_DAY,
+        ):
             problems.append(f"{d.isoformat()}: not a legal fixture day")
     return problems
 
@@ -3260,6 +3305,10 @@ def adjust_match_dates(matches, start_date):
     }
 
     for m in matches:
+        # Cup / European ties (week 0) are seeded separately on midweek
+        # slots; leave them for the caller's re-anchoring pass.
+        if (m.week or 0) == 0:
+            continue
         home_team = m.home_team
         league = home_team.league if home_team else None
         tier = league.tier if league else 1
@@ -3301,6 +3350,69 @@ def adjust_match_dates(matches, start_date):
             # Friday/Monday moves broke the 3-day minimum-rest rule that the
             # multi-competition calendar guarantees.
             continue
+
+
+def _shift_cup_dates_to_opener(cup_matches, start_date) -> None:
+    """Shift a block of template cup/European ties so it follows the opener."""
+    import datetime as _dt
+
+    cup_dates = sorted({m.date for m in cup_matches if m.date})
+    if not cup_dates:
+        return
+    try:
+        old_anchor = _dt.date.fromisoformat(cup_dates[0])
+        new_anchor = _coerce_date(midweek_fixture_date(start_date))
+        if new_anchor is None:
+            return
+        delta = new_anchor - old_anchor
+        for m in cup_matches:
+            if m.date:
+                m.date = (_dt.date.fromisoformat(m.date) + delta).isoformat()
+    except Exception:
+        logger.exception("cup fixture re-anchoring failed")
+
+
+def align_first_season_to_opener(state=None) -> bool:
+    """Re-date a legacy first season whose fixtures started from "today".
+
+    Only saves with zero played matches and ``current_week == 1`` are touched,
+    so no result, table row or player stat can be lost. Returns True when the
+    calendar was moved to the 21 August opener.
+    """
+    try:
+        state = state or GameState.query.first()
+        if not state or (state.season_number or 1) != 1:
+            return False
+        if (state.current_week or 1) > 1:
+            return False
+        if Match.query.filter_by(played=True).count():
+            return False
+        current = _coerce_date(state.current_date)
+        if current is None:
+            return False
+        opener = season_opener_date(state.start_date or state.current_date)
+        if current == opener or current.year != opener.year:
+            return False
+
+        state.start_date = opener.isoformat()
+        state.current_date = opener.isoformat()
+        state.season_phase = season_phase_for_date(opener)
+        state.is_fifa_break = is_fifa_break_date(opener)
+
+        league_matches = Match.query.filter(Match.week > 0).all()
+        if league_matches:
+            adjust_match_dates(league_matches, opener)
+        cup_matches = Match.query.filter(Match.week == 0).all()
+        _shift_cup_dates_to_opener(cup_matches, opener)
+
+        db.session.commit()
+        invalidate_league_cache()
+        logger.info("Re-anchored first season to %s", opener)
+        return True
+    except Exception:
+        db.session.rollback()
+        logger.exception("first-season opener alignment failed")
+        return False
 
 
 def init_template() -> None:
@@ -3756,7 +3868,9 @@ def create_new_game(slot_id: int) -> bool:
     refresh_db_engine(get_slot_uri(slot_id))
 
     import datetime
-    start_dt = datetime.date.today()
+    # A new save starts at matchday 1 of the season, whose opener is fixed
+    # to 21 August (not the real-world "today" the save was created on).
+    start_dt = season_opener_date(datetime.date.today())
 
     state = GameState.query.first()
     if state:
@@ -3766,7 +3880,14 @@ def create_new_game(slot_id: int) -> bool:
         state.is_fifa_break = is_fifa_break_date(start_dt)
 
     matches = Match.query.all()
-    adjust_match_dates(matches, start_dt)
+    league_matches = [m for m in matches if (m.week or 0) > 0]
+    cup_matches = [m for m in matches if (m.week or 0) == 0]
+    adjust_match_dates(league_matches, start_dt)
+
+    # Template cup / European ties were seeded relative to the template
+    # build date. Shift the whole block so the first cup midweek follows the
+    # league opener instead of every tie landing on 21 August.
+    _shift_cup_dates_to_opener(cup_matches, start_dt)
 
     try:
         db.session.commit()

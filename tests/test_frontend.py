@@ -552,6 +552,22 @@ class TestCalendarDb:
         assert 'action="/simulate_to_date"' in text
         assert 'name="target_date"' in text
 
+    def test_calendar_json_refresh_contract(self, client):
+        r = client.get("/calendar?format=json")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["ok"] is True
+        assert data["current_date"] == _state().current_date
+        assert isinstance(data["match_data"], dict)
+
+    def test_calendar_has_inline_simulation_sweep(self, client):
+        text = _html(client, "/calendar")
+        assert 'id="simHud"' in text
+        assert 'id="simHudFill"' in text
+        assert "sim-scan" in text
+        assert "simulateToDate" in text
+        assert "/calendar?format=json" in text
+
 
 # ======================================================================
 # Match center — DB-backed
@@ -1993,6 +2009,24 @@ class TestCalendarSimEdgeCases:
         r = client.post("/simulate_to_date", data={"target_date": "2028-06-01"},
                         follow_redirects=True)
         assert "سنة واحدة" in r.get_data(as_text=True)
+
+    def test_json_simulation_stays_on_calendar(self, client):
+        state = _state()
+        state.current_date = "2026-06-01"
+        db.session.commit()
+        r = client.post(
+            "/simulate_to_date",
+            data={"target_date": "2026-06-05"},
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json",
+            },
+        )
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["ok"] is True
+        assert data["redirect"] == "/calendar"
+        assert data["current_date"] == _state().current_date
 
     def test_date_collision_keeps_unplayed_fixture(self, client):
         team, opp = _player_team(), _opponent()

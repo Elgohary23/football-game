@@ -502,6 +502,17 @@ def calendar():
         primary["more"] = entries[1:]
         player_matches_json[key] = primary
 
+    # The in-page simulation sweep refreshes the dots/details without a full
+    # navigation: return the same JSON contract plus the new game date.
+    if request.args.get("format") == "json":
+        return jsonify(
+            {
+                "ok": True,
+                "current_date": state.current_date,
+                "match_data": player_matches_json,
+            }
+        )
+
     # --- Calendar redesigned as a Season Timeline (fix.txt) ---
     # Full narrative event feed (matches + transfers + injuries + contracts
     # + board + training + milestones) plus the season-overview snapshot and
@@ -939,7 +950,6 @@ def simulate_to_date():
 
     def _fail(msg, redirect_to):
         if wants_json:
-            flash(msg)
             return jsonify({"ok": False, "message": msg, "redirect": redirect_to}), 400
         flash(msg)
         return redirect(redirect_to)
@@ -995,19 +1005,18 @@ def simulate_to_date():
     note = " (تم تحديد المحاكاة بسنة واحدة كحد أقصى)" if capped else ""
     msg = f"تمت المحاكاة! وصلت لتاريخ {state.current_date}، لعبت {matches_played} مباريات{note}"
     if wants_json:
-        flash(msg)
         return jsonify(
             {
                 "ok": True,
                 "message": msg,
-                "redirect": "/dashboard",
+                "redirect": "/calendar",
                 "current_date": state.current_date,
                 "matches_played": matches_played,
                 "capped": capped,
             }
         )
     flash(msg)
-    return redirect("/dashboard")
+    return redirect("/calendar")
 
 
 @bp.route("/match_history")

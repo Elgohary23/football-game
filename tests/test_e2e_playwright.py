@@ -833,8 +833,14 @@ class TestCalendarSimInteraction:
                 if (!t) throw new Error('no future free day cell');
                 t.click(); }""" % game_date)
         browser_page.locator('#detailsContent button:has-text("محاكاة")').click()
-        browser_page.wait_for_url("**/dashboard**", timeout=20000)
-        expect(browser_page.locator("body")).to_contain_text("تمت المحاكاة")
+        expect(browser_page.locator("#simHud")).to_be_visible(timeout=10000)
+        browser_page.wait_for_function(
+            "(start) => gameDateStr > start && "
+            "!document.getElementById('calendarCard').classList.contains('sim-running')",
+            arg=game_date, timeout=30000)
+        assert "/calendar" in browser_page.url
+        expect(browser_page.locator("#simHud")).to_be_hidden()
+        expect(browser_page.locator("#gameDateDisplay")).not_to_have_text(game_date)
 
 
 class TestInboxReadInteraction:

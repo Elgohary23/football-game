@@ -1188,6 +1188,11 @@ MIDWEEK_DAYS = (1, 2)          # Tuesday / Wednesday European & cup slots
 MIDWEEK_ALT_DAYS = (3, 4)      # Thursday / Friday alternative slots
 MIN_REST_DAYS = 3              # minimum days between two fixtures
 REALISTIC_SEASON_WEEKS = 40    # active weeks in a campaign
+# The league season opens on 21 August every year. The opening round is
+# allowed to fall on a Friday (or another weekday) before the regular
+# Saturday cadence begins.
+SEASON_OPENER_MONTH = 8
+SEASON_OPENER_DAY = 21
 # FIFA international windows: (month, first_day, last_day). Club fixtures
 # are never scheduled inside one of these windows.
 FIFA_BREAK_WINDOWS = (
