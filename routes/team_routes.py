@@ -206,7 +206,7 @@ def save_formation():
     if not ok:
         return jsonify({"error": error}), 400
 
-    # Hard rules engine on the candidate XI (foreign cap/suspensions/etc.).
+    # Hard rules engine on the candidate XI (suspensions/registration/etc.).
     try:
         from rules_engine import validate_starting_xi as _valid_xi
         ids = set()

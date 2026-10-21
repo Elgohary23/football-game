@@ -10,6 +10,34 @@ def _opponent():
     return Team.query.filter_by(is_player_team=False).first()
 
 
+def _spawn_team(league, name):
+    """AI club with a legal 15-man squad (11 starting) for engine tests."""
+    from models import Player
+    team = Team(name=name, morale=70, budget=1000000, reputation=60,
+                league_id=league.id)
+    db.session.add(team)
+    db.session.flush()
+    positions = ["GK"] + ["DEF"] * 4 + ["MID"] * 6 + ["FWD"] * 4
+    for i, pos in enumerate(positions):
+        db.session.add(Player(
+            name=f"{name} P{i}", position=pos, detailed_position=pos,
+            attack=65, defense=65, overall=65, potential=80, age=24,
+            height=180, weight=75, market_value=100000, team_id=team.id,
+            is_starting=(i < 11), stamina=80, technique=60, speed=60))
+    db.session.flush()
+    return team
+
+
+def _tier_fixture(league, week=30, tag="A"):
+    """One unplayed AI-vs-AI fixture inside ``league``."""
+    home = _spawn_team(league, f"{league.name} {tag} H")
+    away = _spawn_team(league, f"{league.name} {tag} A")
+    m = Match(home_team_id=home.id, away_team_id=away.id, week=week, played=False)
+    db.session.add(m)
+    db.session.commit()
+    return m
+
+
 class TestRulesEngine:
     def test_valid_xi_passes(self, ctx):
         from rules_engine import validate_starting_xi
@@ -71,6 +99,60 @@ class TestRulesEngine:
         pick = auto_pick_xi(team, "league")
         assert len(pick["starters"]) == 11
         assert sum(1 for p in pick["starters"] if p.position == "GK") == 1
+
+    def test_no_foreigner_cap_in_xi(self, ctx):
+        """European lineups are unrestricted by nationality (Bosman)."""
+        from rules_engine import validate_starting_xi
+        team = _player_team()
+        gks = [p for p in team.players if p.position == "GK"]
+        others = [p for p in team.players if p.position != "GK"]
+        for p in team.players:
+            p.is_starting = False
+            p.injury_days = 0
+            p.discipline_data = None
+            p.nationality = "South_America"
+            p.region = "South_America"
+        for p in [gks[0]] + others[:10]:
+            p.is_starting = True
+        ok, errs = validate_starting_xi(team, "league")
+        assert ok is True and errs == []
+
+    def test_auto_pick_ignores_nationality(self, ctx):
+        """The best XI is picked on ability, not passport."""
+        from models import League, Player
+        from rules_engine import auto_pick_xi
+
+        league = League(name="Bosman League", tier=1, reputation=70,
+                        country="England")
+        db.session.add(league)
+        db.session.flush()
+        team = Team(name="Bosman FC", morale=70, league_id=league.id)
+        db.session.add(team)
+        db.session.flush()
+
+        def _add(name, rating, nation):
+            db.session.add(Player(
+                name=name, position="MID", detailed_position="CM",
+                attack=rating, defense=rating, overall=rating,
+                potential=rating, age=25, nationality=nation, region=nation,
+                team_id=team.id, is_starting=False))
+
+        db.session.add(Player(name="Dom GK", position="GK", overall=60,
+                              attack=30, defense=60, age=25,
+                              nationality="England", region="Europe",
+                              team_id=team.id, is_starting=True))
+        for i in range(8):  # clearly the best outfield players
+            _add(f"Star {i}", 90, "South_America")
+        for i in range(7):
+            _add(f"Local {i}", 70, "England")
+        db.session.flush()
+
+        pick = auto_pick_xi(team, "league")
+        assert len(pick["starters"]) == 11
+        assert sum(1 for p in pick["starters"] if p.position == "GK") == 1
+        foreign = [p for p in pick["starters"] if p.nationality == "South_America"]
+        # The old 5-foreigner cap used to bench three of the eight stars.
+        assert len(foreign) == 8
 
     def test_bulk_property_no_violations(self, ctx):
         """Bulk auto-picks: 11 starters, 1 GK, no injured/suspended."""
@@ -171,6 +253,88 @@ class TestSimLevels:
         from sim_levels import get_sim_level
         m = Match.query.filter_by(played=False).first()
         assert get_sim_level(m) == 1  # involves player team
+
+    def test_routing_levels_by_tier(self, ctx):
+        """L1 = manager's league, L2 = same tier abroad, L3 = other tiers."""
+        from models import League
+        from sim_levels import get_sim_level
+        state = GameState.query.first()
+        my_league = League.query.filter_by(tier=1).first()
+        same_tier = League(name="Abroad Tier 1", tier=1, reputation=70,
+                           country="Germany")
+        lower = League(name="Abroad Tier 3", tier=3, reputation=40,
+                       country="Germany")
+        db.session.add_all([same_tier, lower])
+        db.session.flush()
+
+        m_mine = _tier_fixture(my_league, week=30, tag="M")
+        m_same = _tier_fixture(same_tier, week=30, tag="S")
+        m_low = _tier_fixture(lower, week=30, tag="L")
+
+        assert get_sim_level(m_mine, state.user_league_id, 1) == 1
+        assert get_sim_level(m_same, state.user_league_id, 1) == 2
+        assert get_sim_level(m_low, state.user_league_id, 1) == 3
+
+    def test_match_director_mode_by_tier(self, ctx, monkeypatch):
+        """Deep for my league, medium for my tier, quick for the rest."""
+        import simulation
+        from models import League
+        from simulation import match_director
+        state = GameState.query.first()
+        my_league = League.query.filter_by(tier=1).first()
+        same_tier = League(name="Abroad Tier 1", tier=1, reputation=70,
+                           country="Germany")
+        lower = League(name="Abroad Tier 3", tier=3, reputation=40,
+                       country="Germany")
+        db.session.add_all([same_tier, lower])
+        db.session.flush()
+
+        m_mine = _tier_fixture(my_league, week=31, tag="M")
+        m_same = _tier_fixture(same_tier, week=31, tag="S")
+        m_low = _tier_fixture(lower, week=31, tag="L")
+
+        calls = {}
+
+        def _fake(match, game_state=None, mode="quick"):
+            calls[match.id] = mode
+            match.played = True
+            return True
+
+        monkeypatch.setattr(simulation, "simulate_match", _fake)
+        for m in (m_mine, m_same, m_low):
+            match_director(m, state)
+
+        assert calls[m_mine.id] == "deep"
+        assert calls[m_same.id] == "medium"
+        assert calls[m_low.id] == "quick"
+        assert m_mine.engine_level == 1
+        assert m_same.engine_level == 2
+        assert m_low.engine_level == 3
+
+    def test_finish_week_remaining_uses_all_levels(self, ctx):
+        """Post-match completion routes L1/L2/L3 instead of running all-deep."""
+        from models import League
+        from sim_levels import finish_week_remaining
+        state = GameState.query.first()
+        my_league = League.query.filter_by(tier=1).first()
+        same_tier = League(name="Abroad Tier 1", tier=1, reputation=70,
+                           country="Germany")
+        lower = League(name="Abroad Tier 3", tier=3, reputation=40,
+                       country="Germany")
+        db.session.add_all([same_tier, lower])
+        db.session.flush()
+
+        m_mine = _tier_fixture(my_league, week=32, tag="M")
+        m_same = _tier_fixture(same_tier, week=32, tag="S")
+        m_low = _tier_fixture(lower, week=32, tag="L")
+
+        played = finish_week_remaining(state, week=32)
+        assert played == 3
+        for m in (m_mine, m_same, m_low):
+            assert m.played is True
+        assert m_mine.engine_level == 1
+        assert m_same.engine_level == 2
+        assert m_low.engine_level == 3
 
     def test_l2_l3_deterministic(self, ctx):
         from sim_levels import engine_l2, engine_l3

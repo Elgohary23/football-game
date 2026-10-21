@@ -1055,23 +1055,24 @@ def reset_stuck_live(match: Match) -> None:
 
 
 def finish_match_week(match: Match) -> int:
-    """After the player's match ends, complete every other fixture that week."""
+    """After the player's match ends, complete every other fixture that week.
+
+    Each remaining fixture runs at its routed tier (L1 for the manager's
+    league, L2 for leagues at the manager's tier, L3 for every other tier)
+    instead of upgrading the whole world to the full minute engine.
+    """
     played = 0
     try:
         # Cup ties live outside the weekly league cycle (week == 0 groups
         # every cup together) — they are driven by the cup engine instead.
         if (match.week or 0) == 0:
             return 0
-        others = Match.query.filter_by(week=match.week, played=False).all()
-        for m in others:
-            if m.id == match.id:
-                continue
-            try:
-                if run_auto_match(m):
-                    played += 1
-            except Exception:
-                logger.exception("finish_match_week: auto match %s failed", getattr(m, "id", "?"))
-                continue
+        state = GameState.query.first()
+        if state is None:
+            return 0
+        from sim_levels import finish_week_remaining
+        played = int(finish_week_remaining(state, week=match.week,
+                                           skip_match_id=getattr(match, "id", None)) or 0)
     except Exception:
         logger.exception("finish_match_week failed for week %s", getattr(match, "week", "?"))
     return played

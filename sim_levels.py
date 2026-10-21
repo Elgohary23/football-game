@@ -5,11 +5,11 @@ All engines route through finalize_match_result (single funnel). XIs always
 come from rules_engine.auto_pick_xi for AI teams and the validated user XI
 (with auto_pick fallback + inbox warning) so bulk sim obeys every rule.
 
-Routing:
+Routing (spec):
 - any match involving the player's club -> L1 (live/headless minute engine)
-- both clubs from the user's league -> L1 headless
-- both clubs from the user's tier (other leagues, cups) -> L2
-- anything involving higher/lower tiers -> L3
+- both clubs from the manager's league -> L1, the deepest engine
+- leagues at the manager's tier (other countries, cups) -> L2
+- every other tier anywhere in the world -> L3 (shallow)
 """
 import random
 
@@ -105,21 +105,36 @@ def engine_badge(match):
     return ENGINE_BADGES.get(lvl, "")
 
 
+def user_league_tier():
+    """Tier of the manager's league (None when there is no player club)."""
+    try:
+        from models import Team
+        player_team = Team.query.filter_by(is_player_team=True).first()
+        return getattr(getattr(player_team, "league", None), "tier", None)
+    except Exception:
+        return None
+
+
 def get_sim_level(match, user_league=None, user_tier=None):
-    """Router (levels.py)."""
+    """Router (levels.py): deepest for the manager's league, medium for the
+    manager's tier, shallow for every other tier in the world."""
     try:
         home, away = match.home_team, match.away_team
         if (home is not None and getattr(home, "is_player_team", False)) or \
            (away is not None and getattr(away, "is_player_team", False)):
             return 1
-        if user_league is not None and getattr(home, "league_id", None) == user_league \
-                and getattr(away, "league_id", None) == user_league:
+        home_league_id = getattr(home, "league_id", None)
+        away_league_id = getattr(away, "league_id", None)
+        if user_league is not None and home_league_id == user_league \
+                and away_league_id == user_league:
             return 1
         ht = getattr(getattr(home, "league", None), "tier", None)
         at = getattr(getattr(away, "league", None), "tier", None)
         if user_tier is not None and ht == user_tier and at == user_tier:
             return 2
-        if ht is not None and at is not None and ht == at:
+        if user_tier is None and ht is not None and at is not None and ht == at:
+            # No manager context (tests/scripts): keep the historical
+            # same-tier -> L2 rule instead of degrading the whole world.
             return 2
         return 3
     except Exception:
@@ -186,6 +201,40 @@ def engine_l3(match, home_profile, away_profile, rng=None):
     aws = _seeded_poisson(a_lam, rng)
     return {"ok": True, "level": 3, "home_score": max(0, min(7, hs)),
             "away_score": max(0, min(7, aws)), "home_events": [], "away_events": []}
+
+
+def _simulate_light(match, state, level):
+    """Run one L2/L3 fixture + score/table bookkeeping (caller owns commit)."""
+    try:
+        from tactics import derive_team_profile
+        hp = derive_team_profile(match.home_team)
+        ap = derive_team_profile(match.away_team)
+    except Exception:
+        hp, ap = {}, {}
+    mrng = random.Random(_seed_for(match, state))
+    res = engine_l2(match, hp, ap, mrng) if level == 2 else engine_l3(match, hp, ap, mrng)
+    match.home_score, match.away_score = res["home_score"], res["away_score"]
+    match.result = f"{match.home_score}-{match.away_score}"
+    match.played = True
+    try:
+        match.engine_level = int(level)
+    except Exception:
+        pass
+    for key in ("home_possession", "away_possession", "home_shots", "away_shots",
+                "home_xg", "away_xg"):
+        if res.get(key) is not None:
+            try:
+                setattr(match, key, res[key])
+            except Exception:
+                pass
+    if (match.week or 0) != CUP_MATCH_WEEK:
+        try:
+            from simulation import update_league_table
+            update_league_table(match.home_team, match.away_team,
+                                match.home_score, match.away_score)
+        except Exception:
+            pass
+    return True
 
 
 def _player_week_pending(state) -> bool:
@@ -358,7 +407,6 @@ def simulate_world_week(state, rng=None):
     import json
     from datetime import datetime, timedelta
     from models import Match, db
-    from tactics import derive_team_profile
     played = 0
     levels = {1: 0, 2: 0, 3: 0}
     base_result: dict = {"played": 0, "levels": levels}
@@ -382,13 +430,7 @@ def simulate_world_week(state, rng=None):
     played_matches: list = []
     try:
         user_league = getattr(state, "user_league_id", None)
-        user_tier = None
-        try:
-            from models import Team
-            pt = Team.query.filter_by(is_player_team=True).first()
-            user_tier = getattr(getattr(pt, "league", None), "tier", None)
-        except Exception:
-            pass
+        user_tier = user_league_tier()
         matches = Match.query.filter_by(week=getattr(state, "current_week", 1),
                                         played=False).all()
         for m in matches:
@@ -405,34 +447,10 @@ def simulate_world_week(state, rng=None):
                     played += 1
                     levels[1] += 1
                     played_matches.append(m)
-                continue
-            try:
-                hp = derive_team_profile(m.home_team)
-                ap = derive_team_profile(m.away_team)
-            except Exception:
-                hp, ap = {}, {}
-            mrng = random.Random(_seed_for(m, state))
-            res = engine_l2(m, hp, ap, mrng) if lvl == 2 else engine_l3(m, hp, ap, mrng)
-            m.home_score, m.away_score = res["home_score"], res["away_score"]
-            m.result = f"{m.home_score}-{m.away_score}"
-            m.played = True
-            if m.home_possession is not None and res.get("home_possession") is not None:
-                for k, v in res.items():
-                    if k in ("home_possession", "away_possession", "home_shots",
-                             "away_shots", "home_xg", "away_xg"):
-                        try:
-                            setattr(m, k, v)
-                        except Exception:
-                            pass
-            if (m.week or 0) != CUP_MATCH_WEEK:
-                try:
-                    from simulation import update_league_table
-                    update_league_table(m.home_team, m.away_team, m.home_score, m.away_score)
-                except Exception:
-                    pass
-            played += 1
-            levels[lvl] += 1
-            played_matches.append(m)
+            elif _simulate_light(m, state, lvl):
+                played += 1
+                levels[lvl] += 1
+                played_matches.append(m)
             if played % 200 == 0:
                 try:
                     db.session.commit()
@@ -584,3 +602,52 @@ def _involves_player(match):
                     or (match.away_team is not None and match.away_team.is_player_team))
     except Exception:
         return False
+
+
+def finish_week_remaining(state, week=None, skip_match_id=None) -> int:
+    """Play the rest of a week with each fixture's routed engine (no commit).
+
+    Post-match completion path: the manager's league keeps the deepest
+    engine (L1), leagues at the manager's tier run L2 and every other tier
+    in the world runs L3 — the world is never upgraded to a full
+    minute-by-minute simulation. Caller owns the commit.
+    """
+    from models import Match
+    try:
+        week = int(week if week is not None else (getattr(state, "current_week", 1) or 1))
+    except Exception:
+        week = 1
+    user_league = getattr(state, "user_league_id", None)
+    user_tier = user_league_tier()
+    played = 0
+    light_matches: list = []
+    try:
+        matches = Match.query.filter_by(week=week, played=False).all()
+    except Exception:
+        return 0
+    for m in matches:
+        if skip_match_id is not None and getattr(m, "id", None) == skip_match_id:
+            continue
+        lvl = get_sim_level(m, user_league, user_tier)
+        try:
+            m.engine_level = lvl
+        except Exception:
+            pass
+        try:
+            if lvl == 1:
+                from live_match import run_auto_match as _auto
+                if _auto(m):
+                    played += 1
+            elif _simulate_light(m, state, lvl):
+                played += 1
+                light_matches.append(m)
+        except Exception:
+            continue
+    if light_matches:
+        rng = _world_rng(state, salt=1)
+        for m in light_matches:
+            try:
+                _assign_goal_scorers(m, rng)
+            except Exception:
+                pass
+    return played

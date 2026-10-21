@@ -1618,7 +1618,6 @@ RULES = {
     "min_squad": 16,
     "max_squad": 30,
     "registered_max": 25,
-    "foreign_xi": 5,
     "homegrown_min": 4,
     "loans_in_max": 2,
     "loans_out_max": 2,
@@ -1632,11 +1631,6 @@ TRANSFER_WINDOWS = {
     "summer_weeks": (1, 3),
     "winter_week": None,  # resolved at runtime: TOTAL_ROUNDS // 2
     "winter_length": 2,
-}
-# Region mapping for the foreign-player cap (Player.nationality -> region).
-NATIONALITY_REGION = {
-    "Europe": "Europe", "South_America": "South_America",
-    "Middle_East": "Middle_East", "Africa": "Africa", "Asia": "Asia",
 }
 
 # --- Deeper sim: tactical system (Feature B) ---

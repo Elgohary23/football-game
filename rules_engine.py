@@ -20,36 +20,6 @@ def _rules_for(league=None):
     return base
 
 
-def _league_region(league):
-    """Domestic region for the foreign cap. All current leagues are European;
-    country names map to their continent so seed data (region='Europe')
-    counts as domestic. Falls back to the raw country when unknown."""
-    try:
-        if league is not None and getattr(league, "region", None):
-            return str(league.region)
-    except Exception:
-        pass
-    try:
-        country = str(getattr(league, "country", None) or "Europe")
-    except Exception:
-        country = "Europe"
-    _EUROPE = {"England", "Germany", "Spain", "France", "Italy", "Netherlands",
-               "Portugal", "Belgium", "Turkey", "Scotland", "Austria",
-               "Switzerland", "Greece", "Ukraine", "Russia", "Denmark", "Sweden",
-               "Norway", "Poland", "Croatia", "Serbia", "Czech Republic", "Romania"}
-    if country in _EUROPE or country == "Europe":
-        return "Europe"
-    return country
-
-
-def _player_region(player):
-    try:
-        nat = getattr(player, "nationality", None) or getattr(player, "region", None) or "Europe"
-        return str(nat)
-    except Exception:
-        return "Europe"
-
-
 def _suspension_remaining(player, comp_type="league"):
     try:
         data = getattr(player, "discipline_data", None) or {}
@@ -129,7 +99,6 @@ def validate_starting_xi(team, competition_type="league"):
         starters = [p for p in (team.players or []) if getattr(p, "is_starting", False)]
     except Exception:
         return False, ["التشكيلة غير صالحة"]
-    rules = _rules_for(getattr(team, "league", None))
     if len(starters) != 11:
         errors.append(f"التشكيلة الأساسية يجب أن تكون 11 لاعباً (الحالية: {len(starters)})")
     gks = [p for p in starters if (getattr(p, "position", "") or "") == "GK"]
@@ -139,14 +108,7 @@ def validate_starting_xi(team, competition_type="league"):
         ok, reason = _player_eligible(p, competition_type, need_start=True)
         if not ok:
             errors.append(f"{getattr(p, 'name', '?')}: {reason}")
-    # Foreign cap in XI.
-    try:
-        league_region = _league_region(getattr(team, "league", None))
-        foreign = sum(1 for p in starters if _player_region(p) != league_region)
-        if foreign > rules["foreign_xi"]:
-            errors.append(f"تجاوزت حد الأجانب في التشكيلة ({foreign}/{rules['foreign_xi']})")
-    except Exception:
-        pass
+    # No foreigner cap: European lineups are unrestricted by nationality.
     # Cup-tied.
     if "cup" in str(competition_type or ""):
         for p in starters:
@@ -279,7 +241,8 @@ def auto_pick_xi(team, competition_type="league", rng=None):
     """ALWAYS rules-compliant best eligible XI + bench.
 
     Used by every AI team and by bulk sim. Picks best eligible by rating,
-    respects GK/foreign/registration/suspension/fitness floors.
+    respects GK/registration/suspension/fitness floors. Nationality is
+    irrelevant: European football has no foreigner cap in the XI.
     """
     rng = rng or random
     try:
@@ -287,10 +250,6 @@ def auto_pick_xi(team, competition_type="league", rng=None):
     except Exception:
         return {"starters": [], "bench": []}
     rules = _rules_for(getattr(team, "league", None))
-    league_region = _league_region(getattr(team, "league", None))
-
-    def _is_foreign(p):
-        return _player_region(p) != league_region
 
     # GK first: fittest eligible GK by rating.
     gks = sorted([p for p in squad if (getattr(p, "position", "") or "") == "GK"],
@@ -298,7 +257,7 @@ def auto_pick_xi(team, competition_type="league", rng=None):
     starters = gks[:1]
     if not starters:
         return {"starters": [], "bench": []}
-    # Outfield: eligible + can start (fitness floor), foreign cap aware.
+    # Outfield: eligible + can start (fitness floor).
     outfield = [p for p in squad if (getattr(p, "position", "") or "") != "GK"
                 and _player_eligible(p, competition_type, need_start=True)[0]]
     try:
@@ -308,24 +267,10 @@ def auto_pick_xi(team, competition_type="league", rng=None):
                         if competition_type not in (getattr(p, "cup_appearances", None) or [])]
     except Exception:
         pass
-    foreign_used = 1 if _is_foreign(starters[0]) else 0
-    outfield_sorted = sorted(outfield, key=_rating_of, reverse=True)
-    for p in outfield_sorted:
+    for p in sorted(outfield, key=_rating_of, reverse=True):
         if len(starters) >= 11:
             break
-        if _is_foreign(p) and foreign_used >= rules["foreign_xi"]:
-            continue
         starters.append(p)
-        if _is_foreign(p):
-            foreign_used += 1
-    if len(starters) != 11:
-        # Fallback: relax foreign cap rather than fielding short.
-        for p in outfield_sorted:
-            if len(starters) >= 11:
-                break
-            if p in starters:
-                continue
-            starters.append(p)
     remaining = [p for p in squad if p not in starters]
     bench = sorted(remaining, key=_rating_of, reverse=True)[:rules["bench"]]
     return {"starters": starters, "bench": bench}

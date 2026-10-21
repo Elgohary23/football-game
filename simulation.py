@@ -347,29 +347,45 @@ def simulate_match(match: Match, state: Optional[GameState] = None, mode: str = 
 def match_director(match: Match, state: GameState) -> bool:
     """Pick the right simulation depth, then run it (Tip 4).
 
-    Deeper sim (Feature C): the tier router assigns the engine level badge;
-    the mode mapping below is preserved so behavior never regresses.
+    Routing (spec): the manager's own league runs the deep engine, leagues
+    at the manager's tier run the medium engine, and every other tier in
+    the world runs quick. The router badge (engine_level) is assigned by
+    the same rule so the label always matches the engine used.
     """
     home = match.home_team
     away = match.away_team
 
-    if home.is_player_team or away.is_player_team:
+    try:
+        from sim_levels import get_sim_level, user_league_tier
+        user_league = getattr(state, "user_league_id", None)
+        user_tier = user_league_tier()
+    except Exception:
+        get_sim_level, user_league, user_tier = None, None, None
+
+    def _tier(team):
+        return getattr(getattr(team, "league", None), "tier", None)
+
+    home_league_id = getattr(home, "league_id", None)
+    away_league_id = getattr(away, "league_id", None)
+    home_tier, away_tier = _tier(home), _tier(away)
+
+    in_user_league = bool(user_league is not None
+                          and home_league_id == user_league
+                          and away_league_id == user_league)
+    same_tier = home_tier is not None and home_tier == away_tier
+
+    if (getattr(home, "is_player_team", False)
+            or getattr(away, "is_player_team", False) or in_user_league):
         mode = "deep"
-    elif state.user_league_id and home.league_id == state.user_league_id:
+    elif (user_tier is not None and home_tier == user_tier and away_tier == user_tier) \
+            or (user_tier is None and same_tier):
         mode = "medium"
     else:
         mode = "quick"
 
     try:
-        from sim_levels import get_sim_level
-        user_tier = None
-        try:
-            from models import Team as _T
-            _pt = _T.query.filter_by(is_player_team=True).first()
-            user_tier = getattr(getattr(_pt, "league", None), "tier", None)
-        except Exception:
-            pass
-        match.engine_level = get_sim_level(match, state.user_league_id, user_tier)
+        if get_sim_level is not None:
+            match.engine_level = get_sim_level(match, user_league, user_tier)
     except Exception:
         pass
     result = simulate_match(match, state, mode=mode)
