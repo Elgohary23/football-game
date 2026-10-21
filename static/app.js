@@ -104,7 +104,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-// Live match driver (live.html)document.addEventListener('DOMContentLoaded', function() {
+// Live match driver (live.html)
+document.addEventListener('DOMContentLoaded', function() {
     var initial = document.getElementById('liveInitial');
     if (!initial) return;
 
