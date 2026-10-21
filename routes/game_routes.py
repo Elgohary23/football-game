@@ -993,6 +993,16 @@ def simulate_to_date():
         result = simulate_calendar(days_to_sim, state, background=True)
         matches_played = result.get("matches_played", 0)
 
+    # Refresh the state from DB to ensure we have the latest values after simulation
+    db.session.commit()
+    try:
+        # Re-fetch the GameState to avoid using a stale instance that may trigger lazy loads on a locked DB
+        from models import GameState
+        state = GameState.query.get(state.id)
+    except Exception:
+        db.session.rollback()
+        return _fail("حدث خطأ في تحميل حالة اللعبة بعد المحاكاة!", "/calendar")
+
     if state.current_week >= get_season_rounds(state.user_league_id):
         state.season_over = True
 
