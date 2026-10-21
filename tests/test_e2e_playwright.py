@@ -380,10 +380,18 @@ class TestFormationDetails:
 class TestCalendarDetails:
     def test_header_and_nav(self, browser_page):
         browser_page.goto(BASE_URL + "/calendar")
-        expect(browser_page.locator("h1")).to_contain_text("تقويم مباريات الفريق")
+        expect(browser_page.locator("h1")).to_contain_text("تقويم المباريات")
         assert browser_page.locator("#prevMonthBtn").count() == 1
         assert browser_page.locator("#nextMonthBtn").count() == 1
-        expect(browser_page.locator("#gameDateDisplay")).to_contain_text("2026-06-08")
+        expect(browser_page.locator("#monthTitleDisplay")).to_contain_text("2026")
+        assert "2026-06-08" in _body(browser_page)
+
+    def test_month_only_view_and_dot_legend(self, browser_page):
+        browser_page.goto(BASE_URL + "/calendar")
+        # fix.txt: week/agenda switchers were removed; month is the only view.
+        assert browser_page.locator('[data-view="week"]').count() == 0
+        assert browser_page.locator('[data-view="agenda"]').count() == 0
+        assert browser_page.locator(".calendar-legend .match-dot").count() == 4
 
     def test_day_cells_rendered(self, browser_page):
         browser_page.goto(BASE_URL + "/calendar")
@@ -817,7 +825,7 @@ class TestMentoringUiRemoved:
 class TestCalendarSimInteraction:
     def test_click_future_day_simulates(self, browser_page):
         browser_page.goto(BASE_URL + "/calendar")
-        game_date = browser_page.locator("#gameDateDisplay").inner_text().strip()
+        game_date = browser_page.evaluate("gameDateStr")
         browser_page.locator(
             f'.day-cell[data-date]:not(.inactive)').evaluate_all(
             """els => { const g = '%s';

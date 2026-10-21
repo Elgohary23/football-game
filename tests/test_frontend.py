@@ -537,7 +537,10 @@ class TestCalendarDb:
         assert str(m.week) in text
         # The fixture is embedded as JSON (ensure_ascii escapes the dash),
         # so parse it and compare against the DB row directly.
-        embedded = json.loads(re.search(r"const matchData = (\{.*?\});", text, re.S).group(1))
+        embedded = json.loads(
+            re.search(r"^\s*matchData = (\{.*?\});\s*\n\s*gameDateStr",
+                      text, re.S | re.M).group(1)
+        )
         assert embedded, "calendar must embed match JSON from the DB"
         blob = json.dumps(embedded, ensure_ascii=False)
         assert m.home_team.name in blob
@@ -2001,7 +2004,10 @@ class TestCalendarSimEdgeCases:
         db.session.add_all([played, live])
         db.session.commit()
         text = _html(client, "/calendar")
-        embedded = json.loads(re.search(r"const matchData = (\{.*?\});", text, re.S).group(1))
+        embedded = json.loads(
+            re.search(r"^\s*matchData = (\{.*?\});\s*\n\s*gameDateStr",
+                      text, re.S | re.M).group(1)
+        )
         assert embedded["2026-08-01"]["id"] == live.id  # unplayed wins
         assert embedded["2026-08-01"]["played"] is False
 
@@ -2202,13 +2208,30 @@ class TestEuropeanPages:
 # ======================================================================
 # Calendar page (timeline removed per fix.txt): views + today badge
 # ======================================================================
-class TestCalendarSeasonTimeline:
-    def test_view_switcher_and_today_badge(self, client):
+class TestCalendarMonthView:
+    def test_month_only_view_with_dot_legend(self, client):
         text = _html(client, "/calendar")
+        # fix.txt: month view is the only view; week/agenda switchers removed.
         for view in ('data-view="month"', 'data-view="week"', 'data-view="agenda"'):
-            assert view in text
+            assert view not in text
+        assert "calendarDaysGrid" in text
+        assert "match-dot" in text
+        assert "legend-item" in text
         assert "TODAY" in text
         assert "today-badge" in text
+
+    def test_player_matches_carry_dot_colors(self, client):
+        text = _html(client, "/calendar")
+        embedded = json.loads(
+            re.search(r"^\s*matchData = (\{.*?\});\s*\n\s*gameDateStr",
+                      text, re.S | re.M).group(1)
+        )
+        assert embedded, "calendar must embed player fixtures"
+        for entry in embedded.values():
+            assert entry["comp_type"] in ("league", "domestic_cup", "continental")
+            assert entry["dot_color"]
+            for same_day in entry["matches"]:
+                assert same_day["dot_color"]
 
 
 # ======================================================================

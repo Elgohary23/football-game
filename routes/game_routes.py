@@ -450,14 +450,27 @@ def calendar():
     except Exception:
         fixture_competition = None
     try:
-        from config import CUP_BADGE_COLORS
+        from config import CALENDAR_DOT_COLORS, CUP_BADGE_COLORS
         league_color = CUP_BADGE_COLORS.get("league", "#3498db")
+        played_dot = CALENDAR_DOT_COLORS.get("played", "#6b7280")
     except Exception:
+        CUP_BADGE_COLORS = {}
+        CALENDAR_DOT_COLORS = {}
         league_color = "#3498db"
+        played_dot = "#6b7280"
+
+    grouped = {}
     for m in player_matches:
         home = m.home_team
         away = m.away_team
         comp = fixture_competition(m) if fixture_competition else None
+        comp_type = (comp or {}).get("comp_type") or (m.comp_type or "league")
+        brand_color = (comp or {}).get("color") or CUP_BADGE_COLORS.get(comp_type, league_color)
+        dot_color = (comp or {}).get("dot_color") or CALENDAR_DOT_COLORS.get(
+            comp_type, league_color
+        )
+        if m.played:
+            dot_color = played_dot
         entry = {
             "id": m.id,
             "home": home.name if home else "?",
@@ -470,29 +483,24 @@ def calendar():
             "home_score": m.home_score,
             "away_score": m.away_score,
             "competition": (comp or {}).get("name") or "الدوري",
-            "comp_type": (comp or {}).get("type") or "league",
+            "comp_type": comp_type,
             "comp_round": (comp or {}).get("round") or "",
-            "comp_color": (comp or {}).get("color") or league_color,
+            "comp_color": brand_color,
+            "dot_color": dot_color,
+            "matchday": (comp or {}).get("matchday"),
         }
-        # One entry per date (the calendar JSON contract): an unplayed
-        # fixture always wins the slot so a live match is never hidden;
-        # same-date extras (cup midweek + league weekend) are counted in
-        # "more" with their competition badge.
         key = m.date or f"week-{m.week}"
-        existing = player_matches_json.get(key)
-        if existing is None:
-            player_matches_json[key] = entry
-            continue
-        extra = {"id": 0, "competition": "", "comp_color": league_color}
-        if existing["played"] and not entry["played"]:
-            extra.update({k: existing[k] for k in ("id", "competition", "comp_color")})
-            entry.setdefault("more", []).append(extra)
-            entry["more"].extend(existing.get("more", []))
-            player_matches_json[key] = entry
-        else:
-            extra.update({k: entry[k] for k in ("id", "competition", "comp_color")})
-            existing.setdefault("more", []).append(extra)
-            existing["more"].extend(entry.get("more", []))
+        grouped.setdefault(key, []).append(entry)
+
+    # One entry per date (the calendar JSON contract): the first unplayed
+    # fixture wins the slot and every same-date fixture is listed in
+    # "matches" (used by the dot renderer + day-details panel).
+    for key, entries in grouped.items():
+        entries.sort(key=lambda e: (bool(e["played"]), e["id"]))
+        primary = dict(entries[0])
+        primary["matches"] = entries
+        primary["more"] = entries[1:]
+        player_matches_json[key] = primary
 
     # --- Calendar redesigned as a Season Timeline (fix.txt) ---
     # Full narrative event feed (matches + transfers + injuries + contracts

@@ -268,20 +268,34 @@ def build_calendar_events(state: GameState, player_team: Team,
         if not m or not m.date:
             continue
         comp = _safe(lambda m=m: competition_for(m), None) if competition_for else None
-        comp_type = (comp or {}).get("type") or "league"
+        stored_type = (getattr(m, "comp_type", None) or "").lower()
+        comp_type = (comp or {}).get("comp_type") or stored_type or "league"
         name = (comp or {}).get("name") or "الدوري"
         rnd = (comp or {}).get("round") or ""
         opponent = m.away_team if (m.home_team and m.home_team.is_player_team) else m.home_team
         home = bool(m.home_team and m.home_team.is_player_team)
         title = f"{'ضد' if home else 'خارج أرضك'} {opponent.name if opponent else '؟'}"
         detail = f"{name}{(' — ' + rnd) if rnd else ''}"
+        try:
+            from config import CALENDAR_DOT_COLORS
+            dot_color = (comp or {}).get("dot_color") or CALENDAR_DOT_COLORS.get(
+                comp_type, CALENDAR_DOT_COLORS["league"]
+            )
+        except Exception:
+            dot_color = (comp or {}).get("dot_color") or "#3498db"
         events.append(_event(
             m.date,
             _competition_category(comp_type),
             title,
             detail,
             link=(f"/match_report/{m.id}" if m.played else "/match"),
-            extra={"played": bool(m.played), "home": home, "match_id": m.id},
+            extra={
+                "played": bool(m.played),
+                "home": home,
+                "match_id": m.id,
+                "comp_type": comp_type,
+                "dot_color": dot_color,
+            },
         ))
 
     # --- transfer window markers ---

@@ -17,10 +17,11 @@
         </div>
     </div>
 
-    <div class="view-tabs" style="display:flex;gap:0.35rem;margin-bottom:1rem;flex-wrap:wrap;">
-        <button class="view-tab active" data-view="month"><i class="fas fa-calendar-alt"></i> شهري</button>
-        <button class="view-tab" data-view="week"><i class="fas fa-calendar-week"></i> أسبوعي</button>
-        <button class="view-tab" data-view="agenda"><i class="fas fa-list-ul"></i> الأحداث</button>
+    <div class="calendar-legend" aria-label="دليل الألوان">
+        <span class="legend-item"><span class="match-dot" style="background:#3498db;"></span> الدوري</span>
+        <span class="legend-item"><span class="match-dot" style="background:#9b59b6;"></span> الكؤوس المحلية</span>
+        <span class="legend-item"><span class="match-dot" style="background:#f1c40f;"></span> أوروبا</span>
+        <span class="legend-item"><span class="match-dot played" style="background:#6b7280;"></span> مباراة ملعوبة</span>
     </div>
 
     <div class="calendar-main-grid" style="display:grid;grid-template-columns:1.6fr 1fr;gap:1.5rem;">
@@ -39,16 +40,6 @@
                 <div class="calendar-days" id="calendarDaysGrid">
                     <!-- Days rendered by JS -->
                 </div>
-            </div>
-
-            <!-- Week view -->
-            <div id="weekView" hidden>
-                <div class="week-grid" id="weekGrid"></div>
-            </div>
-
-            <!-- Agenda view -->
-            <div id="agendaView" hidden>
-                <div class="agenda-list" id="agendaList"></div>
             </div>
         </div>
 
@@ -69,6 +60,7 @@
 
     <!-- Hidden simulation form (posts to /simulate_to_date) -->
     <form id="simulateForm" action="/simulate_to_date" method="POST" style="display:none;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         <input type="hidden" name="target_date" id="targetDateInput" value=""/>
     </form>
 </section>
@@ -86,161 +78,156 @@
 .day-cell.inactive { color:rgba(255,255,255,0.15); cursor:not-allowed; background:transparent; }
 .day-cell.inactive:hover { transform:none; background:transparent; border-color:transparent; }
 .day-num { font-weight:bold; font-size:1rem; line-height:1; }
-.day-events { display:flex; flex-wrap:wrap; gap:3px; margin-top:auto; }
-.event-dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+.day-events { display:flex; flex-wrap:wrap; gap:4px; margin-top:auto; }
+.match-dot { width:9px; height:9px; border-radius:50%; display:inline-block; box-shadow:0 0 6px rgba(0,0,0,0.35); }
+.match-dot.played { opacity:0.45; box-shadow:none; }
 .day-cell.today { background:rgba(233,69,96,0.12)!important; border:2px solid #e94560!important; box-shadow:0 0 0 1px #e94560; }
 .day-cell.today .day-num { color:#e94560; }
 .day-cell.has-match { background:rgba(233,69,96,0.05); }
 .day-cell.selected { background:rgba(255,255,255,0.12)!important; border-color:rgba(255,255,255,0.35)!important; }
-.week-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:0.5rem; }
-.week-col { background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:0.5rem 0.4rem; min-height:180px; display:flex; flex-direction:column; gap:0.4rem; }
-.agenda-list { display:flex; flex-direction:column; gap:0.6rem; max-height:520px; overflow-y:auto; padding-left:0.2rem; }
-.agenda-group { display:flex; gap:0.75rem; }
-.agenda-date { min-width:78px; text-align:center; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:0.4rem 0.3rem; }
-.agenda-date .ad-day { font-size:1.15rem; font-weight:bold; color:#fff; }
-.agenda-items { flex:1; display:flex; flex-direction:column; gap:0.35rem; }
-.agenda-item { display:flex; align-items:center; gap:0.5rem; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.45rem 0.6rem; cursor:pointer; }
-.agenda-item:hover { background:rgba(255,255,255,0.07); }
+.calendar-legend { display:flex; flex-wrap:wrap; gap:1rem; align-items:center; color:var(--text-muted); font-size:0.82rem; }
+.legend-item { display:flex; align-items:center; gap:0.4rem; }
+.match-card { background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); border-radius:15px; padding:1.1rem; margin-bottom:0.9rem; }
+.comp-badge { color:#fff; padding:0.15rem 0.7rem; border-radius:20px; font-size:0.75rem; font-weight:bold; display:inline-block; }
+.match-teams { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; margin:0.75rem 0; }
+.team-block { flex:1; display:flex; flex-direction:column; align-items:center; text-align:center; }
+.team-crest { width:50px; height:50px; border-radius:50%; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); display:flex; align-items:center; justify-content:center; font-size:1.4rem; color:#fff; margin-bottom:0.25rem; }
+.team-name { font-weight:bold; font-size:0.95rem; }
+.score-box { display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:80px; }
+.vs-badge { color:#fff; padding:0.15rem 0.7rem; border-radius:20px; font-size:0.75rem; font-weight:bold; }
+.score-value { font-size:1.8rem; font-weight:800; letter-spacing:2px; }
+.match-meta { border-top:1px solid rgba(255,255,255,0.05); padding-top:0.75rem; font-size:0.85rem; display:grid; grid-template-columns:repeat(2,1fr); gap:0.75rem; }
+.meta-row { display:flex; flex-direction:column; gap:0.15rem; }
+.meta-label { color:var(--text-muted); }
+.meta-value { font-weight:bold; color:#fff; }
 .glass-panel { background:rgba(22,33,62,0.7); backdrop-filter:blur(10px); border:1px solid rgba(255,255,255,0.08); border-radius:20px; padding:1.5rem; box-shadow:0 8px 32px 0 rgba(0,0,0,0.3); }
 .empty-state i { font-size:2.5rem; opacity:0.4; }
 .empty-state p { margin:0; font-size:0.9rem; }
-.view-tab { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); color:var(--text-muted); padding:0.4rem 0.9rem; border-radius:20px; cursor:pointer; font-family:inherit; font-size:0.82rem; display:flex; align-items:center; gap:0.35rem; }
-.view-tab:hover { color:#fff; border-color:rgba(255,255,255,0.25); }
-.view-tab.active { background:#e94560; color:#fff; border-color:#e94560; }
 </style>
 {% endblock %}
 
 {% block scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function(){
-    const matchData = {{ player_matches_json|safe }};
-    const gameDateStr = "{{ state.current_date }}";
-    const monthTitleDisplay = document.getElementById('monthTitleDisplay');
-    const calendarDaysGrid = document.getElementById('calendarDaysGrid');
-    const prevMonthBtn = document.getElementById('prevMonthBtn');
-    const nextMonthBtn = document.getElementById('nextMonthBtn');
+let matchData = {};
+let gameDateStr = "";
+let displayedYear = 2026;
+let displayedMonth = 5;
+let selectedDate = "";
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c]));}
+function localIso(y,m0,d){return y+'-'+String(m0+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');}
+
+function matchesForDate(ds){
+    const entry = matchData[ds];
+    if(!entry) return [];
+    return entry.matches && entry.matches.length ? entry.matches : [entry];
+}
+
+function openSimulationTo(ds){
+    const form = document.getElementById('simulateForm');
+    const input = document.getElementById('targetDateInput');
+    if(!form || !input) return;
+    input.value = ds;
+    form.submit();
+}
+
+function simulateToDate(ds){ openSimulationTo(ds); }
+
+function showDayDetails(ds){
     const selectedDateDisplay = document.getElementById('selectedDateDisplay');
     const detailsContent = document.getElementById('detailsContent');
-    const monthView = document.getElementById('monthView');
-    const weekView = document.getElementById('weekView');
-    const agendaView = document.getElementById('agendaView');
-    const weekGrid = document.getElementById('weekGrid');
-    const agendaList = document.getElementById('agendaList');
-    let displayedYear = parseInt(gameDateStr.split('-')[0]);
-    let displayedMonth = parseInt(gameDateStr.split('-')[1]) - 1;
-    let selectedDate = gameDateStr;
+    selectedDateDisplay.textContent = ds;
+    const matches = matchesForDate(ds);
+    if(!matches.length){
+        let action = '';
+        if(ds > gameDateStr){
+            action = '<div style="margin-top:1rem;"><button class="btn btn-primary" style="width:100%;" onclick="simulateToDate(\''+esc(ds)+'\')">محاكاة إلى هذا التاريخ</button></div>';
+        }
+        detailsContent.innerHTML = '<div class="empty-state"><i class="far fa-calendar"></i><p>لا توجد مباريات مقررة لفريقك في هذا اليوم.</p>'+action+'</div>';
+        return;
+    }
+    const cards = matches.map(function(match){
+        let scoreDisplay = '<span class="vs-badge" style="background:rgba(255,255,255,0.08);">VS</span>';
+        if(match.played){
+            scoreDisplay = '<div class="score-value">'+match.home_score+'-'+match.away_score+'</div><span style="color:#2ecc71;">انتهت</span>';
+        }
+        const action = match.played
+            ? '<div style="margin-top:0.75rem;"><a href="/match_report/'+match.id+'" class="btn btn-success" style="width:100%;">تقرير المباراة</a></div>'
+            : '<div style="margin-top:0.75rem;"><button class="btn btn-primary" style="width:100%;" onclick="simulateToDate(\''+esc(ds)+'\')">محاكاة ولعب هذه المباراة</button></div>';
+        return '<div class="match-card">'
+            + '<div style="text-align:center;margin-bottom:0.25rem;"><span class="comp-badge" style="background:'+esc(match.comp_color||'#3498db')+';">'+esc(match.competition||'الدوري')+(match.comp_round?' — '+esc(match.comp_round):'')+'</span></div>'
+            + '<div class="match-teams">'
+            + '<div class="team-block"><div class="team-crest">'+esc((match.home||'?')[0])+'</div><span class="team-name">'+esc(match.home)+'</span></div>'
+            + '<div class="score-box">'+scoreDisplay+'</div>'
+            + '<div class="team-block"><div class="team-crest">'+esc((match.away||'?')[0])+'</div><span class="team-name">'+esc(match.away)+'</span></div>'
+            + '</div>'
+            + '<div class="match-meta">'
+            + '<div class="meta-row"><span class="meta-label">الملعب:</span><span class="meta-value">'+(match.home_is_player?'أرضك':'خارج أرضك')+'</span></div>'
+            + '<div class="meta-row"><span class="meta-label">الجولة:</span><span class="meta-value">'+(match.week===0?'كأس':'الأسبوع '+match.week)+(match.matchday?' — الجولة '+match.matchday:'')+'</span></div>'
+            + '</div>'
+            + action
+            + '</div>';
+    }).join('');
+    detailsContent.innerHTML = cards;
+}
+
+function renderCalendar(){
+    const monthTitleDisplay = document.getElementById('monthTitleDisplay');
+    const calendarDaysGrid = document.getElementById('calendarDaysGrid');
     const ARABIC_MONTHS = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
-    function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c]));}
-    function localIso(y,m0,d){return y+'-'+String(m0+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');}
-    function parseIso(s){const p=String(s).split('-');return new Date(Date.UTC(parseInt(p[0],10),parseInt(p[1],10)-1,parseInt(p[2],10)));}
-    function toIso(d){const y=d.getUTCFullYear();const m=String(d.getUTCMonth()+1).padStart(2,'0');const dd=String(d.getUTCDate()).padStart(2,'0');return y+'-'+m+'-'+dd;}
-    function renderCalendar(){
-        monthTitleDisplay.textContent = ARABIC_MONTHS[displayedMonth]+" "+displayedYear;
-        calendarDaysGrid.innerHTML='';
-        const firstDayIndex = new Date(displayedYear,displayedMonth,1).getDay();
-        const adjusted = firstDayIndex===0?6:firstDayIndex-1;
-        const totalDays = new Date(displayedYear,displayedMonth+1,0).getDate();
-        const prevTotal = new Date(displayedYear,displayedMonth,0).getDate();
-        for(let i=adjusted-1;i>=0;i--){
-            const cell=document.createElement('div');cell.className='day-cell inactive';cell.innerHTML='<span class="day-num">'+(prevTotal-i)+'</span>';calendarDaysGrid.appendChild(cell);
-        }
-        for(let day=1;day<=totalDays;day++){
-            const cell=document.createElement('div');cell.className='day-cell';
-            const ds=localIso(displayedYear,displayedMonth,day);cell.dataset.date=ds;
-            if(ds===gameDateStr)cell.classList.add('today');
-            if(ds===selectedDate)cell.classList.add('selected');
-            const match=matchData[ds];
-            let content='';
-            if(ds===gameDateStr){
-                content+='<span class="today-badge" style="position:absolute;top:0.25rem;left:0.25rem;background:#e94560;color:#fff;font-size:0.55rem;font-weight:bold;padding:0.05rem 0.3rem;border-radius:8px;">TODAY</span>';
-            }
-            content+='<span class="day-num">'+day+'</span>';
-            if(match)cell.classList.add('has-match');
-            cell.innerHTML=content;
-            cell.addEventListener('click',function(){
-                document.querySelectorAll('.day-cell').forEach(c=>c.classList.remove('selected'));
-                cell.classList.add('selected');selectedDate=ds;showDayDetails(ds);
-            });
-            calendarDaysGrid.appendChild(cell);
-        }
-        const totalRendered=adjusted+totalDays;
-        const pad=totalRendered%7===0?0:7-(totalRendered%7);
-        for(let day=1;day<=pad;day++){
-            const cell=document.createElement('div');cell.className='day-cell inactive';cell.innerHTML='<span class="day-num">'+day+'</span>';calendarDaysGrid.appendChild(cell);
-        }
+    monthTitleDisplay.textContent = ARABIC_MONTHS[displayedMonth]+" "+displayedYear;
+    calendarDaysGrid.innerHTML='';
+    const firstDayIndex = new Date(displayedYear,displayedMonth,1).getDay();
+    const adjusted = firstDayIndex===0?6:firstDayIndex-1;
+    const totalDays = new Date(displayedYear,displayedMonth+1,0).getDate();
+    const prevTotal = new Date(displayedYear,displayedMonth,0).getDate();
+    for(let i=adjusted-1;i>=0;i--){
+        const cell=document.createElement('div');cell.className='day-cell inactive';cell.innerHTML='<span class="day-num">'+(prevTotal-i)+'</span>';calendarDaysGrid.appendChild(cell);
     }
-    function renderWeek(){
-        weekGrid.innerHTML='';
-        const base=parseIso(selectedDate||gameDateStr);
-        const baseIdx=(base.getUTCDay()+6)%7;
-        const monday=new Date(base.getTime());monday.setUTCDate(monday.getUTCDate()-baseIdx);
-        const wdNames=['الإثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت','الأحد'];
-        for(let i=0;i<7;i++){
-            const d=new Date(monday.getTime());d.setUTCDate(d.getUTCDate()+i);
-            const iso=toIso(d);
-            const col=document.createElement('div');col.className='week-col'+(iso===gameDateStr?' is-today':'');
-            let head='<div class="week-col-head"><div class="wd">'+wdNames[i]+'</div><div class="dd">'+d.getUTCDate()+'</div></div>';
-            let body='';
-            const match=matchData[iso];
-            if(match){
-                body+='<div class="agenda-item" style="cursor:pointer;" onclick="showDayDetails(\''+esc(iso)+'\')"><div style="flex:1;"><div style="font-weight:bold;color:#fff;">'+esc(match.home)+' vs '+esc(match.away)+'</div><div style="font-size:0.72rem;color:var(--text-muted);">'+(match.played?match.home_score+'-'+match.away_score:'غير ملعوبة')+'</div></div></div>';
-            }else{
-                body+='<div style="text-align:center;padding-top:1rem;color:var(--text-muted);font-size:0.8rem;">لا أحداث</div>';
-            }
-            col.innerHTML=head+body;
-            weekGrid.appendChild(col);
+    for(let day=1;day<=totalDays;day++){
+        const cell=document.createElement('div');cell.className='day-cell';
+        const ds=localIso(displayedYear,displayedMonth,day);cell.dataset.date=ds;
+        if(ds===gameDateStr)cell.classList.add('today');
+        if(ds===selectedDate)cell.classList.add('selected');
+        const matches = matchesForDate(ds);
+        if(matches.length)cell.classList.add('has-match');
+        let content='';
+        if(ds===gameDateStr){
+            content+='<span class="today-badge" style="position:absolute;top:0.25rem;left:0.25rem;background:#e94560;color:#fff;font-size:0.55rem;font-weight:bold;padding:0.05rem 0.3rem;border-radius:8px;">TODAY</span>';
         }
-        monthTitleDisplay.textContent='أسبوع '+ARABIC_MONTHS[monday.getUTCMonth()]+' '+monday.getUTCDate();
-    }
-    function renderAgenda(){
-        agendaList.innerHTML='';
-        const from=gameDateStr;const order=[];const groups={};
-        for(const ds in matchData){
-            if(ds<from)continue;
-            if(!groups[ds]){groups[ds]=[];order.push(ds);}
-            groups[ds].push(matchData[ds]);
+        content+='<span class="day-num">'+day+'</span>';
+        if(matches.length){
+            const dots = matches.map(function(m){
+                const color = m.played ? '#6b7280' : (m.dot_color || '#3498db');
+                const label = (m.competition || 'الدوري') + (m.comp_round ? ' — ' + m.comp_round : '') + (m.played ? ' (انتهت)' : '');
+                return '<span class="match-dot'+(m.played?' played':'')+'" style="background:'+esc(color)+';" title="'+esc(label)+'"></span>';
+            }).join('');
+            content+='<span class="day-events">'+dots+'</span>';
         }
-        order.sort().slice(0,60).forEach(function(ds){
-            const d=parseIso(ds);
-            const group=document.createElement('div');group.className='agenda-group'+(ds===gameDateStr?' is-today':'');
-            let items='';
-            groups[ds].forEach(function(m){
-                items+='<div class="agenda-item" onclick="showDayDetails(\''+esc(ds)+'\')" style="cursor:pointer;"><i class="fas fa-futbol"></i><div style="flex:1;"><div style="font-weight:bold;color:#fff;">'+esc(m.home)+' vs '+esc(m.away)+'</div><div style="font-size:0.72rem;color:var(--text-muted);">'+(m.played?m.home_score+'-'+m.away_score:'غير ملعوبة')+'</div></div></div>';
-            });
-            group.innerHTML='<div class="agenda-date"><div class="ad-day">'+d.getUTCDate()+'</div><div class="ad-mon">'+ARABIC_MONTHS[d.getUTCMonth()]+'</div></div><div class="agenda-items">'+items+'</div>';
-            agendaList.appendChild(group);
+        cell.innerHTML=content;
+        cell.addEventListener('click',function(){
+            document.querySelectorAll('.day-cell').forEach(c=>c.classList.remove('selected'));
+            cell.classList.add('selected');selectedDate=ds;showDayDetails(ds);
         });
-        if(!order.length){agendaList.innerHTML='<div class="agenda-empty" style="color:var(--text-muted);text-align:center;padding:2rem 0;"><i class="far fa-calendar-check"></i><p>لا أحداث قادمة</p></div>';}
-        monthTitleDisplay.textContent='الأحداث القادمة';
+        calendarDaysGrid.appendChild(cell);
     }
-    function showDayDetails(ds){
-        selectedDateDisplay.textContent=ds;
-        const match=matchData[ds];
-        if(!match){
-            detailsContent.innerHTML='<div class="empty-state"><i class="far fa-calendar"></i><p>لا توجد مباريات مقررة لفريقك في هذا اليوم.</p></div>';
-            return;
-        }
-        const isFuture=!match.played;
-        let scoreDisplay='<span style="color:#fff;padding:0.15rem 0.7rem;border-radius:20px;font-size:0.75rem;font-weight:bold;">VS</span>';
-        if(match.played)scoreDisplay='<div style="font-size:1.8rem;font-weight:800;letter-spacing:2px;">'+match.home_score+'-'+match.away_score+'</div><span style="color:#2ecc71;">انتهت</span>';
-        let action='';
-        if(isFuture){
-            action='<div style="margin-top:1rem;"><button class="btn btn-primary" style="width:100%;">محاكاة ولعب هذه المباراة</button></div>';
-        }else{
-            action='<div style="margin-top:1rem;"><a href="/match_report/'+match.id+'" class="btn btn-success" style="width:100%;">تقرير المباراة</a></div>';
-        }
-        const compBadge='<span style="color:#fff;padding:0.15rem 0.7rem;border-radius:20px;font-size:0.78rem;font-weight:bold;background:'+(match.comp_color||'#3498db')+';">'+(match.competition||'الدوري')+(match.comp_round?' — '+match.comp_round:'')+'</span>';
-        detailsContent.innerHTML='<div style="display:flex;flex-direction:column;gap:1rem;"><div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:15px;padding:1.25rem;"><div style="text-align:center;margin-bottom:0.5rem;">'+compBadge+'</div><div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;"><div style="flex:1;display:flex;flex-direction:column;align-items:center;text-align:center;"><div style="width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:1.4rem;color:#fff;margin-bottom:0.25rem;">'+(match.home||'?')[0]+'</div><span style="font-weight:bold;font-size:0.95rem;">'+match.home+'</span></div><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:80px;">'+scoreDisplay+'</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;text-align:center;"><div style="width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:1.4rem;color:#fff;margin-bottom:0.25rem;">'+(match.away||'?')[0]+'</div><span style="font-weight:bold;font-size:0.95rem;">'+match.away+'</span></div></div><div style="border-top:1px solid rgba(255,255,255,0.05);padding-top:0.75rem;font-size:0.85rem;display:grid;grid-template-columns:repeat(2,1fr);gap:0.75rem;"><div style="display:flex;flex-direction:column;gap:0.15rem;"><span style="color:var(--text-muted);">الملعب:</span><span style="font-weight:bold;color:#fff;">'+(match.home_is_player?'أرضك':'خارج أرضك')+'</span></div><div style="display:flex;flex-direction:column;gap:0.15rem;"><span style="color:var(--text-muted);">الجولة:</span><span style="font-weight:bold;color:#fff;">'+(match.week===0?'كأس':'الأسبوع '+match.week)+'</span></div></div></div>'+action+'</div>';
+    const totalRendered=adjusted+totalDays;
+    const pad=totalRendered%7===0?0:7-(totalRendered%7);
+    for(let day=1;day<=pad;day++){
+        const cell=document.createElement('div');cell.className='day-cell inactive';cell.innerHTML='<span class="day-num">'+day+'</span>';calendarDaysGrid.appendChild(cell);
     }
-    function setView(v){
-        monthView.hidden=v!=='month';weekView.hidden=v!=='week';agendaView.hidden=v!=='agenda';
-        document.querySelectorAll('.view-tab').forEach(t=>t.classList.toggle('active',t.dataset.view===v));
-        if(v==='month')renderCalendar();else if(v==='week')renderWeek();else renderAgenda();
-    }
-    document.querySelectorAll('.view-tab').forEach(tab=>tab.addEventListener('click',function(){setView(tab.dataset.view);}));
-    prevMonthBtn.addEventListener('click',function(){displayedMonth--;if(displayedMonth<0){displayedMonth=11;displayedYear--;}renderCalendar();});
-    nextMonthBtn.addEventListener('click',function(){displayedMonth++;if(displayedMonth>11){displayedMonth=0;displayedYear++;}renderCalendar();});
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+    matchData = {{ player_matches_json|safe }};
+    gameDateStr = "{{ state.current_date }}";
+    selectedDate = gameDateStr;
+    displayedYear = parseInt(gameDateStr.split('-')[0]);
+    displayedMonth = parseInt(gameDateStr.split('-')[1]) - 1;
+    document.getElementById('prevMonthBtn').addEventListener('click',function(){displayedMonth--;if(displayedMonth<0){displayedMonth=11;displayedYear--;}renderCalendar();});
+    document.getElementById('nextMonthBtn').addEventListener('click',function(){displayedMonth++;if(displayedMonth>11){displayedMonth=0;displayedYear++;}renderCalendar();});
     renderCalendar();
+    showDayDetails(gameDateStr);
 });
 </script>
 {% endblock %}

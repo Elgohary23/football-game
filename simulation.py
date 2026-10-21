@@ -12,17 +12,20 @@ import time
 from typing import Optional
 
 import numpy as np
-from sqlalchemy import update
+from sqlalchemy import func, or_, update
 
 from config import (
+    BOXING_DAY_FATIGUE_MULTIPLIER,
     CALENDAR_COMMIT_EVERY_DAYS,
     CALENDAR_DAY_THROTTLE_MS,
+    COMPRESSED_WEEK_INJURY_CHANCE,
+    COMPRESSED_WEEK_INJURY_MAX_DAYS,
+    COMPRESSED_WEEK_INJURY_MIN_DAYS,
     CUP_MATCH_WEEK,
     DAILY_FITNESS_RECOVERY,
     DAYS_PER_WEEK,
     DEVELOPMENT_UPDATE_DAYS,
-    FITNESS_DECAY_LAZY,
-    FITNESS_DECAY_PROFESSIONAL,
+    FIFA_BREAK_FITNESS_RECOVERY,
     FITNESS_STARTING_DECAY,
     GOAL_EXPECTANCY_MAX,
     GOAL_EXPECTANCY_MIN,
@@ -34,6 +37,7 @@ from config import (
     INJURY_MAX_DAYS_HARD,
     INJURY_MAX_DAYS_SOFT,
     INJURY_MIN_DAYS,
+    LIGHT_WEEK_FATIGUE_MULTIPLIER,
     MARKET_PERF_ASSIST,
     MARKET_PERF_GOAL,
     MARKET_VALUE_DECAY_RATE,
@@ -43,6 +47,7 @@ from config import (
     MAX_FITNESS,
     MAX_GOALS_PER_TEAM,
     MAX_SQUAD_SIZE,
+    NORMAL_WEEK_FATIGUE_MULTIPLIER,
     OLD_DATA_KEEP_PLAYED_MATCHES,
     POSITION_REQUIREMENTS,
     PROMOTION_BONUS_PER_TIER,
@@ -115,23 +120,121 @@ def _clamp_goals(value: int) -> int:
     return max(0, min(MAX_GOALS_PER_TEAM, int(value)))
 
 
-def _apply_match_fatigue(home: Team, away: Team, injury_chance: float, injury_max_days: int) -> None:
+def weekly_load(team_id: int, week: int | None = None,
+                reference_date: str | None = None) -> int:
+    """Matches played by ``team_id`` in a week (fix.txt section 6.1).
+
+    - With ``reference_date``: counts fixtures in the Monday→Sunday calendar
+      week containing that date (cups + league, played or scheduled).
+    - Without it: falls back to the game round number (``Match.week``).
+    """
+    import datetime as _dt
+
+    d = None
+    if reference_date:
+        try:
+            d = _dt.datetime.strptime(str(reference_date)[:10], "%Y-%m-%d").date()
+        except Exception:
+            d = None
+    query = Match.query.filter(
+        or_(Match.home_team_id == team_id, Match.away_team_id == team_id)
+    )
+    if d is not None:
+        monday = d - _dt.timedelta(days=d.weekday())
+        sunday = monday + _dt.timedelta(days=6)
+        query = query.filter(
+            Match.date.isnot(None),
+            Match.date >= monday.isoformat(),
+            Match.date <= sunday.isoformat(),
+        )
+        return int(query.count())
+    if week is None:
+        return 0
+    return int(query.filter(Match.week == week).count())
+
+
+def fatigue_multiplier_for_match(match: Match) -> float:
+    """Density multiplier for a fixture (normal / light / compressed)."""
+    try:
+        from services import is_boxing_day_date
+    except Exception:
+        is_boxing_day_date = None
+    if is_boxing_day_date and match.date and is_boxing_day_date(match.date):
+        return BOXING_DAY_FATIGUE_MULTIPLIER
+    loads = []
+    for team in (match.home_team, match.away_team):
+        if team is None:
+            continue
+        loads.append(weekly_load(team.id, match.week, match.date))
+    load = max(loads) if loads else 1
+    if load >= 3:
+        return BOXING_DAY_FATIGUE_MULTIPLIER
+    if load <= 1:
+        return LIGHT_WEEK_FATIGUE_MULTIPLIER
+    return NORMAL_WEEK_FATIGUE_MULTIPLIER
+
+
+def _fatigue_teams(home: Team, away: Team, multiplier: float = 1.0) -> None:
+    """Drop starter fitness (~8% per match) scaled by schedule density."""
+    staff_by_team = {
+        getattr(home, "id", None): home.get_staff_bonuses(),
+        getattr(away, "id", None): away.get_staff_bonuses(),
+    }
+    for team in (home, away):
+        staff = staff_by_team.get(getattr(team, "id", None), {})
+        for p in team.players:
+            if not p.is_starting:
+                continue
+            decay = FITNESS_STARTING_DECAY * multiplier
+            if p.personality == "Lazy":
+                decay *= 1.5
+            elif p.personality == "Professional":
+                decay *= 0.8
+            decay = max(3.0, decay - int(staff.get("fitness", 0) * 2))
+            p.fitness = max(20, min(MAX_FITNESS, p.fitness - int(round(decay))))
+
+
+def apply_fatigue(match: Match, multiplier: float = 1.0) -> None:
+    """Apply post-match fitness loss + compressed-week injury risk.
+
+    Public helper (fix.txt section 6.2) used by every match engine so AI
+    clubs pay the exact same price as the manager's team.
+    """
+    home = match.home_team
+    away = match.away_team
+    if not home or not away:
+        return
+    _fatigue_teams(home, away, multiplier)
+    if multiplier >= BOXING_DAY_FATIGUE_MULTIPLIER:
+        for team in (home, away):
+            for p in team.players:
+                if not p.is_starting or p.injury_days:
+                    continue
+                if random.random() < COMPRESSED_WEEK_INJURY_CHANCE:
+                    p.injury_days = random.randint(
+                        COMPRESSED_WEEK_INJURY_MIN_DAYS,
+                        COMPRESSED_WEEK_INJURY_MAX_DAYS,
+                    )
+
+
+def _apply_match_fatigue(home: Team, away: Team, injury_chance: float,
+                         injury_max_days: int, multiplier: float = 1.0) -> None:
+    _fatigue_teams(home, away, multiplier)
     staff_home = home.get_staff_bonuses()
     staff_away = away.get_staff_bonuses()
     for p in home.players + away.players:
         if not p.is_starting:
             continue
         staff = staff_home if p.team_id == home.id else staff_away
-        decay = FITNESS_STARTING_DECAY
-        if p.personality == "Lazy":
-            decay = FITNESS_DECAY_LAZY
-        elif p.personality == "Professional":
-            decay = FITNESS_DECAY_PROFESSIONAL
-        decay = max(3, decay - int(staff["fitness"] * 2))
-        p.fitness = max(0, min(MAX_FITNESS, p.fitness - decay))
         p.matches_played += 1
         if random.random() < injury_chance and staff["injury_reduction"] < 1.0:
             p.injury_days = random.randint(INJURY_MIN_DAYS, injury_max_days)
+        elif multiplier >= BOXING_DAY_FATIGUE_MULTIPLIER and not p.injury_days:
+            if random.random() < COMPRESSED_WEEK_INJURY_CHANCE:
+                p.injury_days = random.randint(
+                    COMPRESSED_WEEK_INJURY_MIN_DAYS,
+                    COMPRESSED_WEEK_INJURY_MAX_DAYS,
+                )
 
 
 def simulate_match(match: Match, state: Optional[GameState] = None, mode: str = "quick") -> bool:
@@ -150,6 +253,7 @@ def simulate_match(match: Match, state: Optional[GameState] = None, mode: str = 
 
         h_att, h_def = get_lineup_strength(home)
         a_att, a_def = get_lineup_strength(away)
+        fatigue_multiplier = fatigue_multiplier_for_match(match)
 
         if mode == "quick":
             # Dampened Poisson expectation (Tip 22): caps prevent 8-2 blowouts.
@@ -165,6 +269,9 @@ def simulate_match(match: Match, state: Optional[GameState] = None, mode: str = 
             match.away_score = _clamp_goals(np.random.poisson(away_exp))
             match.result = f"{match.home_score}-{match.away_score}"
             match.played = True
+            # Every engine (including the world quick-sim) applies the same
+            # density-scaled fatigue so AI clubs are treated identically.
+            apply_fatigue(match, fatigue_multiplier)
             # Cup ties (week == 0) never touch the league table — the cup
             # engine records winners separately via cup_services.
             if (match.week or 0) != CUP_MATCH_WEEK:
@@ -224,7 +331,7 @@ def simulate_match(match: Match, state: Optional[GameState] = None, mode: str = 
 
         injury_chance = INJURY_CHANCE_HARD if mode == "deep" else INJURY_CHANCE_SOFT
         injury_max = INJURY_MAX_DAYS_HARD if mode == "deep" else INJURY_MAX_DAYS_SOFT
-        _apply_match_fatigue(home, away, injury_chance, injury_max)
+        _apply_match_fatigue(home, away, injury_chance, injury_max, fatigue_multiplier)
 
         # Cup ties (week == 0) never touch the league table.
         if (match.week or 0) != CUP_MATCH_WEEK:
@@ -981,6 +1088,7 @@ def update_market_values() -> None:
 def simulate_day(state: GameState) -> None:
     from datetime import datetime, timedelta
 
+    previous_date = state.current_date
     try:
         if state.current_date:
             curr_dt = datetime.strptime(state.current_date, "%Y-%m-%d").date()
@@ -992,12 +1100,31 @@ def simulate_day(state: GameState) -> None:
 
     state.current_day += 1
 
-    # Bulk daily fitness / injury updates (Tip 14).
+    # Realistic calendar: keep the derived phase + FIFA-break flag in sync.
+    break_started = False
+    try:
+        from services import is_fifa_break_date, season_phase_for_date
+        state.season_phase = season_phase_for_date(state.current_date)
+        state.is_fifa_break = is_fifa_break_date(state.current_date)
+        break_started = bool(state.is_fifa_break) and not is_fifa_break_date(previous_date)
+    except Exception:
+        logger.exception("season phase update failed")
+
+    # Bulk daily fitness / injury updates (Tip 14). Rest days add +3 and
+    # never push fitness above the cap; a FIFA break opens with a +15
+    # full-recovery bonus.
     db.session.execute(
         update(Player)
         .where(Player.fitness < MAX_FITNESS)
-        .values(fitness=Player.fitness + DAILY_FITNESS_RECOVERY)
+        .values(fitness=func.min(MAX_FITNESS, Player.fitness + DAILY_FITNESS_RECOVERY))
     )
+    if break_started:
+        db.session.execute(
+            update(Player)
+            .where(Player.fitness < MAX_FITNESS)
+            .values(fitness=func.min(MAX_FITNESS,
+                                        Player.fitness + FIFA_BREAK_FITNESS_RECOVERY))
+        )
     db.session.execute(
         update(Player)
         .where(Player.injury_days > 0)

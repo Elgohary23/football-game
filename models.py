@@ -367,6 +367,9 @@ class GameState(db.Model):
     start_date = db.Column(db.String(10), default="2026-06-01")
     current_date = db.Column(db.String(10), default="2026-06-01")
     season_number = db.Column(db.Integer, default=1)
+    # --- Realistic calendar (fix.txt): derived season phase + FIFA break ---
+    season_phase = db.Column(db.String(20), default="preseason")
+    is_fifa_break = db.Column(db.Boolean, default=False)
     manager_history = db.Column(db.Text, nullable=True)
     board_confidence = db.Column(db.Integer, default=60)
     # Manual window override: None = derive from current_date, else open/closed.
@@ -388,6 +391,11 @@ class Match(db.Model):
     result = db.Column(db.String(20), nullable=True)
     home_score = db.Column(db.Integer, default=0)
     away_score = db.Column(db.Integer, default=0)
+    # --- Realistic calendar (fix.txt): competition bucket + matchday ------
+    # comp_type: "league" | "domestic_cup" | "continental"
+    comp_type = db.Column(db.String(20), default="league")
+    # matchday: 1..8 for the Swiss league phase, NULL elsewhere.
+    matchday = db.Column(db.Integer, nullable=True)
 
     home_events = db.Column(db.JSON, nullable=True)
     away_events = db.Column(db.JSON, nullable=True)

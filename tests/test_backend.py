@@ -1,5 +1,6 @@
 """Backend tests: models, simulation engine, services, HTTP routes."""
 import json
+import re
 
 from models import (
     db,
@@ -1349,3 +1350,317 @@ class TestNarrativeEngine:
         db.session.commit()
         items = critical_notifications(state, team)
         assert all(i["title"] and i["link"] for i in items)
+
+# ======================================================================
+# Realistic multi-competition scheduling (fix.txt)
+# ======================================================================
+class TestSeasonScheduling:
+    def test_season_phase_mapping(self):
+        from services import season_phase_for_date
+
+        assert season_phase_for_date("2026-08-10") == "preseason"
+        assert season_phase_for_date("2026-09-12") == "autumn"
+        assert season_phase_for_date("2026-11-14") == "winter"
+        assert season_phase_for_date("2026-12-26") == "boxing_day"
+        assert season_phase_for_date("2027-01-15") == "winter_break"
+        assert season_phase_for_date("2027-02-20") == "spring"
+        assert season_phase_for_date("2027-04-10") == "run_in"
+        assert season_phase_for_date("2027-06-10") == "offseason"
+
+    def test_fifa_and_boxing_day_windows(self):
+        from services import is_boxing_day_date, is_fifa_break_date
+
+        assert is_fifa_break_date("2026-09-05")
+        assert is_fifa_break_date("2026-10-10")
+        assert is_fifa_break_date("2027-03-20")
+        assert not is_fifa_break_date("2026-09-20")
+        assert is_boxing_day_date("2026-12-26")
+        assert is_boxing_day_date("2027-01-01")
+        assert not is_boxing_day_date("2026-12-10")
+
+    def test_top_flight_calendar_is_legal(self):
+        from config import TOP_LEAGUE_ROUNDS
+        from services import season_fixture_dates, validate_fixture_dates
+
+        dates = season_fixture_dates("2026-08-01", TOP_LEAGUE_ROUNDS)
+        assert len(dates) == TOP_LEAGUE_ROUNDS
+        assert dates == sorted(set(dates))
+        assert validate_fixture_dates(dates) == []
+        assert dates[0] >= "2026-08-01"
+        assert dates[-1] <= "2027-05-31"
+
+    def test_lower_league_calendar_is_legal(self):
+        from config import LOWER_LEAGUE_ROUNDS
+        from services import season_fixture_dates, validate_fixture_dates
+
+        dates = season_fixture_dates("2026-08-01", LOWER_LEAGUE_ROUNDS)
+        assert len(dates) == LOWER_LEAGUE_ROUNDS
+        assert validate_fixture_dates(dates) == []
+
+    def test_boxing_day_has_three_matches_in_a_week(self):
+        from services import season_fixture_dates
+
+        dates = season_fixture_dates("2026-08-01", 38)
+        cluster = [d for d in dates if "2026-12-22" <= d <= "2027-01-05"]
+        assert cluster == ["2026-12-26", "2026-12-29", "2027-01-01"]
+        # The compressed rhythm really is 3 fixtures in 7 days.
+        week = [d for d in dates if "2026-12-28" <= d <= "2027-01-03"]
+        assert len(week) == 2
+        assert len([d for d in dates if "2026-12-21" <= d <= "2026-12-27"]) == 1
+
+    def test_no_fixture_inside_a_fifa_break(self):
+        from services import is_fifa_break_date, season_fixture_dates
+
+        dates = season_fixture_dates("2026-08-01", 46)
+        assert not any(is_fifa_break_date(d) for d in dates)
+
+    def test_validate_flags_break_and_short_rest(self):
+        from services import validate_fixture_dates
+
+        assert any("FIFA" in p for p in validate_fixture_dates(["2026-09-05"]))
+        assert any(
+            "rest" in p
+            for p in validate_fixture_dates(["2026-08-08", "2026-08-09"])
+        )
+
+
+class TestFatigueAndLoad:
+    @staticmethod
+    def _add_matches(team, opp, dates, week=5):
+        matches = []
+        for d in dates:
+            m = Match(home_team_id=team.id, away_team_id=opp.id,
+                      week=week, date=d)
+            db.session.add(m)
+            matches.append(m)
+        db.session.commit()
+        return matches
+
+    def test_weekly_load_counts_mon_to_sun_week(self, ctx):
+        from simulation import weekly_load
+
+        team, opp = _player_team(), _opponent()
+        self._add_matches(team, opp, ["2026-08-10", "2026-08-13", "2026-08-16"])
+        assert weekly_load(team.id, reference_date="2026-08-12") == 3
+        assert weekly_load(team.id, reference_date="2026-08-17") == 0
+        assert weekly_load(team.id, week=5) == 3
+
+    def test_fatigue_multiplier_by_density(self, ctx):
+        from config import (BOXING_DAY_FATIGUE_MULTIPLIER,
+                            LIGHT_WEEK_FATIGUE_MULTIPLIER)
+        from simulation import fatigue_multiplier_for_match
+
+        team, opp = _player_team(), _opponent()
+        normal = Match(home_team_id=team.id, away_team_id=opp.id,
+                       week=6, date="2026-08-22")
+        db.session.add(normal)
+        db.session.commit()
+        assert fatigue_multiplier_for_match(normal) == LIGHT_WEEK_FATIGUE_MULTIPLIER
+
+        # Two extra fixtures in the same Mon-Sun week -> compressed.
+        self._add_matches(team, opp, ["2026-08-18", "2026-08-20"], week=6)
+        assert fatigue_multiplier_for_match(normal) == BOXING_DAY_FATIGUE_MULTIPLIER
+
+        boxing = Match(home_team_id=team.id, away_team_id=opp.id,
+                       week=7, date="2026-12-26")
+        db.session.add(boxing)
+        db.session.commit()
+        assert fatigue_multiplier_for_match(boxing) == BOXING_DAY_FATIGUE_MULTIPLIER
+
+    def test_apply_fatigue_drops_starter_fitness_by_8_percent(self, ctx):
+        from config import FITNESS_STARTING_DECAY
+        from simulation import apply_fatigue
+
+        match = Match.query.filter_by(played=False).first()
+        for p in match.home_team.players + match.away_team.players:
+            p.fitness = 100
+        db.session.commit()
+
+        apply_fatigue(match, multiplier=1.0)
+        for team in (match.home_team, match.away_team):
+            for p in team.players:
+                if p.is_starting:
+                    assert p.fitness == 100 - FITNESS_STARTING_DECAY
+                else:
+                    assert p.fitness == 100
+
+    def test_compressed_week_adds_injury_risk(self, ctx, monkeypatch):
+        import simulation
+        from config import (COMPRESSED_WEEK_INJURY_MAX_DAYS,
+                            COMPRESSED_WEEK_INJURY_MIN_DAYS)
+
+        match = Match.query.filter_by(played=False).first()
+        monkeypatch.setattr(simulation.random, "random", lambda: 0.0)
+        monkeypatch.setattr(simulation.random, "randint", lambda a, b: b)
+        simulation.apply_fatigue(match, multiplier=1.5)
+
+        starters = [p for t in (match.home_team, match.away_team)
+                    for p in t.players if p.is_starting]
+        assert starters
+        assert all(
+            COMPRESSED_WEEK_INJURY_MIN_DAYS
+            <= p.injury_days
+            <= COMPRESSED_WEEK_INJURY_MAX_DAYS
+            for p in starters
+        )
+
+
+class TestPlayerMatchFilter:
+    def test_is_player_match_only_for_manager_club(self, ctx):
+        from services import is_player_match
+
+        team, opp = _player_team(), _opponent()
+        other = Team(name="Other FC", morale=70, league_id=team.league_id)
+        db.session.add(other)
+        db.session.flush()
+        player_match = Match(home_team_id=team.id, away_team_id=opp.id, week=7)
+        ai_match = Match(home_team_id=opp.id, away_team_id=other.id, week=7)
+        db.session.add_all([player_match, ai_match])
+        db.session.commit()
+
+        assert is_player_match(player_match)
+        assert not is_player_match(ai_match)
+
+    def test_calendar_embeds_only_player_fixtures(self, client):
+        team, opp = _player_team(), _opponent()
+        other = Team(name="Other FC", morale=70, league_id=team.league_id)
+        db.session.add(other)
+        db.session.flush()
+        ai_match = Match(home_team_id=opp.id, away_team_id=other.id,
+                         week=8, date="2026-09-19")
+        db.session.add(ai_match)
+        db.session.commit()
+
+        text = client.get("/calendar").get_data(as_text=True)
+        embedded = json.loads(
+            re.search(r"^\s*matchData = (\{.*?\});\s*\n\s*gameDateStr",
+                      text, re.S | re.M).group(1)
+        )
+        ids = {entry["id"] for entry in embedded.values()}
+        assert ai_match.id not in ids
+        assert all(
+            home["home_is_player"] or home["away_is_player"]
+            for home in embedded.values()
+        )
+
+
+class TestContinentalLeaguePhase:
+    def _seed(self):
+        from cup_services import create_tournament, seed_continental_league_phase
+
+        league_id = _player_team().league_id
+        teams = [Team(name=f"UCL {i}", morale=70, league_id=league_id)
+                 for i in range(10)]
+        db.session.add_all(teams)
+        db.session.flush()
+        tournament = create_tournament("champions_league", 1)
+        seed_continental_league_phase(
+            tournament, [t.id for t in teams], "2026-09-01"
+        )
+        db.session.commit()
+        return tournament, teams
+
+    def test_every_participant_plays_eight_matchdays(self, ctx):
+        from config import UCL_LEAGUE_MATCHES
+        from models import TournamentFixture
+
+        tournament, teams = self._seed()
+        fixtures = TournamentFixture.query.filter_by(
+            tournament_id=tournament.id
+        ).all()
+        assert len(fixtures) == UCL_LEAGUE_MATCHES * len(teams) // 2
+
+        per_team = {team.id: 0 for team in teams}
+        matchdays = set()
+        for fx in fixtures:
+            m = fx.match
+            assert fx.round_name == "League Phase"
+            assert m.comp_type == "continental"
+            assert 1 <= m.matchday <= UCL_LEAGUE_MATCHES
+            assert m.date and m.week is not None
+            matchdays.add(m.matchday)
+            per_team[m.home_team_id] += 1
+            per_team[m.away_team_id] += 1
+
+        assert set(per_team.values()) == {UCL_LEAGUE_MATCHES}
+        assert matchdays == set(range(1, UCL_LEAGUE_MATCHES + 1))
+
+    def test_matchdays_land_on_midweek_slots(self, ctx):
+        import datetime as dt
+
+        from models import TournamentFixture
+
+        tournament, _ = self._seed()
+        for fx in TournamentFixture.query.filter_by(
+                tournament_id=tournament.id).all():
+            weekday = dt.date.fromisoformat(fx.match.date).weekday()
+            assert weekday in (1, 2), fx.match.date
+
+    def test_fixture_competition_exposes_dot_colour(self, ctx):
+        from config import CALENDAR_DOT_COLORS
+        from cup_services import fixture_competition
+        from models import TournamentFixture
+
+        tournament, _ = self._seed()
+        fx = TournamentFixture.query.filter_by(tournament_id=tournament.id).first()
+        comp = fixture_competition(fx.match)
+        assert comp["comp_type"] == "continental"
+        assert comp["dot_color"] == CALENDAR_DOT_COLORS["continental"]
+        assert 1 <= comp["matchday"] <= 8
+        assert "الجولة" in comp["round"]
+
+class TestRealisticCalendarMigration:
+    def test_legacy_save_is_upgraded_and_backfilled(self, tmp_path):
+        import importlib.util
+        import sqlite3
+        from pathlib import Path
+
+        script = (Path(__file__).resolve().parents[1]
+                  / "scripts" / "migrate_realistic_calendar.py")
+        spec = importlib.util.spec_from_file_location("migrate_calendar", script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        db_path = tmp_path / "legacy.sqlite3"
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE "match" (id INTEGER PRIMARY KEY, week INTEGER, date TEXT);
+            CREATE TABLE game_state (id INTEGER PRIMARY KEY, current_date TEXT);
+            CREATE TABLE tournaments (id INTEGER PRIMARY KEY, name TEXT, scope TEXT);
+            CREATE TABLE tournament_fixtures (
+                id INTEGER PRIMARY KEY, tournament_id INTEGER,
+                match_id INTEGER, round_name TEXT
+            );
+            INSERT INTO "match" VALUES (1, 5, '2026-09-12');
+            INSERT INTO "match" VALUES (2, 0, '2026-09-15');
+            INSERT INTO "match" VALUES (3, 0, '2026-09-22');
+            INSERT INTO "match" VALUES (4, 0, '2026-09-08');
+            INSERT INTO game_state VALUES (1, '2026-12-26');
+            INSERT INTO tournaments VALUES (1, 'UCL', 'continental');
+            INSERT INTO tournaments VALUES (2, 'FA Cup', 'domestic');
+            INSERT INTO tournament_fixtures VALUES (1, 1, 2, 'League Phase');
+            INSERT INTO tournament_fixtures VALUES (2, 1, 3, 'League Phase');
+            INSERT INTO tournament_fixtures VALUES (3, 2, 1, 'Round 1');
+        """)
+        conn.commit()
+        conn.close()
+
+        assert module.migrate(str(db_path)) is True
+        assert module.migrate(str(db_path)) is True  # idempotent
+
+        conn = sqlite3.connect(db_path)
+        matches = {
+            row[0]: (row[1], row[2])
+            for row in conn.execute(
+                'SELECT id, comp_type, matchday FROM "match"'
+            )
+        }
+        assert matches[1] == ("domestic_cup", None)
+        assert matches[2] == ("continental", 1)
+        assert matches[3] == ("continental", 2)
+        assert matches[4] == ("domestic_cup", None)
+        state = conn.execute(
+            'SELECT season_phase, is_fifa_break FROM game_state'
+        ).fetchone()
+        assert state == ("boxing_day", 0)
+        conn.close()

@@ -26,6 +26,7 @@ from config import (
     AGENT_FEE_STAR_RATIO,
     AGENT_FEE_STAR_THRESHOLD,
     ATTACK_ATTRS,
+    BOXING_DAY_RANGE,
     BUY_BACK_PRICE_CAP_MULT,
     CONTRACT_DAYS_PER_YEAR,
     CONTRACT_MAX_YEARS,
@@ -40,6 +41,7 @@ from config import (
     EUROPEAN_TEAMS,
     FFP_BASE_ALLOWANCE,
     FFP_SPEND_RATIO,
+    FIFA_BREAK_WINDOWS,
     FIRST_REFUSAL_NOTICE_DAYS,
     FREE_AGENT_SIGN_FEE_RATIO,
     INSTALLMENT_INTERVAL_DAYS,
@@ -48,11 +50,14 @@ from config import (
     LEAGUE_NAME_TO_KEY,
     LEAGUE_RATING_BANDS,
     LEAGUE_REPUTATIONS,
+    LEAGUE_WEEKEND_DAYS,
     LOAN_FEE_RATIO,
     LOAN_MAX_DAYS,
     LOAN_MIN_DAYS,
     LOG_FILE,
     LOG_FORMAT,
+    MIDWEEK_DAYS,
+    MIN_REST_DAYS,
     PHILOSOPHY_BAND_SHIFT_CHANCE,
     PHILOSOPHY_BANDS,
     PHILOSOPHY_PRESSING,
@@ -75,6 +80,7 @@ from config import (
     PROMOTION_BONUS_PER_TIER,
     RELEASE_CLAUSE_DEFAULT_MULT,
     RELEASE_CLAUSE_MIN_MULT,
+    REALISTIC_SEASON_WEEKS,
     RIVALS,
     RIVAL_BID_CHANCE,
     RIVAL_REPUTATION_GAP,
@@ -290,6 +296,11 @@ def _ensure_schema_columns() -> None:
         ("team", "transfer_embargo", "BOOLEAN DEFAULT 0"),
         ("match", "engine_level", "INTEGER"),
         ("match", "sim_seed", "INTEGER"),
+        # Realistic multi-competition calendar (fix.txt)
+        ("match", "comp_type", "VARCHAR(20) DEFAULT 'league'"),
+        ("match", "matchday", "INTEGER"),
+        ("game_state", "season_phase", "VARCHAR(20) DEFAULT 'preseason'"),
+        ("game_state", "is_fifa_break", "BOOLEAN DEFAULT 0"),
         # Deeper sim: registration / discipline / loans
         ("player", "nationality", "VARCHAR(30)"),
         ("player", "is_homegrown", "BOOLEAN DEFAULT 0"),
@@ -2826,6 +2837,7 @@ def start_new_season(state: GameState) -> int:
                 away_team_id=away_id,
                 week=week,
                 played=False,
+                comp_type="league",
             )
             db.session.add(m)
             new_matches.append(m)
@@ -2839,6 +2851,8 @@ def start_new_season(state: GameState) -> int:
     new_start = base + _dt.timedelta(weeks=10)
     state.start_date = new_start.isoformat()
     state.current_date = new_start.isoformat()
+    state.season_phase = season_phase_for_date(new_start)
+    state.is_fifa_break = is_fifa_break_date(new_start)
 
     if new_matches:
         adjust_match_dates(new_matches, new_start)
@@ -2901,28 +2915,272 @@ def recalculate_standings_from_played() -> int:
     return len(played)
 
 
-def generate_match_dates(start_date):
-    """Saturday-based dates per league: ``{league_id: {week: iso_date}}``.
+# --------------------------------------------------------------------------
+# Realistic multi-competition scheduling (fix.txt)
+# --------------------------------------------------------------------------
+def _coerce_date(value):
+    """Normalise str / date / datetime into a ``datetime.date`` (or None)."""
+    import datetime as _dt
 
-    Each league uses its own ``League.rounds()`` (fixture weeks) and its
-    own ``season_start_week`` offset (default 1), so pyramids with different
-    sizes (e.g. 18-team Bundesliga vs 24-team Championship) each get a
-    correct calendar. Falls back to the legacy tier-keyed map when no
-    leagues exist yet (fresh DB before the template build).
+    if not value:
+        return None
+    if isinstance(value, _dt.datetime):
+        return value.date()
+    if isinstance(value, _dt.date):
+        return value
+    try:
+        return _dt.datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def is_fifa_break_date(value) -> bool:
+    """True when the date falls inside a FIFA international window."""
+    d = _coerce_date(value)
+    if not d:
+        return False
+    for month, start_day, end_day in FIFA_BREAK_WINDOWS:
+        if d.month == month and start_day <= d.day <= end_day:
+            return True
+    return False
+
+
+def _range_bounds(bounds):
+    try:
+        sm, sd = (int(x) for x in str(bounds[0]).split("-"))
+        em, ed = (int(x) for x in str(bounds[1]).split("-"))
+        return sm, sd, em, ed
+    except Exception:
+        return 12, 22, 1, 5
+
+
+def is_boxing_day_date(value) -> bool:
+    """True inside the compressed Boxing Day window (Dec 22 - Jan 5)."""
+    d = _coerce_date(value)
+    if not d:
+        return False
+    sm, sd, em, ed = _range_bounds(BOXING_DAY_RANGE)
+    md = (d.month, d.day)
+    if (sm, sd) <= (em, ed):
+        return (sm, sd) <= md <= (em, ed)
+    return md >= (sm, sd) or md <= (em, ed)
+
+
+def is_winter_break_date(value) -> bool:
+    """The single winter-break week (Jan 6-12) — zero fixtures."""
+    d = _coerce_date(value)
+    return bool(d and d.month == 1 and 6 <= d.day <= 12)
+
+
+def season_phase_for_date(value) -> str:
+    """Map a date onto the season-phase enum (fix.txt section 7.1)."""
+    d = _coerce_date(value)
+    if not d:
+        return "preseason"
+    if is_boxing_day_date(d):
+        return "boxing_day"
+    if d.month == 1:
+        return "winter_break"
+    if d.month in (2, 3):
+        return "spring"
+    if d.month in (4, 5):
+        return "run_in"
+    if d.month in (6, 7):
+        return "offseason"
+    if d.month == 8:
+        return "preseason"
+    if d.month in (9, 10):
+        return "autumn"
+    # November and the first three weeks of December.
+    return "winter"
+
+
+def is_player_match(match) -> bool:
+    """Player-match bucket: either side is the manager's club (fix.txt 2.1)."""
+    try:
+        return bool(
+            (match.home_team is not None and match.home_team.is_player_team)
+            or (match.away_team is not None and match.away_team.is_player_team)
+        )
+    except Exception:
+        return False
+
+
+def _first_weekend_on_or_after(start):
+    """First Saturday on/after ``start`` (LEAGUE_WEEKEND_DAYS[0])."""
+    import datetime as _dt
+
+    target = int(LEAGUE_WEEKEND_DAYS[0])
+    days_ahead = (target - start.weekday()) % 7
+    return start + _dt.timedelta(days=days_ahead)
+
+
+def _next_midweek_on_or_after(value, include_alt: bool = False):
+    """Next Tuesday/Wednesday (optionally Thursday/Friday) on/after a date."""
+    import datetime as _dt
+
+    d = _coerce_date(value)
+    if not d:
+        return None
+    allowed = set(MIDWEEK_DAYS)
+    if include_alt:
+        try:
+            from config import MIDWEEK_ALT_DAYS as _ALT
+            allowed |= set(_ALT)
+        except Exception:
+            pass
+    for _ in range(8):
+        if d.weekday() in allowed and not is_fifa_break_date(d) and not is_winter_break_date(d):
+            return d
+        d += _dt.timedelta(days=1)
+    return d
+
+
+def midweek_fixture_date(value) -> str:
+    """ISO date forced onto a legal midweek slot (cup / European fixtures)."""
+    d = _next_midweek_on_or_after(value)
+    return d.isoformat() if d else (value or "")
+
+
+def season_fixture_dates(start_date, total_rounds: int,
+                         start_offset_weeks: int = 0) -> list:
+    """Build a realistic league calendar of ``total_rounds`` ISO dates.
+
+    Guarantees (fix.txt acceptance criteria):
+
+    - weekend rounds only (Saturday), except the Boxing Day cluster;
+    - zero fixtures inside a FIFA window or the winter break;
+    - ≥ ``MIN_REST_DAYS`` between any two fixtures for a team;
+    - a compressed Boxing Day rhythm (Sat → Tue → Fri = 3 matches in a
+      week) whenever the season spans December;
+    - extra midweek rounds are spread through the season for the larger
+      lower-division calendars (46 rounds), keeping ~40 active weeks.
     """
-    import datetime
+    import datetime as _dt
+
+    start = _coerce_date(start_date)
+    if start is None or total_rounds <= 0:
+        return []
+    start = start + _dt.timedelta(weeks=max(0, int(start_offset_weeks or 0)))
+    first = _first_weekend_on_or_after(start)
+
+    # 40 active calendar weeks for every division. A top-flight season has
+    # ~35 weekends after breaks, so a couple of midweek rounds (plus the
+    # Boxing Day cluster) fill the 38-round calendar; lower divisions spread
+    # roughly ten midweek rounds through the same window.
+    target_weeks = REALISTIC_SEASON_WEEKS
+    weekends = []
+    for i in range(target_weeks):
+        sat = first + _dt.timedelta(weeks=i)
+        if is_fifa_break_date(sat) or is_fifa_break_date(sat + _dt.timedelta(days=3)):
+            continue
+        if is_winter_break_date(sat):
+            continue
+        weekends.append(sat)
+    if not weekends:
+        return []
+
+    extra = []
+    # Boxing Day compression: Sat → Tue → Fri (three games in 7-8 days).
+    boxing_idx = None
+    for i, sat in enumerate(weekends):
+        if sat.month == 12 and is_boxing_day_date(sat):
+            boxing_idx = i
+            break
+    if boxing_idx is None:
+        for i, sat in enumerate(weekends):
+            if sat.month == 1 and is_boxing_day_date(sat):
+                boxing_idx = i
+                break
+    if boxing_idx is not None and total_rounds >= 3:
+        sat = weekends[boxing_idx]
+        tue = sat + _dt.timedelta(days=3)
+        if not is_fifa_break_date(tue):
+            extra.append(tue)
+        if boxing_idx + 1 < len(weekends):
+            friday = weekends[boxing_idx + 1] - _dt.timedelta(days=1)
+            if friday > tue and friday.weekday() in (3, 4):
+                weekends[boxing_idx + 1] = friday
+
+    slots = sorted(set(weekends + extra))
+
+    def _legal(candidate) -> bool:
+        if candidate in slots:
+            return False
+        if is_fifa_break_date(candidate) or is_winter_break_date(candidate):
+            return False
+        # The Boxing Day cluster is explicit (Sat → Tue → Fri); do not add
+        # extra fill rounds inside the compressed window.
+        if is_boxing_day_date(candidate):
+            return False
+        for existing in slots:
+            if 0 < abs((candidate - existing).days) < MIN_REST_DAYS:
+                return False
+        return True
+
+    # Spread the missing midweek rounds through the season.
+    for step in (2, 1):
+        idx = step
+        while len(slots) < total_rounds and idx < len(weekends):
+            candidate = _next_midweek_on_or_after(weekends[idx])
+            if candidate and _legal(candidate):
+                slots.append(candidate)
+                slots.sort()
+            idx += step
+
+    # Final MIN_REST_DAYS guard (drops any accidental double-header).
+    cleaned = []
+    for d in sorted(slots):
+        if cleaned and (d - cleaned[-1]).days < MIN_REST_DAYS:
+            continue
+        cleaned.append(d)
+    return [d.isoformat() for d in cleaned[:total_rounds]]
+
+
+def validate_fixture_dates(dates) -> list[str]:
+    """Return scheduling violations (FIFA breaks / rest / weekend days)."""
+    import datetime as _dt
+
+    problems: list[str] = []
+    parsed = sorted(d for d in (_coerce_date(x) for x in dates or []) if d)
+    for d in parsed:
+        if is_fifa_break_date(d):
+            problems.append(f"{d.isoformat()}: {d.strftime('%B')} FIFA break")
+        if is_winter_break_date(d):
+            problems.append(f"{d.isoformat()}: winter break")
+    for prev, cur in zip(parsed, parsed[1:]):
+        rest = (cur - prev).days
+        if rest < MIN_REST_DAYS:
+            problems.append(f"{prev.isoformat()} -> {cur.isoformat()}: only {rest} days rest")
+    weekend = set(LEAGUE_WEEKEND_DAYS) | set(MIDWEEK_DAYS)
+    try:
+        from config import MIDWEEK_ALT_DAYS as _ALT
+        weekend |= set(_ALT)
+    except Exception:
+        pass
+    for d in parsed:
+        if d.weekday() not in weekend:
+            problems.append(f"{d.isoformat()}: not a legal fixture day")
+    return problems
+
+
+def generate_match_dates(start_date):
+    """Realistic league calendar: ``{league_id: {week: iso_date}}``.
+
+    Every league shares the same fixture-slot generator (weekend rounds,
+    FIFA breaks, Boxing Day compression, minimum rest) so AI clubs face the
+    exact same congestion as the manager's club.
+    """
+    import datetime as _dt
 
     try:
         leagues = League.query.order_by(League.id).all()
     except Exception:
         leagues = []
     if not leagues:
-        return _legacy_tier_dates(start_date)
-
-    days_ahead = 5 - start_date.weekday()
-    if days_ahead <= 0:
-        days_ahead += 7
-    first_sat = start_date + datetime.timedelta(days=days_ahead)
+        start = _coerce_date(start_date) or _dt.date.today()
+        slots = season_fixture_dates(start, TOP_LEAGUE_ROUNDS)
+        return {1: {i + 1: d for i, d in enumerate(slots)}}
 
     out = {}
     for league in leagues:
@@ -2934,73 +3192,14 @@ def generate_match_dates(start_date):
             start_offset = max(0, int(league.season_start_week or 1) - 1)
         except (TypeError, ValueError):
             start_offset = 0
-        dates = {}
-        rnd = 1
-        i = start_offset
-        guard = 0
-        midweek_slots = {2, 6, 11, 16, 21, 26, 31, 36}
-        while rnd <= total_rounds and guard < 120:
-            guard += 1
-            week_sat = first_sat + datetime.timedelta(weeks=i)
-            rel = i - start_offset
-            is_intl_break = rel in (4, 9, 14, 30)
-            if not is_intl_break:
-                dates[rnd] = week_sat.isoformat()
-                rnd += 1
-                if total_rounds > 38 and rel in midweek_slots and rnd <= total_rounds:
-                    week_tue = week_sat + datetime.timedelta(days=3)
-                    dates[rnd] = week_tue.isoformat()
-                    rnd += 1
-            i += 1
-        out[league.id] = dates
+        slots = season_fixture_dates(start_date, total_rounds, start_offset)
+        out[league.id] = {i + 1: d for i, d in enumerate(slots)}
     return out
 
 
 def _legacy_tier_dates(start_date):
-    """Original 4-tier English calendar (used only before leagues exist)."""
-    import datetime
-
-    days_ahead = 5 - start_date.weekday()
-    if days_ahead <= 0:
-        days_ahead += 7
-    first_sat = start_date + datetime.timedelta(days=days_ahead)
-
-    pl_dates, champ_dates, l1_dates, l2_dates = {}, {}, {}, {}
-    pl_round, champ_round, l1_round, l2_round = 1, 1, 1, 1
-
-    for i in range(52):
-        week_sat = first_sat + datetime.timedelta(weeks=i)
-        is_intl_break = i in [4, 9, 14, 30]
-
-        if not is_intl_break and pl_round <= 38:
-            pl_dates[pl_round] = week_sat.isoformat()
-            pl_round += 1
-
-        if not is_intl_break and champ_round <= 46:
-            champ_dates[champ_round] = week_sat.isoformat()
-            champ_round += 1
-            if i in [2, 6, 11, 16, 21, 26, 31, 36] and champ_round <= 46:
-                week_tue = week_sat + datetime.timedelta(days=3)
-                champ_dates[champ_round] = week_tue.isoformat()
-                champ_round += 1
-
-        if l1_round <= 46:
-            l1_dates[l1_round] = week_sat.isoformat()
-            l1_round += 1
-            if i in [2, 6, 11, 16, 21, 26, 31, 36] and l1_round <= 46:
-                week_tue = week_sat + datetime.timedelta(days=3)
-                l1_dates[l1_round] = week_tue.isoformat()
-                l1_round += 1
-
-        if l2_round <= 46:
-            l2_dates[l2_round] = week_sat.isoformat()
-            l2_round += 1
-            if i in [2, 6, 11, 16, 21, 26, 31, 36] and l2_round <= 46:
-                week_tue = week_sat + datetime.timedelta(days=3)
-                l2_dates[l2_round] = week_tue.isoformat()
-                l2_round += 1
-
-    return {1: pl_dates, 2: champ_dates, 3: l1_dates, 4: l2_dates}
+    """Kept for backward compatibility with old callers/tests."""
+    return generate_match_dates(start_date)
 
 
 def adjust_match_dates(matches, start_date):
@@ -3098,15 +3297,10 @@ def adjust_match_dates(matches, start_date):
             continue
         league = home_team.league
         if league and league.tier == 1:
-            date_obj = datetime.datetime.strptime(m.date, "%Y-%m-%d").date()
-            if date_obj.weekday() == 5:
-                rand = random.random()
-                if rand < 0.10:
-                    m.date = (date_obj - datetime.timedelta(days=1)).isoformat()
-                elif rand < 0.30:
-                    m.date = (date_obj + datetime.timedelta(days=1)).isoformat()
-                elif rand < 0.35:
-                    m.date = (date_obj + datetime.timedelta(days=2)).isoformat()
+            # Keep top-flight rounds on the generated weekend slot. Random
+            # Friday/Monday moves broke the 3-day minimum-rest rule that the
+            # multi-competition calendar guarantees.
+            continue
 
 
 def init_template() -> None:
@@ -3498,6 +3692,7 @@ def _build_template_database() -> None:
                 away_team_id=away_id,
                 week=week,
                 played=False,
+                comp_type="league",
             ))
 
     db.session.commit()
@@ -3511,6 +3706,8 @@ def _build_template_database() -> None:
         season_over=False,
         user_league_id=player_league.id,
         manager_name="المدرب",
+        season_phase=season_phase_for_date("2026-06-01"),
+        is_fifa_break=False,
     )
     db.session.add(state)
 
@@ -3565,6 +3762,8 @@ def create_new_game(slot_id: int) -> bool:
     if state:
         state.start_date = start_dt.isoformat()
         state.current_date = start_dt.isoformat()
+        state.season_phase = season_phase_for_date(start_dt)
+        state.is_fifa_break = is_fifa_break_date(start_dt)
 
     matches = Match.query.all()
     adjust_match_dates(matches, start_dt)

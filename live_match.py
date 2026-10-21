@@ -892,17 +892,28 @@ def maybe_ai_checkpoint(match: Match) -> list:
 # Post-match bookkeeping
 # --------------------------------------------------------------------------
 def _apply_match_fatigue_live(match, home, away, state) -> None:
+    try:
+        from simulation import fatigue_multiplier_for_match
+        density = fatigue_multiplier_for_match(match)
+    except Exception:
+        density = 1.0
     for team, xp in ((home, state.get("home_xp", {})), (away, state.get("away_xp", {}))):
         mult = PRESSING_FATIGUE_MULT.get(team.pressing_style or "normal", 1.0)
         on_pitch = [p for p in team.players if p.id in (xp.get("on_pitch") or [])]
         for p in on_pitch:
-            decay = FITNESS_STARTING_DECAY * mult
+            decay = FITNESS_STARTING_DECAY * mult * density
             if "hard_worker" in (p.traits or []):
                 decay *= TRAIT_HARD_WORKER_DECAY
-            p.fitness = max(0, min(MAX_FITNESS, p.fitness - decay))
+            p.fitness = max(20, min(MAX_FITNESS, p.fitness - decay))
             p.matches_played += 1
-            if random.random() < 0.04 * (1.6 if "injury_prone" in (p.traits or []) else 1):
-                p.injury_days = random.randint(INJURY_MIN_DAYS, 28)
+            injury_roll = 0.04 * (1.6 if "injury_prone" in (p.traits or []) else 1)
+            if density >= 1.5:
+                injury_roll *= 1.5
+            if random.random() < injury_roll:
+                if density >= 1.5:
+                    p.injury_days = random.randint(7, 21)
+                else:
+                    p.injury_days = random.randint(INJURY_MIN_DAYS, 28)
 
 
 def _update_sharpness(match, home, away, state) -> None:

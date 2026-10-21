@@ -1,6 +1,244 @@
-شيل تبويب الخط الزمني من صفحة التقويم
-شيل صفحة المركز المالي
-ادمج صفحة جدول الترتيب وصفحة مركز الاحصائيات في صفحة واحدة
-وفي الصفحة المدموجة دي خلي طريقة عرض الدوريات: قائمة بالبلاد وكل بلد ليها قائمة بدرجات الدوري بتاعها 
-شيل صفحة world 
-اي حاجة انا بقولك شيلها انا قصدي انك تشيل ال feature بدون التأثير علي اي حاجى تانية 
+تمام، استلمت الإضافات. دي الـ Implementation Plan بالإنجليزية:
+
+---
+
+# 📋 Implementation Plan: Realistic Match Scheduling System
+
+## 1. Overview & Goals
+
+Transform the current single-fixture-per-week calendar into a realistic multi-competition scheduling system that mirrors real-world English club football. The system applies **identically** to all teams (player + AI), but the calendar UI exposes only the player's team fixtures.
+
+### Core Objectives
+- **2 matches/week baseline rhythm** (League weekend + Cup/European midweek)
+- **Boxing Day compressed schedule** (3 matches in 7–8 days during Dec/Jan)
+- **FIFA international breaks** (Sept, Oct, Nov, March) — zero matches
+- **New UCL format** (Swiss-model league phase + extra qualifying week)
+- **Fatigue & injury scaling** based on matches-per-week density
+- **Scope**: Applied uniformly to every team across every competition
+
+---
+
+## 2. Match Categorization Model
+
+### 2.1 Two Logical Buckets
+Every `Match` row falls into one of two buckets determined by team involvement, **not** a new column:
+
+| Bucket | Definition | Example |
+|---|---|---|
+| **Player Matches** | `match.home_team.is_player_team == True` OR `match.away_team.is_player_team == True` | Liverpool (user) vs Arsenal |
+| **World Matches** | Neither side is the player's team | Man City vs Chelsea (simulated in background) |
+
+> **No schema change required** — the existing `is_player_team` flag on `Team` already disambiguates. We introduce a helper `is_player_match(match)` in `services.py` for clarity.
+
+### 2.2 Scheduling Equality Rule
+- **Every team is scheduled by the same engine**, regardless of player/AI status.
+- The player's team is *not* given preferential rest days or different cadence.
+- This guarantees realism: the user faces the same fixture congestion as any other top-6 side.
+
+---
+
+## 3. Calendar UI Simplification
+
+### 3.1 View Removal
+**Remove** from `templates/calendar.html` and its JS:
+- ❌ Week view (`#weekView`, `renderWeek()`)
+- ❌ Agenda view (`#agendaView`, `renderAgenda()`)
+- ❌ Their tab buttons in `.view-tabs`
+
+**Keep**:
+- ✅ Monthly view only (`#monthView`, `renderCalendar()`)
+
+### 3.2 Player-Only Filter
+The `/calendar` route currently loads `player_matches` filtered by player team. **Confirm and enforce**:
+
+```python
+# routes/game_routes.py → calendar()
+player_matches = (
+    Match.query
+    .filter((Match.home_team_id == player_team.id) |
+            (Match.away_team_id == player_team.id))
+    .order_by(Match.date)
+    .all()
+)
+```
+
+World matches are **never** injected into `player_matches_json`. They live in the DB and are simulated by `simulate_world_week()` independently.
+
+### 3.3 Day Marker System (Dynamic)
+Each day cell in the monthly grid shows **colored dots** for each match on that date:
+
+| Dot Color | Meaning |
+|---|---|
+| 🔵 Blue | League match (Premier League) |
+| 🟣 Purple | Domestic cup (Carabao / FA Cup) |
+| 🟡 Gold | European match (UCL / UEL / UECL) |
+| ⚪ Gray (faded) | Played already |
+
+**Compressed week example** (Boxing Day):
+```
+Sat 27 Dec  →  🔵  (League)
+Tue 30 Dec  →  🟣  (FA Cup replay)
+Fri 02 Jan  →  🔵  (League)
+```
+The user opens the calendar, sees three dots on three different days, and immediately knows it's a heavy week.
+
+### 3.4 Click Behavior (Unchanged)
+Clicking a day opens the existing `showDayDetails(ds)` panel — but it now lists **all** player matches on that day (handles the rare midweek + cup double-header scenario via the existing `more[]` array).
+
+---
+
+## 4. Scheduling Engine
+
+### 4.1 Fixed-Day Cadence (Default Week)
+
+| Day | Slot | Competition |
+|---|---|---|
+| **Saturday/Sunday** | Weekend | League |
+| **Tuesday/Wednesday** | Midweek | European (UCL/UEL) |
+| **Thursday** | Midweek alt | UECL or domestic cup |
+| **Wednesday** | Midweek alt | Carabao / FA Cup |
+
+**Rule**: 3–4 days minimum between any two fixtures for the same team.
+
+### 4.2 Schedule Patterns
+
+#### Pattern A — Normal Week (most common)
+- Sat: League
+- Tue/Wed: Cup or European
+
+#### Pattern B — Compressed Week (Boxing Day: Dec 22 – Jan 5)
+- Sat: League
+- Tue: League or FA Cup replay
+- Fri/Sat: League or Cup
+- **Fatigue multiplier: ×1.5**
+
+#### Pattern C — Light Week (Aug, post-elimination)
+- Sat: League only
+- **Fatigue multiplier: ×0.7** (recovery bonus)
+
+#### Pattern D — FIFA Break (Sept/Oct/Nov/March)
+- Zero matches for 7–10 days
+- National team call-ups (cosmetic only in v1)
+
+### 4.3 Season Structure (40 active weeks)
+
+| Phase | Weeks | Window | Pattern |
+|---|---|---|---|
+| Pre-season | 1–2 | Aug | Light (C) |
+| Autumn block | 3–8 | Sep–Oct | Normal (A) + 1 FIFA break |
+| Winter block 1 | 9–14 | Nov–mid-Dec | Normal (A) + 1 FIFA break |
+| Boxing Day | 15–18 | Dec 22 – Jan 5 | Compressed (B) |
+| Winter break | 19 | Jan (rotating) | Rest |
+| Spring block | 20–28 | Feb–Mar | Normal (A) + 1 FIFA break |
+| Run-in | 29–38 | Apr–mid-May | Normal (A) + UCL knockouts |
+| Season end | 39–40 | Late May | Cup finals |
+
+**Target totals** (team reaching all finals): **60–65 matches**.
+
+---
+
+## 5. European Competitions (New UCL Format)
+
+### 5.1 League Phase
+- **8 matches** per team (was 6) in the Swiss-model phase
+- Spread across matchdays 1–8 (Sep → Jan)
+- Extra matchday added in the **qualifying week** (last week of Jan) for teams needing the play-off slot
+
+### 5.2 Implementation Hook
+In `cup_services.py → seed_continental_league_phase()`:
+- Generate 8 fixtures per participant (instead of 6)
+- Reserve the **7th qualifying week** as a special matchday slot
+- Tag matches with `comp_type = "continental"` and the appropriate color badge
+
+---
+
+## 6. Fatigue & Injury Scaling
+
+### 6.1 New Helper: `weekly_load(team_id, week)`
+Returns the number of matches played by `team` in the given week (0, 1, 2, or 3).
+
+### 6.2 Post-Match Fatigue Update
+In `simulation.py → simulate_match()`:
+
+```python
+def apply_fatigue(match, multiplier=1.0):
+    for player in match.home_team.players + match.away_team.players:
+        if player.is_starting:
+            player.fitness = max(20, player.fitness - (8 * multiplier))
+            # Compressed weeks carry higher injury risk
+            if multiplier >= 1.5:
+                if random.random() < 0.04:  # 4% injury chance
+                    player.injury_days = random.randint(7, 21)
+```
+
+### 6.3 Weekly Recovery
+In `simulate_day()`:
+- Each rest day adds `+3` fitness (cap 100)
+- FIFA break weeks add `+15` fitness (full recovery)
+
+---
+
+## 7. Data Model Changes
+
+### 7.1 New Columns (migration)
+
+**`Match` table**:
+- `comp_type` (already used in narrative; promote to a real column with values: `league`, `domestic_cup`, `continental`)
+- `matchday` (int, optional — for UCL league-phase numbering 1–8)
+
+**`GameState` table**:
+- `season_phase` (enum: `preseason`, `autumn`, `winter`, `boxing_day`, `winter_break`, `spring`, `run_in`, `offseason`)
+- `is_fifa_break` (bool, computed from date)
+
+### 7.2 No Breaking Changes
+Existing fields (`week`, `date`, `played`, `result`) stay. New columns default to `NULL`/`league` so old saves keep working.
+
+---
+
+## 8. Files to Modify
+
+| File | Change |
+|---|---|
+| `routes/game_routes.py` | `/calendar` route — confirm player-only filter; remove week/agenda hooks |
+| `templates/calendar.html` | Strip week + agenda markup, tabs, and JS handlers; keep monthly grid + day-dot renderer |
+| `simulation.py` | Add `apply_fatigue()`, `weekly_load()`, season-phase detection, FIFA break windows |
+| `services.py` | Add `is_player_match()`, `season_phase_for_date()`, update `start_new_season()` to generate the new 40-week calendar |
+| `cup_services.py` | Extend `seed_continental_league_phase()` to 8 matchdays + qualifying week; align UCL/UEL/UECL dates with the new cadence |
+| `models.py` | Add `comp_type`, `matchday`, `season_phase`, `is_fifa_break` columns + migration |
+| `config.py` | New constants: `FIFA_BREAK_WINDOWS`, `BOXING_DAY_RANGE`, `LEAGUE_WEEKEND_DAYS`, `MIDWEEK_DAYS`, `MIN_REST_DAYS = 3` |
+| `narrative.py` | `build_calendar_events()` updated to emit per-competition dot color |
+| `tests/test_backend.py` | New tests: 2-match baseline, FIFA break zero-match week, Boxing Day 3-match week, UCL 8 matchdays |
+| `tests/test_frontend.py` | Calendar test: assert week/agenda tabs removed, dots render with correct colors |
+| `tests/test_e2e_playwright.py` | `TestCalendarDetails` — assert monthly-only, player matches only, dynamic dot rendering |
+
+---
+
+## 9. Implementation Steps (Ordered)
+
+1. **Schema migration** — add new columns to `Match` and `GameState`; backfill defaults.
+2. **Config constants** — define FIFA windows, Boxing Day range, weekend/midweek days, rest rules.
+3. **Season generator** — rewrite `start_new_season()` to produce the 40-week calendar with all 4 patterns.
+4. **Cup seeding** — extend UCL/UEL/UECL league phase to 8 matchdays.
+5. **Fatigue engine** — wire `apply_fatigue()` into `simulate_match()` and `simulate_day()`.
+6. **Calendar UI** — strip week/agenda views; implement dynamic dot renderer with color legend.
+7. **Player-only filter** — verify `/calendar` returns only player matches; world matches stay in DB.
+8. **Narrative hooks** — update `build_calendar_events()` to emit colored dots per competition.
+9. **Tests** — backend (scheduling correctness), frontend (UI simplification), E2E (Playwright on real calendar).
+10. **Migration script** — `scripts/migrate_realistic_calendar.py` to backfill existing saves without wiping them.
+
+---
+
+## 10. Acceptance Criteria
+
+- ✅ Monthly view is the **only** calendar view; week & agenda tabs gone.
+- ✅ Calendar shows **only** player-team matches (verified by DB-backed test).
+- ✅ Day cells show **colored dots** per competition type (league/cup/european) — dynamic per real fixtures.
+- ✅ Player team plays **2 matches/week** in normal weeks, **3 in Boxing Day week**, **0 in FIFA breaks**.
+- ✅ All AI teams follow the **same** scheduling rules.
+- ✅ UCL participants play **8 league-phase matches**.
+- ✅ Starter fitness drops by ~8% per match; ≥4% injury risk in compressed weeks.
+- ✅ Existing saves load with the new schema (backward compatible).
+- ✅ All existing tests pass; new scheduling tests added and green.
+
+---
+

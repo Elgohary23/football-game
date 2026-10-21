@@ -135,6 +135,20 @@ def _current_iso_date() -> str:
     return datetime.today().date().isoformat()
 
 
+def _competition_type(tournament: Tournament | None) -> str:
+    """Match ``comp_type`` bucket: league / domestic_cup / continental."""
+    return "continental" if getattr(tournament, "scope", "") == "continental" else "domestic_cup"
+
+
+def _cup_fixture_date(value: str | None) -> str | None:
+    """Force cup/European ties onto a legal midweek slot (FIFA-break aware)."""
+    try:
+        from services import midweek_fixture_date
+        return midweek_fixture_date(value)
+    except Exception:
+        return value
+
+
 def _reputation(team: Team) -> int:
     try:
         return int(team.reputation or 0)
@@ -162,16 +176,17 @@ def generate_knockout_round(tournament_id, qualified_team_ids, round_name,
         if bye_team_ids is not None:
             bye_team_ids.append(bye)
 
+    tournament = db.session.get(Tournament, tournament_id)
     for i in range(0, len(ids) - 1, 2):
         home_id = ids[i]
         away_id = ids[i + 1]
-
         match = Match(
             home_team_id=home_id,
             away_team_id=away_id,
             played=False,
             date=match_date,
             week=CUP_MATCH_WEEK,
+            comp_type=_competition_type(tournament),
         )
         db.session.add(match)
         db.session.flush()
@@ -344,7 +359,7 @@ def seed_knockout(tournament: Tournament, team_ids: list[int],
             prelim = early[:prelim_need]
             bye_early = early[prelim_need:]
             main_byes = late + bye_early
-            prelim_date = _shift_date(base_date, CUP_ROUND_SPACING_DAYS)
+            prelim_date = _cup_fixture_date(_shift_date(base_date, CUP_ROUND_SPACING_DAYS))
             generate_knockout_round(tournament.id, prelim, "Preliminary Round", prelim_date)
             for tid in main_byes:
                 _record_bye(tournament.id, tid, "Preliminary Round")
@@ -355,7 +370,7 @@ def seed_knockout(tournament: Tournament, team_ids: list[int],
     ordered = sorted(ids, key=lambda i: _reputation(team_map.get(i)), reverse=True)
     bye_ids = ordered[:byes]
     players = ordered[byes:]
-    first_date = _shift_date(base_date, CUP_ROUND_SPACING_DAYS)
+    first_date = _cup_fixture_date(_shift_date(base_date, CUP_ROUND_SPACING_DAYS))
     if players:
         first_round = round_name_for(target) if byes else round_name_for(len(ids))
         if byes:
@@ -406,8 +421,11 @@ def seed_bsm_groups(tournament: Tournament, team_ids: list[int],
                     home_team_id=home_id,
                     away_team_id=away_id,
                     played=False,
-                    date=_shift_date(base_date, CUP_ROUND_SPACING_DAYS + (a * 7 + b)),
+                    date=_cup_fixture_date(
+                        _shift_date(base_date, CUP_ROUND_SPACING_DAYS + (a * 7 + b))
+                    ),
                     week=CUP_MATCH_WEEK,
+                    comp_type=_competition_type(tournament),
                 )
                 db.session.add(m)
                 db.session.flush()
@@ -447,7 +465,12 @@ def seed_continental_league_phase(tournament: Tournament, team_ids: list[int],
     rounds_done = 0
     rotation = list(circle)
     while rounds_done < per_team:
-        week_date = _shift_date(base_date, CONTINENTAL_PHASE_SPACING_DAYS * (rounds_done + 1))
+        # Matchdays 1-8 span September → January: two-week European
+        # rhythm, aligned to Tuesday/Wednesday and skipping FIFA breaks.
+        week_date = _cup_fixture_date(
+            _shift_date(base_date, CONTINENTAL_PHASE_SPACING_DAYS * (rounds_done + 2))
+        )
+        matchday = rounds_done + 1
         for i in range(n // 2):
             a, b = rotation[i], rotation[n - 1 - i]
             if a is None or b is None:
@@ -463,6 +486,8 @@ def seed_continental_league_phase(tournament: Tournament, team_ids: list[int],
                 played=False,
                 date=week_date,
                 week=CUP_MATCH_WEEK,
+                comp_type="continental",
+                matchday=matchday,
             )
             db.session.add(m)
             db.session.flush()
@@ -485,8 +510,9 @@ def seed_super_cup(tournament: Tournament, team_a_id: int, team_b_id: int,
         home_team_id=team_a_id,
         away_team_id=team_b_id,
         played=False,
-        date=_shift_date(base_date, 3),
+        date=_cup_fixture_date(_shift_date(base_date, 3)),
         week=CUP_MATCH_WEEK,
+        comp_type=_competition_type(tournament),
     )
     db.session.add(m)
     db.session.flush()
@@ -949,7 +975,7 @@ def _round_winners(tournament_id: int, round_name: str) -> list[int]:
 
 def _next_date(state: GameState | None, days: int = CUP_ROUND_SPACING_DAYS) -> str:
     base = (getattr(state, "current_date", None) if state else None) or _current_iso_date()
-    return _shift_date(base, days)
+    return _cup_fixture_date(_shift_date(base, days))
 
 
 def _maybe_advance(tournament: Tournament, state: GameState | None) -> None:
@@ -991,19 +1017,21 @@ def _draw_two_legged(tournament: Tournament, team_ids: list[int],
                      round_name: str, first_leg_date: str) -> None:
     ids = list(team_ids)
     random.shuffle(ids)
-    second_leg_date = _shift_date(first_leg_date, CUP_LEG_SPACING_DAYS)
+    first_leg_date = _cup_fixture_date(first_leg_date)
+    second_leg_date = _cup_fixture_date(_shift_date(first_leg_date, CUP_LEG_SPACING_DAYS))
+    comp_type = _competition_type(tournament)
     for i in range(0, len(ids) - 1, 2):
         home_id, away_id = ids[i], ids[i + 1]
         tie = f"{round_name}-{i // 2}"
         m1 = Match(home_team_id=home_id, away_team_id=away_id, played=False,
-                   date=first_leg_date, week=CUP_MATCH_WEEK)
+                   date=first_leg_date, week=CUP_MATCH_WEEK, comp_type=comp_type)
         db.session.add(m1)
         db.session.flush()
         db.session.add(TournamentFixture(tournament_id=tournament.id, match_id=m1.id,
                                          round_name=round_name, leg=1,
                                          group_name=tie))
         m2 = Match(home_team_id=away_id, away_team_id=home_id, played=False,
-                   date=second_leg_date, week=CUP_MATCH_WEEK)
+                   date=second_leg_date, week=CUP_MATCH_WEEK, comp_type=comp_type)
         db.session.add(m2)
         db.session.flush()
         db.session.add(TournamentFixture(tournament_id=tournament.id, match_id=m2.id,
@@ -1064,19 +1092,19 @@ def _advance_from_league_phase(tournament: Tournament, state: GameState | None) 
     ordered = playoff
     pairs = [(ordered[i], ordered[len(ordered) - 1 - i])
              for i in range(len(ordered) // 2)]
-    date = _next_date(state, CONTINENTAL_PHASE_SPACING_DAYS)
-    second = _shift_date(date, CUP_LEG_SPACING_DAYS)
+    date = _cup_fixture_date(_next_date(state, CONTINENTAL_PHASE_SPACING_DAYS))
+    second = _cup_fixture_date(_shift_date(date, CUP_LEG_SPACING_DAYS))
     for i, (a, b) in enumerate(pairs):
         tie = f"playoff-{i}"
         m1 = Match(home_team_id=a, away_team_id=b, played=False,
-                   date=date, week=CUP_MATCH_WEEK)
+                   date=date, week=CUP_MATCH_WEEK, comp_type="continental")
         db.session.add(m1)
         db.session.flush()
         db.session.add(TournamentFixture(tournament_id=tournament.id, match_id=m1.id,
                                          round_name="Play-off", leg=1,
                                          group_name=tie))
         m2 = Match(home_team_id=b, away_team_id=a, played=False,
-                   date=second, week=CUP_MATCH_WEEK)
+                   date=second, week=CUP_MATCH_WEEK, comp_type="continental")
         db.session.add(m2)
         db.session.flush()
         db.session.add(TournamentFixture(tournament_id=tournament.id, match_id=m2.id,
@@ -1213,15 +1241,29 @@ def active_tournaments(season: int | None = None) -> list[Tournament]:
 def fixture_competition(match: Match) -> dict | None:
     """Badge info for the calendar: cup name + colour, else None (league)."""
     try:
+        from config import CALENDAR_DOT_COLORS, CUP_BADGE_COLORS
+        comp_type = (getattr(match, "comp_type", None) or "league").lower()
+        if comp_type not in ("league", "domestic_cup", "continental"):
+            comp_type = "league"
+        dot_color = CALENDAR_DOT_COLORS.get(comp_type, CALENDAR_DOT_COLORS["league"])
         fx = TournamentFixture.query.filter_by(match_id=match.id).first()
         if fx is None or fx.tournament is None:
             return None
-        from config import CUP_BADGE_COLORS
+        if comp_type == "league":
+            comp_type = _competition_type(fx.tournament)
+            dot_color = CALENDAR_DOT_COLORS.get(comp_type, CALENDAR_DOT_COLORS["league"])
+        round_name = round_label(fx.round_name)
+        matchday = getattr(match, "matchday", None)
+        if matchday and fx.round_name == "League Phase":
+            round_name = f"{round_name} — الجولة {matchday}"
         return {
             "name": fx.tournament.name,
             "type": fx.tournament.type,
-            "round": round_label(fx.round_name),
+            "comp_type": comp_type,
+            "round": round_name,
+            "matchday": matchday,
             "color": CUP_BADGE_COLORS.get(fx.tournament.type, "#e74c3c"),
+            "dot_color": dot_color,
         }
     except Exception:
         return None

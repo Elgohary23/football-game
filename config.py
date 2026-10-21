@@ -48,8 +48,13 @@ MARKET_VALUE_DECAY_RATE = 0.01
 
 # --- Fitness / injury ---
 MAX_FITNESS = 100
-DAILY_FITNESS_RECOVERY = 5
-FITNESS_STARTING_DECAY = 10
+DAILY_FITNESS_RECOVERY = 3
+FITNESS_STARTING_DECAY = 8  # ~8% per match (fix.txt realistic scheduling)
+MATCH_FITNESS_LOSS = FITNESS_STARTING_DECAY
+FIFA_BREAK_FITNESS_RECOVERY = 15  # full-recovery bonus at the start of a break
+COMPRESSED_WEEK_INJURY_CHANCE = 0.04
+COMPRESSED_WEEK_INJURY_MIN_DAYS = 7
+COMPRESSED_WEEK_INJURY_MAX_DAYS = 21
 FITNESS_DECAY_LAZY = 15
 FITNESS_DECAY_PROFESSIONAL = 8
 INJURY_CHANCE_SOFT = 0.03
@@ -106,7 +111,7 @@ REPUTATION_TOLERANCE = 10
 OLD_DATA_KEEP_PLAYED_MATCHES = 150
 
 # --- Schema migration guard ---
-TEMPLATE_SCHEMA_VERSION = 12  # bump to force a template.db rebuild (world-sim: GameState.world_sim_last_week + world_last_summary)
+TEMPLATE_SCHEMA_VERSION = 13  # bump to force a template.db rebuild (realistic calendar: Match.comp_type/matchday + GameState.season_phase/is_fifa_break)
 
 # --- Advanced tactics (FM features) ---
 PRESSING_STYLES = ("low", "normal", "high")
@@ -1176,6 +1181,31 @@ CUP_NAMES = {
     "conference_league": "دوري المؤتمر الأوروبي",
 }
 
+# --- Realistic multi-competition scheduling (fix.txt) ----------------
+# Python weekday numbers: Monday = 0 .. Sunday = 6.
+LEAGUE_WEEKEND_DAYS = (5, 6)   # Saturday / Sunday league rounds
+MIDWEEK_DAYS = (1, 2)          # Tuesday / Wednesday European & cup slots
+MIDWEEK_ALT_DAYS = (3, 4)      # Thursday / Friday alternative slots
+MIN_REST_DAYS = 3              # minimum days between two fixtures
+REALISTIC_SEASON_WEEKS = 40    # active weeks in a campaign
+# FIFA international windows: (month, first_day, last_day). Club fixtures
+# are never scheduled inside one of these windows.
+FIFA_BREAK_WINDOWS = (
+    (9, 1, 10),    # September
+    (10, 6, 17),   # October
+    (11, 10, 21),  # November
+    (3, 17, 28),   # March
+)
+# Boxing Day compression: 3 league rounds inside 7-8 days.
+BOXING_DAY_RANGE = ("12-22", "01-05")
+BOXING_DAY_FATIGUE_MULTIPLIER = 1.5
+NORMAL_WEEK_FATIGUE_MULTIPLIER = 1.0
+LIGHT_WEEK_FATIGUE_MULTIPLIER = 0.7
+SEASON_PHASES = (
+    "preseason", "autumn", "winter", "boxing_day",
+    "winter_break", "spring", "run_in", "offseason",
+)
+
 # Badge colours for the calendar (Blue = league, Red = FA Cup, Gold = UCL).
 CUP_BADGE_COLORS = {
     "league": "#3498db",
@@ -1187,6 +1217,15 @@ CUP_BADGE_COLORS = {
     "champions_league": "#f1c40f",
     "europa_league": "#e67e22",
     "conference_league": "#2ecc71",
+}
+
+# Day-cell dot colours (fix.txt 3.3): blue league, purple domestic cup,
+# gold European, faded grey when already played.
+CALENDAR_DOT_COLORS = {
+    "league": "#3498db",
+    "domestic_cup": "#9b59b6",
+    "continental": "#f1c40f",
+    "played": "#6b7280",
 }
 
 # Continental league-phase size + games per team (Swiss system).
