@@ -481,6 +481,61 @@ class TestServices:
         assert isinstance(label, str) and len(label) > 0
 
 
+# ----------------------------------------- role suitability / tactics payload
+class TestRoleSuitabilityAndTacticsPayload:
+    def test_role_suitability_rewards_position_fit(self, ctx):
+        from tactics import role_suitability
+
+        team = _player_team()
+        fwd = next(p for p in team.players if p.position == "FWD")
+        gk = next(p for p in team.players if p.position == "GK")
+        assert role_suitability(fwd, "target_man") > role_suitability(gk, "target_man")
+        assert 0 <= role_suitability(fwd, "standard") <= 100
+        # Unknown roles fall back to the neutral standard score.
+        assert role_suitability(fwd, "bogus") == role_suitability(fwd, "standard")
+
+    def test_role_suitability_map_covers_every_role(self, ctx):
+        from config import PLAYER_ROLES
+        from tactics import role_suitability_map
+
+        assert set(role_suitability_map(_player_team().players[0])) == set(PLAYER_ROLES)
+
+    def test_normalize_slots_caps_pis_and_rejects_foreign(self, ctx):
+        from tactics import normalize_tactical_slots
+
+        team = _player_team()
+        player = team.players[0]
+        slots, error = normalize_tactical_slots(team, [{
+            "player_id": player.id,
+            "role": "poacher",
+            "pi": ["shoot_more", "dribble_more", "stay_wide",
+                   "mark_tighter", "bogus"],
+        }])
+        assert error is None
+        assert slots[0]["role"] == "poacher"
+        assert slots[0]["pi"] == ["shoot_more", "dribble_more", "stay_wide"]
+
+        _slots, error = normalize_tactical_slots(
+            team, [{"player_id": _opponent().players[0].id}]
+        )
+        assert error
+
+    def test_normalize_set_pieces_accepts_plan_aliases(self, ctx):
+        from tactics import normalize_set_pieces
+
+        team = _player_team()
+        ids = [p.id for p in team.players[:5]]
+        pieces, error = normalize_set_pieces(team, {
+            "penalty": ids[0], "freekick_direct": ids[1],
+            "corner_left": ids[2], "corner_right": ids[3],
+            "long_throw": ids[4],
+        })
+        assert error is None
+        assert pieces["pen"] == ids[0] and pieces["fk"] == ids[1]
+        assert pieces["corner_l"] == ids[2] and pieces["corner_r"] == ids[3]
+        assert pieces["long_throw"] == ids[4]
+
+
 # ------------------------------------------------------- HTTP routes
 class TestRoutes:
     def test_index_redirects_to_dashboard(self, client):

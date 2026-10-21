@@ -141,6 +141,46 @@ ROLE_TACKLE_MULT = {"standard": 1.0, "target_man": 0.6, "poacher": 0.6,
 ROLE_DEFENSIVE_MULT = {"standard": 1.0, "target_man": 0.9, "poacher": 0.8,
                        "regista": 1.0, "ball_winner": 1.3, "wing_back": 1.1}
 
+# --- Role suitability (tactics pitch badge) -------------------------------
+# Each role scores a weighted attribute average (weights sum to 1.0), then
+# scales it by how plausible the role is for the player's position band.
+# "standard" is the neutral role, so it simply reports the player's overall.
+ROLE_SUITABILITY_WEIGHTS = {
+    "standard": {},
+    "target_man": {"heading": 0.30, "strength": 0.25, "jumping": 0.20,
+                   "finishing": 0.25},
+    "poacher": {"finishing": 0.35, "off_the_ball": 0.25,
+                "acceleration": 0.20, "composure": 0.20},
+    "regista": {"passing": 0.30, "vision": 0.30, "technique": 0.20,
+                "decision_making": 0.20},
+    "ball_winner": {"standing_tackle": 0.30, "interceptions": 0.25,
+                    "work_rate": 0.25, "aggression": 0.20},
+    "wing_back": {"crossing": 0.30, "stamina": 0.25,
+                  "acceleration": 0.25, "work_rate": 0.20},
+}
+ROLE_POSITION_FIT = {
+    "standard": {"GK": 1.0, "DEF": 1.0, "MID": 1.0, "FWD": 1.0},
+    "target_man": {"GK": 0.15, "DEF": 0.45, "MID": 0.75, "FWD": 1.0},
+    "poacher": {"GK": 0.15, "DEF": 0.45, "MID": 0.75, "FWD": 1.0},
+    "regista": {"GK": 0.20, "DEF": 0.80, "MID": 1.0, "FWD": 0.75},
+    "ball_winner": {"GK": 0.20, "DEF": 0.90, "MID": 1.0, "FWD": 0.65},
+    "wing_back": {"GK": 0.15, "DEF": 1.0, "MID": 0.70, "FWD": 0.50},
+}
+
+# --- Individual player instructions (PIs) --------------------------------
+PLAYER_INSTRUCTIONS = (
+    "shoot_more", "dribble_more", "stay_wide",
+    "mark_tighter", "get_further_forward",
+)
+PLAYER_INSTRUCTION_LABELS = {
+    "shoot_more": "التسديد أكثر",
+    "dribble_more": "المراوغة أكثر",
+    "stay_wide": "البقاء على الطرف",
+    "mark_tighter": "الالتصاق بالخصم",
+    "get_further_forward": "التقدم للأمام",
+}
+MAX_PLAYER_INSTRUCTIONS = 3
+
 PRESET_TYPES = ("standard", "attacking", "defensive")
 
 # --- Pre-defined pitch layouts (/formation spreads empty slots) ----------

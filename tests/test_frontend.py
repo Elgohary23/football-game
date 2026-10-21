@@ -1624,6 +1624,140 @@ class TestFormationSaveAndPresets:
         assert "attacking" in text
 
 
+class TestAdvancedTacticsUi:
+    """Role suitability, traits, set-piece routines and the full save payload."""
+
+    def _players_json(self, text):
+        match = re.search(r"data-players='([^']*)'", text)
+        assert match, "pitch data-players payload missing"
+        return json.loads(match.group(1))
+
+    def test_pitch_payload_has_suitability_traits_and_personality(self, client):
+        from tactics import role_suitability
+
+        team = _player_team()
+        player = next(p for p in team.players if p.position == "FWD")
+        player.traits = ["long_shots", "tries_through_balls"]
+        player.personality = "Leader"
+        db.session.commit()
+
+        payload = {p["id"]: p for p in self._players_json(_html(client, "/formation"))}
+        entry = payload[player.id]
+        assert entry["traits"] == ["long_shots", "tries_through_balls"]
+        assert entry["personality"] == "Leader"
+        assert entry["role_suitability_map"]["poacher"] == role_suitability(player, "poacher")
+        assert entry["role_suitability"] == role_suitability(player, "standard")
+
+    def test_traits_and_instructions_ui_rendered(self, client):
+        text = _html(client, "/formation")
+        assert 'id="playerInstructionsModal"' in text
+        assert 'id="piOptionsContainer"' in text
+        assert 'id="savePIBtn"' in text
+        assert "/static/tactics_center.js" in text
+
+        with open(os.path.join(STATIC_DIR, "free_formation.js"), encoding="utf-8") as f:
+            pitch_js = f.read()
+        assert "role_suitability_map" in pitch_js
+        assert "pb-pi-btn" in pitch_js
+        assert "shoot_more" in pitch_js
+
+        with open(os.path.join(STATIC_DIR, "tactics_center.js"), encoding="utf-8") as f:
+            center_js = f.read()
+        assert "fetch('/tactics/save'" in center_js
+        assert "getSlots" in center_js
+        for element in ("penaltyTakerSelect", "directFKSelect", "cornerLeftSelect",
+                        "cornerRightSelect", "longThrowSelect"):
+            assert element in center_js
+
+    def test_extended_set_piece_selectors_render_saved_takers(self, client):
+        team = _player_team()
+        ids = [p.id for p in team.players[:5]]
+        team.tactics_data = {
+            "mentality": 3,
+            "set_pieces": {"pen": ids[0], "fk": ids[1], "corner_l": ids[2],
+                           "corner_r": ids[3], "long_throw": ids[4]},
+        }
+        db.session.commit()
+        text = _html(client, "/formation")
+        for element, player_id in (("penaltyTakerSelect", ids[0]),
+                                   ("directFKSelect", ids[1]),
+                                   ("cornerLeftSelect", ids[2]),
+                                   ("cornerRightSelect", ids[3]),
+                                   ("longThrowSelect", ids[4])):
+            block = re.search(r'id="%s".*?</select>' % element, text, re.S)
+            assert block, element
+            assert f'value="{player_id}" selected' in block.group(0), element
+        for name in ("corner_left_taker_id", "corner_right_taker_id",
+                     "long_throw_taker_id"):
+            assert f'name="{name}"' in text
+
+    def test_tactics_save_persists_slots_pis_and_set_pieces(self, client):
+        team = _player_team()
+        pen, fk = team.players[0], team.players[1]
+        slot_player = team.players[2]
+        r = client.post("/tactics/save", json={
+            "mentality": 5,
+            "set_pieces": {
+                "penalty": pen.id, "freekick_direct": fk.id,
+                "corner_left": pen.id, "corner_right": fk.id,
+                "long_throw": slot_player.id,
+            },
+            "slots": [{
+                "player_id": slot_player.id,
+                "role": "poacher",
+                "position": "ST",
+                "pi": ["shoot_more", "dribble_more", "stay_wide",
+                       "mark_tighter"],
+            }],
+        })
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body["success"] is True
+
+        team = _player_team()
+        data = team.tactics_data
+        assert data["mentality"] == 5
+        assert data["slots"][0]["player_id"] == slot_player.id
+        assert data["slots"][0]["role"] == "poacher"
+        assert data["slots"][0]["pi"] == ["shoot_more", "dribble_more",
+                                          "stay_wide"]
+        pieces = data["set_pieces"]
+        assert pieces["pen"] == pen.id and pieces["fk"] == fk.id
+        assert pieces["corner_l"] == pen.id and pieces["corner_r"] == fk.id
+        assert pieces["long_throw"] == slot_player.id
+        # Legacy columns + engine role source stay in sync.
+        assert team.penalty_taker_id == pen.id
+        assert team.freekick_taker_id == fk.id
+        assert team.formation_data[str(slot_player.id)]["role"] == "poacher"
+
+    def test_tactics_save_rejects_foreign_slot_player(self, client):
+        opp = _opponent()
+        r = client.post("/tactics/save", json={
+            "slots": [{"player_id": opp.players[0].id, "role": "poacher"}],
+        })
+        assert r.status_code == 400
+        assert "فريقك" in r.get_json()["message"]
+
+    def test_takers_endpoint_saves_extended_routines(self, client):
+        team = _player_team()
+        ids = [p.id for p in team.players[:3]]
+        r = client.post("/formation/takers", data={
+            "penalty_taker_id": str(ids[0]),
+            "freekick_taker_id": str(ids[1]),
+            "corner_left_taker_id": str(ids[2]),
+            "corner_right_taker_id": str(ids[0]),
+            "long_throw_taker_id": str(ids[1]),
+        }, follow_redirects=True)
+        assert r.status_code == 200
+        team = _player_team()
+        pieces = (team.tactics_data or {}).get("set_pieces") or {}
+        assert pieces.get("corner_l") == ids[2]
+        assert pieces.get("corner_r") == ids[0]
+        assert pieces.get("long_throw") == ids[1]
+        assert team.penalty_taker_id == ids[0]
+        assert team.freekick_taker_id == ids[1]
+
+
 # ======================================================================
 # Squad: 11-limit under rapid clicks, concurrent clients, foreign player
 # ======================================================================

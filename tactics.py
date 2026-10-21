@@ -20,6 +20,11 @@ import json
 
 from config import (
     FAMILIARITY_MAX_PENALTY,
+    MAX_PLAYER_INSTRUCTIONS,
+    PLAYER_INSTRUCTIONS,
+    PLAYER_ROLES,
+    ROLE_POSITION_FIT,
+    ROLE_SUITABILITY_WEIGHTS,
     TACTICAL_FAMILIARITY_PENALTY_START,
 )
 
@@ -39,10 +44,179 @@ DEFAULT_TACTICS = {
     },
     "transitions": {"counter_attack": True, "time_wasting": "normal", "gk_distribution": "short"},
     "set_pieces": {"corner_l": None, "corner_r": None, "fk": None, "pen": None,
+                   "long_throw": None,
                    "att_routine": "mixed", "def_routine": "zonal"},
 }
 
 LINE_STEP = {"much_lower": -2, "lower": -1, "standard": 0, "higher": 1, "much_higher": 2}
+
+
+def get_player_role(team, player_id):
+    """Role assigned to a player on the tactics pitch (default: standard)."""
+    fd = getattr(team, "formation_data", None)
+    if isinstance(fd, dict):
+        info = fd.get(str(player_id))
+        if isinstance(info, dict) and info.get("role") in PLAYER_ROLES:
+            return info["role"]
+    return "standard"
+
+
+def _position_band(player):
+    """Coarse GK/DEF/MID/FWD band for role suitability."""
+    pos = (getattr(player, "position", "") or "").upper()
+    if pos in ("GK", "DEF", "MID", "FWD"):
+        return pos
+    try:
+        return player.position_group()
+    except Exception:
+        return "MID"
+
+
+def role_suitability(player, role="standard"):
+    """0..100 fit between a player and a tactical role.
+
+    Weighted attribute averages (config.ROLE_SUITABILITY_WEIGHTS) scaled by
+    the position band multiplier (config.ROLE_POSITION_FIT). The neutral
+    "standard" role reports the player's overall instead.
+    """
+    role = role if role in PLAYER_ROLES else "standard"
+    if role == "standard":
+        base = float(getattr(player, "overall", 0) or 0)
+        if not base:
+            base = max(float(getattr(player, "attack", 50) or 50),
+                       float(getattr(player, "defense", 50) or 50))
+    else:
+        weights = ROLE_SUITABILITY_WEIGHTS.get(role) or {}
+        base = sum(
+            float(getattr(player, attr, 50) or 50) * weight
+            for attr, weight in weights.items()
+        )
+    fit = (ROLE_POSITION_FIT.get(role) or {}).get(_position_band(player), 0.6)
+    return int(max(0, min(100, round(base * fit))))
+
+
+def role_suitability_map(player):
+    """All role fits for one player, for instant badge updates in the UI."""
+    return {role: role_suitability(player, role) for role in PLAYER_ROLES}
+
+
+def normalize_tactical_slots(team, raw_slots):
+    """Validate the full-tactics payload's slots (roles + PIs).
+
+    Accepts a list of {player_id, role, position, pi} dicts or a mapping of
+    player_id -> entry. Returns (slots, error). Unknown players are rejected;
+    roles fall back to "standard"; PIs are filtered to known instructions and
+    capped at MAX_PLAYER_INSTRUCTIONS.
+    """
+    if raw_slots in (None, ""):
+        return [], None
+    if isinstance(raw_slots, dict):
+        items = []
+        for key, value in raw_slots.items():
+            entry = dict(value) if isinstance(value, dict) else {}
+            entry.setdefault("player_id", key)
+            items.append(entry)
+    elif isinstance(raw_slots, list):
+        items = raw_slots
+    else:
+        return [], "بيانات المراكز غير صالحة"
+    if len(items) > 11:
+        return [], "لا يمكن حفظ أكثر من 11 لاعباً في الملعب"
+
+    squad = {p.id: p for p in (getattr(team, "players", None) or [])}
+    slots = []
+    for item in items:
+        if not isinstance(item, dict):
+            return [], "بيانات المراكز غير صالحة"
+        try:
+            player_id = int(item.get("player_id"))
+        except (TypeError, ValueError):
+            return [], "معرف لاعب غير صالح في المراكز"
+        player = squad.get(player_id)
+        if player is None:
+            return [], "أحد اللاعبين في المراكز ليس من فريقك"
+
+        role = item.get("role")
+        if role not in PLAYER_ROLES:
+            role = "standard"
+
+        raw_pi = item.get("pi") or []
+        if isinstance(raw_pi, str):
+            raw_pi = [raw_pi]
+        pis = []
+        for pi in raw_pi if isinstance(raw_pi, (list, tuple)) else []:
+            if pi in PLAYER_INSTRUCTIONS and pi not in pis:
+                pis.append(pi)
+        pis = pis[:MAX_PLAYER_INSTRUCTIONS]
+
+        position = str(item.get("position")
+                       or getattr(player, "detailed_position", None)
+                       or getattr(player, "position", "") or "")[:10]
+        slots.append({
+            "player_id": player_id,
+            "role": role,
+            "position": position,
+            "pi": pis,
+        })
+    return slots, None
+
+
+# Payload aliases -> canonical set_pieces keys. The UI mirrors the plan's
+# names while the engine/config keep the compact corner_l/corner_r/fk/pen keys.
+_SET_PIECE_ALIASES = {
+    # Payload names first so an incoming alias overrides a stale canonical
+    # value carried over from the saved tactics dict.
+    "pen": ("penalty", "penalty_taker", "penalty_taker_id", "pen"),
+    "fk": ("freekick_direct", "freekick", "free_kick",
+           "freekick_taker", "freekick_taker_id", "fk"),
+    "corner_l": ("corner_left", "corner_left_taker",
+                 "corner_left_taker_id", "corner_l"),
+    "corner_r": ("corner_right", "corner_right_taker",
+                 "corner_right_taker_id", "corner_r"),
+    "long_throw": ("long_throw_taker", "long_throw_taker_id", "long_throw"),
+}
+
+
+def normalize_set_pieces(team, raw):
+    """Validate set-piece taker ids against the squad.
+
+    Returns (mapping, error). Empty values mean "automatic" (None), ids must
+    belong to the manager's squad. Unknown keys are preserved so tactical
+    routine settings (att_routine/def_routine) survive a save.
+    """
+    source = raw if isinstance(raw, dict) else {}
+    out = dict(source)
+    squad_ids = {p.id for p in (getattr(team, "players", None) or [])}
+    for canonical, aliases in _SET_PIECE_ALIASES.items():
+        value = None
+        for alias in aliases:
+            if alias in source:
+                value = source.get(alias)
+                break
+        if value in (None, "", 0, "0"):
+            out[canonical] = None
+            continue
+        try:
+            player_id = int(value)
+        except (TypeError, ValueError):
+            return {}, "قيمة غير صالحة لمنفذي الكرات الثابتة"
+        if player_id not in squad_ids:
+            return {}, "أحد منفذي الكرات الثابتة ليس من فريقك"
+        out[canonical] = player_id
+    return out, None
+
+
+def get_set_piece_takers(team, tactics=None):
+    """Resolved takers for the set-piece UI (tactics data, then legacy columns)."""
+    td = tactics if isinstance(tactics, dict) else get_team_tactics(team)
+    sp = (td or {}).get("set_pieces") or {}
+    return {
+        "pen": sp.get("pen") or getattr(team, "penalty_taker_id", None),
+        "fk": sp.get("fk") or getattr(team, "freekick_taker_id", None),
+        "corner_l": sp.get("corner_l"),
+        "corner_r": sp.get("corner_r"),
+        "long_throw": sp.get("long_throw"),
+    }
 
 
 def tactics_fingerprint(tactics):
@@ -69,6 +243,8 @@ def get_team_tactics(team):
     except Exception:
         pass
     base = {k: (v.copy() if isinstance(v, dict) else v) for k, v in DEFAULT_TACTICS.items()}
+    base["set_pieces"]["pen"] = getattr(team, "penalty_taker_id", None)
+    base["set_pieces"]["fk"] = getattr(team, "freekick_taker_id", None)
     try:
         from services import effective_match_tactic, effective_pressing
         pressing = effective_pressing(team)

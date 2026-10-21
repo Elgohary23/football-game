@@ -1,244 +1,254 @@
-تمام، استلمت الإضافات. دي الـ Implementation Plan بالإنجليزية:
+Here is the complete Implementation Plan written in English, featuring code snippets for both the front-end (HTML/JavaScript/CSS) and back-end (Flask/Python) to fully activate all hidden tactical features in your UI.
 
 ---
 
-# 📋 Implementation Plan: Realistic Match Scheduling System
+### Phase 1: Role Suitability Indicator
 
-## 1. Overview & Goals
+Display a visual indicator (percentage or badge) on each player card on the pitch to show how well a player fits their currently assigned tactical role, based on `role_suitability` sent from the backend.
 
-Transform the current single-fixture-per-week calendar into a realistic multi-competition scheduling system that mirrors real-world English club football. The system applies **identically** to all teams (player + AI), but the calendar UI exposes only the player's team fixtures.
+#### 1. Front-End Rendering (`tactics_pitch.js` / `free_formation.js`)
 
-### Core Objectives
-- **2 matches/week baseline rhythm** (League weekend + Cup/European midweek)
-- **Boxing Day compressed schedule** (3 matches in 7–8 days during Dec/Jan)
-- **FIFA international breaks** (Sept, Oct, Nov, March) — zero matches
-- **New UCL format** (Swiss-model league phase + extra qualifying week)
-- **Fatigue & injury scaling** based on matches-per-week density
-- **Scope**: Applied uniformly to every team across every competition
+```javascript
+// Renders the player card on the pitch with a dynamic suitability badge
+function renderPlayerCardOnPitch(player) {
+    const suitability = player.role_suitability || 0; // 0 to 100%
+    
+    // Determine badge color based on suitability score
+    let badgeClass = 'bg-danger';
+    if (suitability >= 80) badgeClass = 'bg-success';
+    else if (suitability >= 60) badgeClass = 'bg-warning text-dark';
 
----
+    return `
+        <div class="player-pitch-card" data-player-id="${player.id}">
+            <div class="player-name">${player.short_name}</div>
+            <div class="player-role-selector">
+                <select onchange="updatePlayerRole('${player.id}', this.value)" class="form-select form-select-sm">
+                    ${renderRoleOptions(player.position, player.selected_role)}
+                </select>
+            </div>
+            <!-- Role Suitability Badge -->
+            <div class="role-suitability-bar mt-1">
+                <span class="badge ${badgeClass}" style="font-size: 0.7rem;">
+                    Suitability: ${suitability}%
+                </span>
+            </div>
+        </div>
+    `;
+}
 
-## 2. Match Categorization Model
-
-### 2.1 Two Logical Buckets
-Every `Match` row falls into one of two buckets determined by team involvement, **not** a new column:
-
-| Bucket | Definition | Example |
-|---|---|---|
-| **Player Matches** | `match.home_team.is_player_team == True` OR `match.away_team.is_player_team == True` | Liverpool (user) vs Arsenal |
-| **World Matches** | Neither side is the player's team | Man City vs Chelsea (simulated in background) |
-
-> **No schema change required** — the existing `is_player_team` flag on `Team` already disambiguates. We introduce a helper `is_player_match(match)` in `services.py` for clarity.
-
-### 2.2 Scheduling Equality Rule
-- **Every team is scheduled by the same engine**, regardless of player/AI status.
-- The player's team is *not* given preferential rest days or different cadence.
-- This guarantees realism: the user faces the same fixture congestion as any other top-6 side.
-
----
-
-## 3. Calendar UI Simplification
-
-### 3.1 View Removal
-**Remove** from `templates/calendar.html` and its JS:
-- ❌ Week view (`#weekView`, `renderWeek()`)
-- ❌ Agenda view (`#agendaView`, `renderAgenda()`)
-- ❌ Their tab buttons in `.view-tabs`
-
-**Keep**:
-- ✅ Monthly view only (`#monthView`, `renderCalendar()`)
-
-### 3.2 Player-Only Filter
-The `/calendar` route currently loads `player_matches` filtered by player team. **Confirm and enforce**:
-
-```python
-# routes/game_routes.py → calendar()
-player_matches = (
-    Match.query
-    .filter((Match.home_team_id == player_team.id) |
-            (Match.away_team_id == player_team.id))
-    .order_by(Match.date)
-    .all()
-)
 ```
 
-World matches are **never** injected into `player_matches_json`. They live in the DB and are simulated by `simulate_world_week()` independently.
-
-### 3.3 Day Marker System (Dynamic)
-Each day cell in the monthly grid shows **colored dots** for each match on that date:
-
-| Dot Color | Meaning |
-|---|---|
-| 🔵 Blue | League match (Premier League) |
-| 🟣 Purple | Domestic cup (Carabao / FA Cup) |
-| 🟡 Gold | European match (UCL / UEL / UECL) |
-| ⚪ Gray (faded) | Played already |
-
-**Compressed week example** (Boxing Day):
-```
-Sat 27 Dec  →  🔵  (League)
-Tue 30 Dec  →  🟣  (FA Cup replay)
-Fri 02 Jan  →  🔵  (League)
-```
-The user opens the calendar, sees three dots on three different days, and immediately knows it's a heavy week.
-
-### 3.4 Click Behavior (Unchanged)
-Clicking a day opens the existing `showDayDetails(ds)` panel — but it now lists **all** player matches on that day (handles the rare midweek + cup double-header scenario via the existing `more[]` array).
-
 ---
 
-## 4. Scheduling Engine
+### Phase 2: Player Individual Instructions (PIs) Modal
 
-### 4.1 Fixed-Day Cadence (Default Week)
+Allow managers to click on any player on the pitch to open a modal where they can select up to 3 specific individual instructions.
 
-| Day | Slot | Competition |
-|---|---|---|
-| **Saturday/Sunday** | Weekend | League |
-| **Tuesday/Wednesday** | Midweek | European (UCL/UEL) |
-| **Thursday** | Midweek alt | UECL or domestic cup |
-| **Wednesday** | Midweek alt | Carabao / FA Cup |
+#### 1. HTML Modal Structure (`tactics.html`)
 
-**Rule**: 3–4 days minimum between any two fixtures for the same team.
+```html
+<!-- Modal for Player Individual Instructions -->
+<div class="modal fade" id="playerInstructionsModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark text-white">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title" id="piModalTitle">Player Instructions</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small">Select up to 3 individual instructions for this position:</p>
+        <div id="piOptionsContainer" class="d-flex flex-wrap gap-2">
+          <!-- Dynamically populated options -->
+        </div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-primary btn-sm" onclick="savePlayerInstructions()">Save Instructions</button>
+      </div>
+    </div>
+  </div>
+</div>
 
-### 4.2 Schedule Patterns
-
-#### Pattern A — Normal Week (most common)
-- Sat: League
-- Tue/Wed: Cup or European
-
-#### Pattern B — Compressed Week (Boxing Day: Dec 22 – Jan 5)
-- Sat: League
-- Tue: League or FA Cup replay
-- Fri/Sat: League or Cup
-- **Fatigue multiplier: ×1.5**
-
-#### Pattern C — Light Week (Aug, post-elimination)
-- Sat: League only
-- **Fatigue multiplier: ×0.7** (recovery bonus)
-
-#### Pattern D — FIFA Break (Sept/Oct/Nov/March)
-- Zero matches for 7–10 days
-- National team call-ups (cosmetic only in v1)
-
-### 4.3 Season Structure (40 active weeks)
-
-| Phase | Weeks | Window | Pattern |
-|---|---|---|---|
-| Pre-season | 1–2 | Aug | Light (C) |
-| Autumn block | 3–8 | Sep–Oct | Normal (A) + 1 FIFA break |
-| Winter block 1 | 9–14 | Nov–mid-Dec | Normal (A) + 1 FIFA break |
-| Boxing Day | 15–18 | Dec 22 – Jan 5 | Compressed (B) |
-| Winter break | 19 | Jan (rotating) | Rest |
-| Spring block | 20–28 | Feb–Mar | Normal (A) + 1 FIFA break |
-| Run-in | 29–38 | Apr–mid-May | Normal (A) + UCL knockouts |
-| Season end | 39–40 | Late May | Cup finals |
-
-**Target totals** (team reaching all finals): **60–65 matches**.
-
----
-
-## 5. European Competitions (New UCL Format)
-
-### 5.1 League Phase
-- **8 matches** per team (was 6) in the Swiss-model phase
-- Spread across matchdays 1–8 (Sep → Jan)
-- Extra matchday added in the **qualifying week** (last week of Jan) for teams needing the play-off slot
-
-### 5.2 Implementation Hook
-In `cup_services.py → seed_continental_league_phase()`:
-- Generate 8 fixtures per participant (instead of 6)
-- Reserve the **7th qualifying week** as a special matchday slot
-- Tag matches with `comp_type = "continental"` and the appropriate color badge
-
----
-
-## 6. Fatigue & Injury Scaling
-
-### 6.1 New Helper: `weekly_load(team_id, week)`
-Returns the number of matches played by `team` in the given week (0, 1, 2, or 3).
-
-### 6.2 Post-Match Fatigue Update
-In `simulation.py → simulate_match()`:
-
-```python
-def apply_fatigue(match, multiplier=1.0):
-    for player in match.home_team.players + match.away_team.players:
-        if player.is_starting:
-            player.fitness = max(20, player.fitness - (8 * multiplier))
-            # Compressed weeks carry higher injury risk
-            if multiplier >= 1.5:
-                if random.random() < 0.04:  # 4% injury chance
-                    player.injury_days = random.randint(7, 21)
 ```
 
-### 6.3 Weekly Recovery
-In `simulate_day()`:
-- Each rest day adds `+3` fitness (cap 100)
-- FIFA break weeks add `+15` fitness (full recovery)
+#### 2. JavaScript Logic (`tactics_center.js`)
+
+```javascript
+let currentEditingPlayerId = null;
+const AVAILABLE_PIS = [
+    { id: 'shoot_more', label: 'Shoot More Often' },
+    { id: 'dribble_more', label: 'Dribble More' },
+    { id: 'stay_wide', label: 'Stay Wide' },
+    { id: 'mark_tighter', label: 'Mark Tighter' },
+    { id: 'get_further_forward', label: 'Get Further Forward' }
+];
+
+function openPIModal(playerId, currentPIs = []) {
+    currentEditingPlayerId = playerId;
+    const container = document.getElementById('piOptionsContainer');
+    container.innerHTML = '';
+
+    AVAILABLE_PIS.forEach(pi => {
+        const isChecked = currentPIs.includes(pi.id) ? 'checked' : '';
+        container.innerHTML += `
+            <div class="form-check form-check-inline me-3">
+                <input class="form-check-input pi-checkbox" type="checkbox" value="${pi.id}" id="pi_${pi.id}" ${isChecked}>
+                <label class="form-check-label" for="pi_${pi.id}">${pi.label}</label>
+            </div>
+        `;
+    });
+
+    // Enforce max limit of 3 instructions
+    document.querySelectorAll('.pi-checkbox').forEach(cb => {
+        cb.addEventListener('change', () => {
+            const checkedCount = document.querySelectorAll('.pi-checkbox:checked').length;
+            if (checkedCount > 3) {
+                cb.checked = false;
+                alert('You can select a maximum of 3 individual instructions per player.');
+            }
+        });
+    });
+
+    new bootstrap.Modal(document.getElementById('playerInstructionsModal')).show();
+}
+
+function savePlayerInstructions() {
+    const selectedPIs = Array.from(document.querySelectorAll('.pi-checkbox:checked')).map(cb => cb.value);
+    
+    // Store selected instructions in JS memory state
+    if (tacticsData.slots[currentEditingPlayerId]) {
+        tacticsData.slots[currentEditingPlayerId].pi = selectedPIs;
+    }
+    
+    bootstrap.Modal.getInstance(document.getElementById('playerInstructionsModal')).hide();
+}
+
+```
 
 ---
 
-## 7. Data Model Changes
+### Phase 3: Display Player Traits & Personality Badges
 
-### 7.1 New Columns (migration)
+Surface key attributes (e.g., Leader, Long Shots, Tries Through Balls) directly on the tactical card on the pitch to help managers make informed decisions.
 
-**`Match` table**:
-- `comp_type` (already used in narrative; promote to a real column with values: `league`, `domestic_cup`, `continental`)
-- `matchday` (int, optional — for UCL league-phase numbering 1–8)
+#### 1. Rendering Traits (`tactics_pitch.js`)
 
-**`GameState` table**:
-- `season_phase` (enum: `preseason`, `autumn`, `winter`, `boxing_day`, `winter_break`, `spring`, `run_in`, `offseason`)
-- `is_fifa_break` (bool, computed from date)
+```javascript
+function renderPlayerTraitsBadges(traits = [], personality = '') {
+    let html = '<div class="traits-container d-flex justify-content-center gap-1 mt-1">';
+    
+    if (personality === 'Leader') {
+        html += `<span class="badge bg-warning text-dark" title="Leader"><i class="bi bi-star-fill"></i> C</span>`;
+    }
+    
+    traits.forEach(trait => {
+        if (trait === 'long_shots') {
+            html += `<span class="badge bg-info" title="Long Shots">🎯</span>`;
+        } else if (trait === 'tries_through_balls') {
+            html += `<span class="badge bg-primary" title="Tries Through Balls">📐</span>`;
+        }
+    });
+    
+    html += '</div>';
+    return html;
+}
 
-### 7.2 No Breaking Changes
-Existing fields (`week`, `date`, `played`, `result`) stay. New columns default to `NULL`/`league` so old saves keep working.
-
----
-
-## 8. Files to Modify
-
-| File | Change |
-|---|---|
-| `routes/game_routes.py` | `/calendar` route — confirm player-only filter; remove week/agenda hooks |
-| `templates/calendar.html` | Strip week + agenda markup, tabs, and JS handlers; keep monthly grid + day-dot renderer |
-| `simulation.py` | Add `apply_fatigue()`, `weekly_load()`, season-phase detection, FIFA break windows |
-| `services.py` | Add `is_player_match()`, `season_phase_for_date()`, update `start_new_season()` to generate the new 40-week calendar |
-| `cup_services.py` | Extend `seed_continental_league_phase()` to 8 matchdays + qualifying week; align UCL/UEL/UECL dates with the new cadence |
-| `models.py` | Add `comp_type`, `matchday`, `season_phase`, `is_fifa_break` columns + migration |
-| `config.py` | New constants: `FIFA_BREAK_WINDOWS`, `BOXING_DAY_RANGE`, `LEAGUE_WEEKEND_DAYS`, `MIDWEEK_DAYS`, `MIN_REST_DAYS = 3` |
-| `narrative.py` | `build_calendar_events()` updated to emit per-competition dot color |
-| `tests/test_backend.py` | New tests: 2-match baseline, FIFA break zero-match week, Boxing Day 3-match week, UCL 8 matchdays |
-| `tests/test_frontend.py` | Calendar test: assert week/agenda tabs removed, dots render with correct colors |
-| `tests/test_e2e_playwright.py` | `TestCalendarDetails` — assert monthly-only, player matches only, dynamic dot rendering |
+```
 
 ---
 
-## 9. Implementation Steps (Ordered)
+### Phase 4: Extended Set-Piece Routine Selectors
 
-1. **Schema migration** — add new columns to `Match` and `GameState`; backfill defaults.
-2. **Config constants** — define FIFA windows, Boxing Day range, weekend/midweek days, rest rules.
-3. **Season generator** — rewrite `start_new_season()` to produce the 40-week calendar with all 4 patterns.
-4. **Cup seeding** — extend UCL/UEL/UECL league phase to 8 matchdays.
-5. **Fatigue engine** — wire `apply_fatigue()` into `simulate_match()` and `simulate_day()`.
-6. **Calendar UI** — strip week/agenda views; implement dynamic dot renderer with color legend.
-7. **Player-only filter** — verify `/calendar` returns only player matches; world matches stay in DB.
-8. **Narrative hooks** — update `build_calendar_events()` to emit colored dots per competition.
-9. **Tests** — backend (scheduling correctness), frontend (UI simplification), E2E (Playwright on real calendar).
-10. **Migration script** — `scripts/migrate_realistic_calendar.py` to backfill existing saves without wiping them.
+Expand the Set-Pieces UI to allow selecting takers for all specific scenarios (corners, direct free kicks, and long throw-ins) rather than just penalties.
+
+#### 1. HTML Layout (`tactics_set_pieces.html`)
+
+```html
+<div class="row g-3" id="setPiecesForm">
+  <!-- Penalties -->
+  <div class="col-md-4">
+    <label class="form-label">Penalty Taker</label>
+    <select class="form-select" name="penalty_taker" id="penaltyTakerSelect"></select>
+  </div>
+  
+  <!-- Direct Free Kicks -->
+  <div class="col-md-4">
+    <label class="form-label">Direct Free Kick Taker</label>
+    <select class="form-select" name="direct_freekick_taker" id="directFKSelect"></select>
+  </div>
+
+  <!-- Corners -->
+  <div class="col-md-4">
+    <label class="form-label">Left Corner Taker</label>
+    <select class="form-select" name="corner_left_taker" id="cornerLeftSelect"></select>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label">Right Corner Taker</label>
+    <select class="form-select" name="corner_right_taker" id="cornerRightSelect"></select>
+  </div>
+
+  <!-- Long Throws -->
+  <div class="col-md-4">
+    <label class="form-label">Long Throw Taker</label>
+    <select class="form-select" name="long_throw_taker" id="longThrowSelect"></select>
+  </div>
+</div>
+
+```
 
 ---
 
-## 10. Acceptance Criteria
+### Phase 5: Full Tactical Payload Payload Integration
 
-- ✅ Monthly view is the **only** calendar view; week & agenda tabs gone.
-- ✅ Calendar shows **only** player-team matches (verified by DB-backed test).
-- ✅ Day cells show **colored dots** per competition type (league/cup/european) — dynamic per real fixtures.
-- ✅ Player team plays **2 matches/week** in normal weeks, **3 in Boxing Day week**, **0 in FIFA breaks**.
-- ✅ All AI teams follow the **same** scheduling rules.
-- ✅ UCL participants play **8 league-phase matches**.
-- ✅ Starter fitness drops by ~8% per match; ≥4% injury risk in compressed weeks.
-- ✅ Existing saves load with the new schema (backward compatible).
-- ✅ All existing tests pass; new scheduling tests added and green.
+Connect all UI elements into a single `fetch` request that collects tactical style, individual instructions, set-piece takers, and line-ups, sending them to `/tactics/save`.
 
----
+#### 1. API Request Logic (`tactics_center.js`)
 
+```javascript
+async function saveCompleteTactics() {
+    // 1. Gather team tactical instructions
+    const payload = {
+        formation: document.getElementById('formationSelect').value,
+        mentality: document.getElementById('mentalitySelect').value,
+        passing_style: document.getElementById('passingStyleSelect').value,
+        tempo: document.getElementById('tempoSelect').value,
+        width: document.getElementById('widthSelect').value,
+        defensive_line: document.getElementById('defensiveLineSelect').value,
+        pressing_line: document.getElementById('pressingLineSelect').value,
+        counter_press: document.getElementById('counterPressCheck').checked,
+        counter_attack: document.getElementById('counterAttackCheck').checked,
+        
+        // 2. Gather set-piece routines
+        set_pieces: {
+            penalty: document.getElementById('penaltyTakerSelect').value,
+            freekick_direct: document.getElementById('directFKSelect').value,
+            corner_left: document.getElementById('cornerLeftSelect').value,
+            corner_right: document.getElementById('cornerRightSelect').value,
+            long_throw: document.getElementById('longThrowSelect').value
+        },
+        
+        // 3. Gather pitch lineup, assigned roles, and individual instructions (PIs)
+        slots: tacticsData.slots // Array of objects: { player_id, role, position, pi: [...] }
+    };
+
+    // 4. Send payload to Flask endpoint
+    try {
+        const response = await fetch('/tactics/save', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            alert('Tactics and player instructions saved successfully!');
+        } else {
+            alert('Failed to save tactics: ' + result.message);
+        }
+    } catch (error) {
+        console.error('Error saving tactics:', error);
+    }
+}
+
+```

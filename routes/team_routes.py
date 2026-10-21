@@ -138,7 +138,13 @@ def toggle_starter(player_id):
 
 @bp.route("/formation")
 def formation():
-    from tactics import get_team_tactics
+    from tactics import (
+        get_player_role,
+        get_set_piece_takers,
+        get_team_tactics,
+        role_suitability,
+        role_suitability_map,
+    )
     from models import TacticPreset, Player
     from config import PRESET_FORMATIONS
 
@@ -158,6 +164,7 @@ def formation():
     players = Player.query.filter_by(team_id=player_team.id).all()
     players_data = []
     for p in players:
+        role = get_player_role(player_team, p.id)
         players_data.append({
             "id": p.id,
             "name": p.name,
@@ -169,9 +176,11 @@ def formation():
             "injury_days": p.injury_days,
             "fitness": p.fitness,
             "is_starting": p.is_starting,
-            "role": getattr(p, "role", "") or "",
-            "role_suitability": getattr(p, "role_suitability", 0) or 0,
-            "role_fit": getattr(p, "role_fit", 0) or 0,
+            "role": role,
+            "role_suitability": role_suitability(p, role),
+            "role_suitability_map": role_suitability_map(p),
+            "traits": p.traits or [],
+            "personality": p.personality or "Normal",
         })
     formation_data = player_team.formation_data
     if not isinstance(formation_data, dict):
@@ -179,7 +188,8 @@ def formation():
     return render_template("tactics.html", state=state, player_team=player_team,
                            tactics_data=tactics_data, presets=presets, players=players_data,
                            formation_data=json.dumps(formation_data),
-                           formations=PRESET_FORMATIONS)
+                           formations=PRESET_FORMATIONS,
+                           set_piece_takers=get_set_piece_takers(player_team, tactics_data))
 
 
 @bp.route("/formation/save", methods=["POST"])
@@ -248,27 +258,33 @@ def save_tactics():
 # --- FM: set-piece takers ---------------------------------------------
 @bp.route("/formation/takers", methods=["POST"])
 def save_takers():
+    from tactics import get_team_tactics, normalize_set_pieces, on_tactics_changed
+
     player_team = safe_player_team()
-    squad = {p.id: p.name for p in Player.query.filter_by(team_id=player_team.id).all()}
 
     # Empty string ("— تلقائي —") clears back to automatic; a numeric id
-    # must belong to the squad, otherwise reject instead of ignoring.
-    raw_p = (request.form.get("penalty_taker_id") or "").strip()
-    raw_f = (request.form.get("freekick_taker_id") or "").strip()
-    try:
-        pid_p = int(raw_p) if raw_p else None
-        pid_f = int(raw_f) if raw_f else None
-    except ValueError:
-        flash("قيمة غير صالحة لمنفذي الكرات الثابتة!")
-        return redirect("/formation")
-    if pid_p is not None and pid_p not in squad:
-        flash("مسدد ركلات الجزاء المختار ليس من فريقك!")
-        return redirect("/formation")
-    if pid_f is not None and pid_f not in squad:
-        flash("مسدد الركلات الحرة المختار ليس من فريقك!")
+    # must belong to the squad, otherwise reject instead of ignoring. Input
+    # names cover the extended routines (corners/long throws) while the
+    # legacy penalty/freekick fields stay required-compatible.
+    raw = {
+        "pen": (request.form.get("penalty_taker_id") or "").strip(),
+        "fk": (request.form.get("freekick_taker_id") or "").strip(),
+    }
+    for field, key in (("corner_left_taker_id", "corner_l"),
+                       ("corner_right_taker_id", "corner_r"),
+                       ("long_throw_taker_id", "long_throw")):
+        if field in request.form:
+            raw[key] = (request.form.get(field) or "").strip()
+    set_pieces, error = normalize_set_pieces(player_team, raw)
+    if error:
+        flash(error)
         return redirect("/tactics")
-    player_team.penalty_taker_id = pid_p
-    player_team.freekick_taker_id = pid_f
+
+    player_team.penalty_taker_id = set_pieces.get("pen")
+    player_team.freekick_taker_id = set_pieces.get("fk")
+    tactics_data = dict(get_team_tactics(player_team))
+    tactics_data["set_pieces"] = set_pieces
+    on_tactics_changed(player_team, tactics_data)
     try:
         db.session.commit()
     except Exception:
@@ -1141,32 +1157,67 @@ def formation_auto_pick():
 @bp.route("/tactics/save", methods=["POST"])
 def save_full_tactics():
     """FM-style full tactics save (validated server-side, capped PIs)."""
-    from tactics import get_team_tactics, on_tactics_changed
+    from tactics import (
+        get_team_tactics,
+        normalize_set_pieces,
+        normalize_tactical_slots,
+        on_tactics_changed,
+    )
 
     player_team = safe_player_team()
     try:
         payload = request.get_json(force=True) or {}
     except Exception:
         return jsonify({"success": False, "message": "بيانات غير صالحة"}), 400
+    if not isinstance(payload, dict):
+        return jsonify({"success": False, "message": "بيانات غير صالحة"}), 400
+
     base = get_team_tactics(player_team)
     merged = dict(base)
-    for key in ("formation", "mentality", "in_possession", "out_of_possession",
-                "transitions", "set_pieces", "slots"):
+    # Nested sections merge so engine knobs that the UI does not expose
+    # (tackling, press trap, overlaps...) survive a full-tactics save.
+    for key in ("in_possession", "out_of_possession", "transitions", "set_pieces"):
+        if key in payload:
+            incoming = payload[key] if isinstance(payload[key], dict) else {}
+            current = merged.get(key) if isinstance(merged.get(key), dict) else {}
+            merged[key] = {**current, **incoming}
+    for key in ("formation", "mentality", "slots"):
         if key in payload:
             merged[key] = payload[key]
+    if isinstance(merged.get("formation"), str):
+        merged["formation"] = merged["formation"][:20]
     try:
         mentality = int(merged.get("mentality", 3))
         merged["mentality"] = max(1, min(5, mentality))
     except Exception:
         merged["mentality"] = 3
-    try:
-        slots = merged.get("slots") or []
-        for s in slots:
-            pis = (s.get("pi") or [])[:3]
-            s["pi"] = pis
-        merged["slots"] = slots
-    except Exception:
-        pass
+
+    slots, error = normalize_tactical_slots(player_team, merged.get("slots"))
+    if error:
+        return jsonify({"success": False, "message": error}), 400
+    merged["slots"] = slots
+
+    set_pieces, error = normalize_set_pieces(player_team, merged.get("set_pieces"))
+    if error:
+        return jsonify({"success": False, "message": error}), 400
+    merged["set_pieces"] = set_pieces
+
+    # Keep the engine's role source (formation_data) in sync with the slots
+    # payload, so a role picked in the full save is honoured by live matches.
+    fd = player_team.formation_data
+    fd = dict(fd) if isinstance(fd, dict) else {}
+    for slot in slots:
+        pid = str(slot["player_id"])
+        entry = fd.get(pid)
+        entry = dict(entry) if isinstance(entry, dict) else {"x": 50, "y": 50}
+        entry["role"] = slot["role"]
+        fd[pid] = entry
+    if fd:
+        player_team.formation_data = fd
+
+    player_team.penalty_taker_id = set_pieces.get("pen")
+    player_team.freekick_taker_id = set_pieces.get("fk")
+
     changed = on_tactics_changed(player_team, merged)
     try:
         db.session.commit()
@@ -1174,7 +1225,8 @@ def save_full_tactics():
         db.session.rollback()
         return jsonify({"success": False, "message": "فشل في حفظ الخطة!"}), 500
     return jsonify({"success": True, "familiarity_reset": bool(changed),
-                    "familiarity": getattr(player_team, "tactical_familiarity", 100)})
+                    "familiarity": getattr(player_team, "tactical_familiarity", 100),
+                    "slots": slots, "set_pieces": set_pieces})
 
 
 @bp.route("/difficulty", methods=["POST"])

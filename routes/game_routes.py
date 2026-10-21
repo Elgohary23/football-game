@@ -1109,7 +1109,13 @@ def board_center():
 
 @bp.route("/tactics")
 def tactics_center():
-    from tactics import get_team_tactics
+    from tactics import (
+        get_player_role,
+        get_set_piece_takers,
+        get_team_tactics,
+        role_suitability,
+        role_suitability_map,
+    )
     from models import TacticPreset, Player
     from config import PRESET_FORMATIONS
     import json
@@ -1126,6 +1132,7 @@ def tactics_center():
     players = Player.query.filter_by(team_id=player_team.id).all()
     players_data = []
     for p in players:
+        role = get_player_role(player_team, p.id)
         players_data.append({
             "id": p.id,
             "name": p.name,
@@ -1137,9 +1144,11 @@ def tactics_center():
             "injury_days": p.injury_days,
             "fitness": p.fitness,
             "is_starting": p.is_starting,
-            "role": getattr(p, "role", "") or "",
-            "role_suitability": getattr(p, "role_suitability", 0) or 0,
-            "role_fit": getattr(p, "role_fit", 0) or 0,
+            "role": role,
+            "role_suitability": role_suitability(p, role),
+            "role_suitability_map": role_suitability_map(p),
+            "traits": p.traits or [],
+            "personality": p.personality or "Normal",
         })
     formation_data = player_team.formation_data
     if not isinstance(formation_data, dict):
@@ -1147,7 +1156,8 @@ def tactics_center():
     return render_template("tactics.html", state=state, player_team=player_team,
                            tactics_data=tactics_data, presets=presets, players=players_data,
                            formation_data=json.dumps(formation_data),
-                           formations=PRESET_FORMATIONS)
+                           formations=PRESET_FORMATIONS,
+                           set_piece_takers=get_set_piece_takers(player_team, tactics_data))
 
 
 @bp.route("/transfers")

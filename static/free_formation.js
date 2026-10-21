@@ -6,6 +6,33 @@ document.addEventListener('DOMContentLoaded', function() {
     const LAYOUT_KEY = '__layout__';   // reserved formation_data key (not a player)
     const DROP_RADIUS = 15;            // pitch-% snap distance to a slot
     const csrfToken = document.getElementById('csrfToken').value;
+    const tacticsData = window.TACTICS_DATA || { slots: [] };
+
+    // Per-player individual instructions, restored from the saved tactics
+    // slots payload. Keyed by player id string for quick lookups.
+    const playerInstructions = {};
+    (function restorePlayerInstructions() {
+        const raw = tacticsData.slots;
+        const list = Array.isArray(raw) ? raw : Object.values(raw || {});
+        list.forEach(function(slot) {
+            if (!slot || slot.player_id == null) return;
+            const pis = Array.isArray(slot.pi) ? slot.pi.slice(0, 3) : [];
+            playerInstructions[String(slot.player_id)] = pis;
+        });
+    })();
+
+    const TRAIT_META = {
+        long_shots: { icon: '🎯', label: 'تسديد من بعيد' },
+        tries_through_balls: { icon: '📐', label: 'تمريرات بينية' },
+        set_piece_specialist: { icon: '⚽', label: 'متخصص كرات ثابتة' },
+        leadership: { icon: '⭐', label: 'قيادة' },
+        big_game_player: { icon: '🏆', label: 'لاعب المباريات الكبيرة' },
+        hard_worker: { icon: '🔥', label: 'عمل جاد' },
+        team_player: { icon: '🤝', label: 'لاعب فريق' },
+        gets_forward: { icon: '➡️', label: 'يتقدم للأمام' },
+        injury_prone: { icon: '🩹', label: 'معرض للإصابة' },
+        temperamental: { icon: '🌡️', label: 'مزاجي' },
+    };
 
     const pitchGrid = document.getElementById('pitch-grid');
     const bench = document.getElementById('bench');
@@ -96,6 +123,49 @@ document.addEventListener('DOMContentLoaded', function() {
         return div;
     }
 
+    function currentRole(playerId) {
+        const entry = formationData[String(playerId)];
+        if (entry && typeof entry === 'object' && entry.role) return entry.role;
+        return 'standard';
+    }
+
+    function suitabilityFor(player, role) {
+        const map = player.role_suitability_map || {};
+        if (map[role] != null) return map[role];
+        if (map.standard != null) return map.standard;
+        return player.role_suitability || 0;
+    }
+
+    function suitabilityClass(value) {
+        if (value >= 80) return 'suit-good';
+        if (value >= 60) return 'suit-mid';
+        return 'suit-bad';
+    }
+
+    function renderSuitabilityBadge(player, role) {
+        const value = suitabilityFor(player, role);
+        return `<span class="pb-suit ${suitabilityClass(value)}" title="ملاءمة الدور: ${value}%">${value}%</span>`;
+    }
+
+    function renderTraitBadges(player) {
+        const traits = Array.isArray(player.traits) ? player.traits : [];
+        const badges = [];
+        if (player.personality === 'Leader' || traits.includes('leadership')) {
+            badges.push('<span class="pb-trait" title="قائد الفريق">⭐</span>');
+        }
+        traits.forEach(function(trait) {
+            const meta = TRAIT_META[trait];
+            if (!meta || trait === 'leadership') return;
+            badges.push(`<span class="pb-trait" title="${meta.label}">${meta.icon}</span>`);
+        });
+        return `<span class="pb-traits">${badges.slice(0, 4).join('')}</span>`;
+    }
+
+    function renderPIButton(player) {
+        const count = (playerInstructions[String(player.id)] || []).length;
+        return `<button type="button" class="pb-pi-btn${count ? ' has-pi' : ''}" data-pi-player="${player.id}" title="تعليمات فردية (${count}/3)" aria-label="تعليمات فردية">⚙</button>`;
+    }
+
     function createPitchBox(player) {
         const box = document.createElement('div');
         box.className = `pitch-box ${player.position}`;
@@ -103,9 +173,16 @@ document.addEventListener('DOMContentLoaded', function() {
         box.draggable = true;
         const isInjured = player.injury_days > 0;
         const name = player.name.split(' ').slice(-1)[0];
-        const savedRole = formationData[player.id] && formationData[player.id].role || 'standard';
+        const savedRole = currentRole(player.id);
         box.className = `pitch-box ${player.position}${isInjured ? ' injured' : ''}`;
-        box.innerHTML = `<span class="pb-injured" aria-hidden="true">${isInjured ? '🔴' : ''}</span><span class="pb-name" title="${player.name}">${isInjured ? '🔴 ' : ''}${name}</span><span class="pb-pos">${player.detailed_position || player.position}</span><span class="pb-attr">${player.attack}/${player.defense}</span><select class="role-select" data-role-player="${player.id}">${roleOptions(savedRole)}</select>`;
+        box.innerHTML =
+            `<span class="pb-injured" aria-hidden="true">${isInjured ? '🔴' : ''}</span>` +
+            renderPIButton(player) +
+            renderSuitabilityBadge(player, savedRole) +
+            `<span class="pb-name" title="${player.name}">${isInjured ? '🔴 ' : ''}${name}</span>` +
+            `<span class="pb-pos">${player.detailed_position || player.position}</span>` +
+            renderTraitBadges(player) +
+            `<select class="role-select" data-role-player="${player.id}">${roleOptions(savedRole)}</select>`;
         box.title = `${player.name} - ${player.attack}/${player.defense}`;
 
         box.addEventListener('dragstart', (e) => {
@@ -119,7 +196,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Double-click to remove from pitch
         box.addEventListener('dblclick', (e) => {
             e.stopPropagation();
-            if (e.target.tagName === 'SELECT') return;
+            if (e.target.tagName === 'SELECT' || e.target.classList.contains('pb-pi-btn')) return;
             removeFromPitch(player.id);
         });
 
@@ -169,8 +246,27 @@ document.addEventListener('DOMContentLoaded', function() {
     pitchGrid.addEventListener('change', function(e) {
         const sel = e.target;
         if (!sel || !sel.classList || !sel.classList.contains('role-select')) return;
+        const pid = sel.dataset.rolePlayer;
+        // Keep local state in sync so the full-tactics payload sends the
+        // freshly picked role even before the page is reloaded.
+        const existing = formationData[pid];
+        formationData[pid] = Object.assign(
+            {}, (existing && typeof existing === 'object') ? existing : {},
+            { role: sel.value }
+        );
+        const player = players.find(p => p.id === parseInt(pid));
+        const box = sel.closest('.pitch-box');
+        if (player && box) {
+            const badge = box.querySelector('.pb-suit');
+            if (badge) {
+                const value = suitabilityFor(player, sel.value);
+                badge.className = `pb-suit ${suitabilityClass(value)}`;
+                badge.textContent = value + '%';
+                badge.title = `ملاءمة الدور: ${value}%`;
+            }
+        }
         const fd = new URLSearchParams();
-        fd.append('player_id', sel.dataset.rolePlayer);
+        fd.append('player_id', pid);
         fd.append('role', sel.value);
         fetch('/formation/role', {
             method: 'POST',
@@ -179,6 +275,94 @@ document.addEventListener('DOMContentLoaded', function() {
         }).then(r => r.json()).then(function(d) {
             if (d.success) { sel.style.borderColor = '#2ecc71'; }
         }).catch(function() {});
+    });
+
+    // --- Individual player instructions (PIs) modal --------------------
+    const piModal = document.getElementById('playerInstructionsModal');
+    const piTitle = document.getElementById('piModalTitle');
+    const piContainer = document.getElementById('piOptionsContainer');
+    const PI_LABELS = {
+        shoot_more: 'التسديد أكثر',
+        dribble_more: 'المراوغة أكثر',
+        stay_wide: 'البقاء على الطرف',
+        mark_tighter: 'الالتصاق بالخصم',
+        get_further_forward: 'التقدم للأمام',
+    };
+    let currentEditingPlayerId = null;
+
+    function updatePIOptionState() {
+        if (!piContainer) return;
+        const checked = piContainer.querySelectorAll('input.pi-checkbox:checked').length;
+        piContainer.querySelectorAll('.pi-option').forEach(function(row) {
+            const cb = row.querySelector('input.pi-checkbox');
+            if (!cb) return;
+            const blocked = checked >= 3 && !cb.checked;
+            cb.disabled = blocked;
+            row.classList.toggle('disabled', blocked);
+            row.classList.toggle('checked', cb.checked);
+        });
+    }
+
+    function openPIModal(playerId) {
+        const player = players.find(p => p.id === playerId);
+        if (!player || !piModal) return;
+        currentEditingPlayerId = playerId;
+        const selected = playerInstructions[String(playerId)] || [];
+        if (piTitle) piTitle.textContent = 'تعليمات فردية — ' + player.name;
+        if (piContainer) {
+            piContainer.innerHTML = '';
+            Object.keys(PI_LABELS).forEach(function(pi) {
+                const row = document.createElement('label');
+                row.className = 'pi-option';
+                row.innerHTML = `<input class="pi-checkbox" type="checkbox" value="${pi}" ${selected.includes(pi) ? 'checked' : ''}> <span>${PI_LABELS[pi]}</span>`;
+                row.querySelector('input').addEventListener('change', function() {
+                    const count = piContainer.querySelectorAll('input.pi-checkbox:checked').length;
+                    if (this.checked && count > 3) {
+                        this.checked = false;
+                        alert('يمكنك اختيار 3 تعليمات فردية كحد أقصى لكل لاعب.');
+                    }
+                    updatePIOptionState();
+                });
+                piContainer.appendChild(row);
+            });
+        }
+        updatePIOptionState();
+        piModal.classList.add('active');
+    }
+
+    function closePIModal() {
+        if (piModal) piModal.classList.remove('active');
+        currentEditingPlayerId = null;
+    }
+
+    function savePlayerInstructions() {
+        if (currentEditingPlayerId == null || !piContainer) { closePIModal(); return; }
+        const selected = Array.from(piContainer.querySelectorAll('input.pi-checkbox:checked'))
+            .map(cb => cb.value).slice(0, 3);
+        playerInstructions[String(currentEditingPlayerId)] = selected;
+        closePIModal();
+        renderAll();
+    }
+
+    if (piModal) {
+        const piCloseBtn = document.getElementById('piModalClose');
+        const piSaveBtn = document.getElementById('savePIBtn');
+        if (piCloseBtn) piCloseBtn.addEventListener('click', closePIModal);
+        if (piSaveBtn) piSaveBtn.addEventListener('click', savePlayerInstructions);
+        piModal.addEventListener('click', function(e) {
+            if (e.target === piModal) closePIModal();
+        });
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closePIModal();
+        });
+    }
+
+    pitchGrid.addEventListener('click', function(e) {
+        const btn = e.target.closest && e.target.closest('.pb-pi-btn');
+        if (!btn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        openPIModal(parseInt(btn.dataset.piPlayer, 10));
     });
 
     function findSlotForPlayer(pid) {
@@ -478,6 +662,24 @@ document.addEventListener('DOMContentLoaded', function() {
             e.target.classList.remove('dragging');
         }
     });
+
+    // Expose the pitch state so the tactics-center save can build the full
+    // payload (formation slots + roles + individual instructions).
+    window.TacticsPitch = {
+        getSlots: function() {
+            return Object.keys(positions).map(function(pid) {
+                const player = players.find(p => p.id === parseInt(pid));
+                return {
+                    player_id: parseInt(pid),
+                    role: currentRole(pid),
+                    position: player ? (player.detailed_position || player.position) : '',
+                    pi: (playerInstructions[pid] || []).slice(0, 3),
+                };
+            });
+        },
+        getPlayerInstructions: function() { return Object.assign({}, playerInstructions); },
+        openPlayerInstructions: openPIModal,
+    };
 
     // Initial render: restore saved placements (and preset slots), populate
     // bench + pool, and set the count. Runs once when the page loads.

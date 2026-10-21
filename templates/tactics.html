@@ -108,6 +108,11 @@
                         <i class="fas fa-wand-magic-sparkles"></i> تعبئة بالقدرة
                     </button>
                 </div>
+                <p class="pitch-hint">
+                    <i class="fas fa-info-circle"></i>
+                    اضغط زر <strong>⚙</strong> على أي لاعب لتعيين تعليمات فردية (حتى 3 تعليمات).
+                    النسبة على البطاقة تعرض مدى ملاءمة اللاعب لدوره الحالي.
+                </p>
                 <div id="pitch" class="free-pitch"
                      data-players='{{ (players or [])|tojson }}'
                      data-formation-data='{{ formation_data|default("{}", true)|safe }}'
@@ -147,6 +152,9 @@
 
         <!-- العقلية والتكتيك الكامل -->
         <div class="tab-pane" data-pane="mentality">
+            {% set ip = tactics_data.in_possession or {} %}
+            {% set oop = tactics_data.out_of_possession or {} %}
+            {% set tr = tactics_data.transitions or {} %}
             <div class="card" style="margin-bottom:1rem;">
                 <div class="card-header"><h3>العقلية (1-5)</h3></div>
                 <div class="tabs" id="mentalityBtns">
@@ -160,29 +168,78 @@
             <div class="card" style="margin-bottom:1rem;">
                 <div class="card-header"><h3>أثناء الاستحواذ</h3></div>
                 <div class="tactics-grid">
-                    <div><label>مباشرة التمرير</label><select id="tp_directness" class="filter-input"><option>قصير</option><option>متوازن</option><option>مباشر</option></select></div>
-                    <div><label>الإيقاع</label><select id="tp_tempo" class="filter-input"><option>بطيء</option><option>متوازن</option><option>سريع</option></select></div>
-                    <div><label>العرض</label><select id="tp_width" class="filter-input"><option>ضيق</option><option>متوازن</option><option>واسع</option></select></div>
-                    <div><label>العرضيات</label><select id="tp_crossing" class="filter-input"><option>قليلة</option><option>متوازنة</option><option>مكثفة</option></select></div>
-                    <div><label>الإبداع</label><select id="tp_creativity" class="filter-input"><option>منضبط</option><option>متوازن</option><option>حر</option></select></div>
+                    {% set directness = ip.get('passing_directness') %}
+                    <div><label>مباشرة التمرير</label><select id="tp_directness" class="filter-input">
+                        <option value="short" {% if directness in ('short', 'قصير') %}selected{% endif %}>قصير</option>
+                        <option value="standard" {% if directness in (none, '', 'standard', 'متوازن') %}selected{% endif %}>متوازن</option>
+                        <option value="direct" {% if directness in ('direct', 'long', 'مباشر', 'طويل') %}selected{% endif %}>مباشر</option>
+                    </select></div>
+                    {% set tempo = ip.get('tempo') %}
+                    <div><label>الإيقاع</label><select id="tp_tempo" class="filter-input">
+                        <option value="slow" {% if tempo in ('slow', 'بطيء') %}selected{% endif %}>بطيء</option>
+                        <option value="standard" {% if tempo in (none, '', 'standard', 'متوازن') %}selected{% endif %}>متوازن</option>
+                        <option value="fast" {% if tempo in ('fast', 'سريع') %}selected{% endif %}>سريع</option>
+                    </select></div>
+                    {% set width = ip.get('width') %}
+                    <div><label>العرض</label><select id="tp_width" class="filter-input">
+                        <option value="narrow" {% if width in ('narrow', 'ضيق') %}selected{% endif %}>ضيق</option>
+                        <option value="standard" {% if width in (none, '', 'standard', 'متوازن') %}selected{% endif %}>متوازن</option>
+                        <option value="wide" {% if width in ('wide', 'واسع') %}selected{% endif %}>واسع</option>
+                    </select></div>
+                    {% set crosses = ip.get('crosses') %}
+                    <div><label>العرضيات</label><select id="tp_crossing" class="filter-input">
+                        <option value="low" {% if crosses in ('low', 'قليلة') %}selected{% endif %}>قليلة</option>
+                        <option value="mixed" {% if crosses in (none, '', 'mixed', 'متوازنة') %}selected{% endif %}>متوازنة</option>
+                        <option value="high" {% if crosses in ('high', 'مكثفة') %}selected{% endif %}>مكثفة</option>
+                    </select></div>
+                    <div><label>الإبداع</label><select id="tp_creativity" class="filter-input">
+                        <option value="standard" {% if not ip.get('be_more_expressive') %}selected{% endif %}>منضبط</option>
+                        <option value="expressive" {% if ip.get('be_more_expressive') %}selected{% endif %}>حر</option>
+                    </select></div>
                 </div>
             </div>
 
             <div class="card" style="margin-bottom:1rem;">
                 <div class="card-header"><h3>التحولات</h3></div>
                 <div class="tactics-grid">
-                    <div><label>الضغط المضاد</label><select id="tp_counter_press" class="filter-input"><option>تراجع</option><option>متوازن</option><option>ضغط مضاد</option></select></div>
-                    <div><label>الهجمة المرتدة</label><select id="tp_counter" class="filter-input"><option>إبطاء</option><option>متوازن</option><option>مرتدات سريعة</option></select></div>
-                    <div><label>توزيع الحارس</label><select id="tp_gk_dist" class="filter-input"><option>قصير</option><option>متوازن</option><option>طويل</option></select></div>
+                    <div><label>الضغط المضاد</label><select id="tp_counter_press" class="filter-input">
+                        <option value="off" {% if not oop.get('counterpress') %}selected{% endif %}>تراجع</option>
+                        <option value="on" {% if oop.get('counterpress') %}selected{% endif %}>ضغط مضاد</option>
+                    </select></div>
+                    <div><label>الهجمة المرتدة</label><select id="tp_counter" class="filter-input">
+                        <option value="hold" {% if not tr.get('counter_attack', true) %}selected{% endif %}>إبطاء</option>
+                        <option value="counter" {% if tr.get('counter_attack', true) %}selected{% endif %}>مرتدات سريعة</option>
+                    </select></div>
+                    {% set gk_dist = tr.get('gk_distribution') %}
+                    <div><label>توزيع الحارس</label><select id="tp_gk_dist" class="filter-input">
+                        <option value="short" {% if gk_dist in (none, '', 'short', 'قصير') %}selected{% endif %}>قصير</option>
+                        <option value="mixed" {% if gk_dist in ('mixed', 'متوازن') %}selected{% endif %}>متوازن</option>
+                        <option value="long" {% if gk_dist in ('long', 'طويل') %}selected{% endif %}>طويل</option>
+                    </select></div>
                 </div>
             </div>
 
             <div class="card" style="margin-bottom:1rem;">
                 <div class="card-header"><h3>خارج الاستحواذ</h3></div>
                 <div class="tactics-grid">
-                    <div><label>حدة الضغط</label><select id="tp_pressing" class="filter-input"><option>منخفض</option><option>متوازن</option><option>مكثف</option></select></div>
-                    <div><label>الخط الدفاعي</label><select id="tp_dline" class="filter-input"><option>منخفض</option><option>متوازن</option><option>مرتفع</option></select></div>
-                    <div><label>خط الالتحام</label><select id="tp_loe" class="filter-input"><option>منخفض</option><option>متوازن</option><option>مرتفع</option></select></div>
+                    {% set pressing = oop.get('pressing_intensity') or 2 %}
+                    <div><label>حدة الضغط</label><select id="tp_pressing" class="filter-input">
+                        <option value="1" {% if pressing|int <= 1 %}selected{% endif %}>منخفض</option>
+                        <option value="2" {% if pressing|int == 2 %}selected{% endif %}>متوازن</option>
+                        <option value="3" {% if pressing|int >= 3 %}selected{% endif %}>مكثف</option>
+                    </select></div>
+                    {% set dline = oop.get('defensive_line') %}
+                    <div><label>الخط الدفاعي</label><select id="tp_dline" class="filter-input">
+                        <option value="lower" {% if dline in ('much_lower', 'lower', 'منخفض') %}selected{% endif %}>منخفض</option>
+                        <option value="standard" {% if dline in (none, '', 'standard', 'متوازن') %}selected{% endif %}>متوازن</option>
+                        <option value="higher" {% if dline in ('much_higher', 'higher', 'مرتفع') %}selected{% endif %}>مرتفع</option>
+                    </select></div>
+                    {% set loe = oop.get('engagement') %}
+                    <div><label>خط الالتحام</label><select id="tp_loe" class="filter-input">
+                        <option value="lower" {% if loe in ('much_lower', 'lower', 'منخفض') %}selected{% endif %}>منخفض</option>
+                        <option value="standard" {% if loe in (none, '', 'standard', 'متوازن') %}selected{% endif %}>متوازن</option>
+                        <option value="higher" {% if loe in ('much_higher', 'higher', 'مرتفع') %}selected{% endif %}>مرتفع</option>
+                    </select></div>
                 </div>
             </div>
 
@@ -245,35 +302,86 @@
         <!-- الكرات الثابتة -->
         <div class="tab-pane" data-pane="setpieces">
             <div class="card">
-                <div class="card-header"><h3>الكرات الثابتة</h3></div>
-                <form action="/formation/takers" method="POST" class="tactics-grid">
+                <div class="card-header">
+                    <h3>الكرات الثابتة</h3>
+                    <span id="setPiecesMsg" style="font-size:0.8rem;color:#2ecc71;"></span>
+                </div>
+                {% set takers = set_piece_takers or {'pen': player_team.penalty_taker_id, 'fk': player_team.freekick_taker_id} %}
+                <form action="/formation/takers" method="POST" id="setPiecesForm" class="tactics-grid">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                     <div>
                         <label>منفذ ركلات الجزاء</label>
-                        <select name="penalty_taker_id" class="filter-input">
+                        <select name="penalty_taker_id" id="penaltyTakerSelect" class="filter-input">
                             <option value="">— تلقائي —</option>
                             {% for p in players %}
-                            <option value="{{ p.id }}" {% if player_team.penalty_taker_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+                            <option value="{{ p.id }}" {% if takers.get('pen') == p.id %}selected{% endif %}>{{ p.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
                     <div>
-                        <label>منفذ الضربات الحرة</label>
-                        <select name="freekick_taker_id" class="filter-input">
+                        <label>منفذ الضربات الحرة المباشرة</label>
+                        <select name="freekick_taker_id" id="directFKSelect" class="filter-input">
                             <option value="">— تلقائي —</option>
                             {% for p in players %}
-                            <option value="{{ p.id }}" {% if player_team.freekick_taker_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+                            <option value="{{ p.id }}" {% if takers.get('fk') == p.id %}selected{% endif %}>{{ p.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
-                    <button class="btn btn-primary">حفظ المنفذين</button>
+                    <div>
+                        <label>منفذ الركنيات اليسرى</label>
+                        <select name="corner_left_taker_id" id="cornerLeftSelect" class="filter-input">
+                            <option value="">— تلقائي —</option>
+                            {% for p in players %}
+                            <option value="{{ p.id }}" {% if takers.get('corner_l') == p.id %}selected{% endif %}>{{ p.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>منفذ الركنيات اليمنى</label>
+                        <select name="corner_right_taker_id" id="cornerRightSelect" class="filter-input">
+                            <option value="">— تلقائي —</option>
+                            {% for p in players %}
+                            <option value="{{ p.id }}" {% if takers.get('corner_r') == p.id %}selected{% endif %}>{{ p.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>منفذ الرميات الطويلة</label>
+                        <select name="long_throw_taker_id" id="longThrowSelect" class="filter-input">
+                            <option value="">— تلقائي —</option>
+                            {% for p in players %}
+                            <option value="{{ p.id }}" {% if takers.get('long_throw') == p.id %}selected{% endif %}>{{ p.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button class="btn btn-primary" id="saveSetPiecesBtn" type="submit">حفظ المنفذين</button>
                 </form>
-                <div class="kv" style="margin-top:0.8rem;"><span class="k">منفذ الجزاء</span><span class="v">{{ player_team.penalty_taker_id or 'تلقائي' }}</span></div>
-                <div class="kv"><span class="k">منفذ الحرة</span><span class="v">{{ player_team.freekick_taker_id or 'تلقائي' }}</span></div>
+                <div class="kv" style="margin-top:0.8rem;"><span class="k">منفذ الجزاء</span><span class="v">{{ takers.get('pen') or 'تلقائي' }}</span></div>
+                <div class="kv"><span class="k">منفذ الحرة</span><span class="v">{{ takers.get('fk') or 'تلقائي' }}</span></div>
+                <div class="kv"><span class="k">منفذ الركنية اليسرى</span><span class="v">{{ takers.get('corner_l') or 'تلقائي' }}</span></div>
+                <div class="kv"><span class="k">منفذ الركنية اليمنى</span><span class="v">{{ takers.get('corner_r') or 'تلقائي' }}</span></div>
+                <div class="kv"><span class="k">منفذ الرمية الطويلة</span><span class="v">{{ takers.get('long_throw') or 'تلقائي' }}</span></div>
             </div>
         </div>
     </div>
 </section>
+
+<!-- Player Individual Instructions modal -->
+<div class="modal-overlay" id="playerInstructionsModal" role="dialog" aria-modal="true" aria-labelledby="piModalTitle">
+    <div class="modal-content" style="width:560px;">
+        <div class="modal-header">
+            <h2 id="piModalTitle">تعليمات فردية</h2>
+            <button type="button" class="modal-close" id="piModalClose" aria-label="إغلاق">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="pi-hint">اختر حتى 3 تعليمات فردية لهذا اللاعب. تُحفظ مع الخطة الكاملة.</p>
+            <div id="piOptionsContainer" class="pi-options"></div>
+        </div>
+        <div class="pi-modal-footer">
+            <button type="button" class="btn btn-primary" id="savePIBtn"><i class="fas fa-save"></i> حفظ التعليمات</button>
+        </div>
+    </div>
+</div>
 
 <input type="hidden" id="csrfToken" value="{{ csrf_token() }}">
 <input type="hidden" id="formationData" value='{{ formation_data|safe }}'>
@@ -281,48 +389,11 @@
 
 {% block scripts %}
 {{ super() }}
-<script src="{{ url_for('static', filename='free_formation.js') }}"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    let mentality = {{ tactics_data.mentality or 3 }};
-    const msg = document.getElementById('tacticsMsg');
-    const bal = document.getElementById('tacticsBalance');
-    const balLabel = document.getElementById('tacticsBalanceLabel');
-    function refreshBalance() {
-        const pct = mentality * 20;
-        if (bal) bal.style.width = pct + '%';
-        const labels = {1: 'دفاعي جداً', 2: 'دفاعي', 3: 'متوازن', 4: 'هجومي', 5: 'هجومي جداً'};
-        if (balLabel) balLabel.textContent = labels[mentality] || 'متوازن';
-    }
-    document.querySelectorAll('.mentality-btn').forEach(function(b) {
-        b.addEventListener('click', function() {
-            document.querySelectorAll('.mentality-btn').forEach(function(x) { x.classList.remove('active'); });
-            b.classList.add('active');
-            mentality = parseInt(b.dataset.m, 10) || 3;
-            refreshBalance();
-        });
-    });
-    refreshBalance();
-    const btn = document.getElementById('saveFullTactics');
-    if (btn) btn.addEventListener('click', function() {
-        const csrf = document.getElementById('csrfToken').value;
-        function val(id) { const el = document.getElementById(id); return el ? el.value : ''; }
-        fetch('/tactics/save', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf},
-            body: JSON.stringify({
-                mentality: mentality,
-                in_possession: {directness: val('tp_directness'), tempo: val('tp_tempo'), width: val('tp_width'), crossing: val('tp_crossing'), creativity: val('tp_creativity')},
-                transitions: {counter_press: val('tp_counter_press'), counter: val('tp_counter'), gk_distribution: val('tp_gk_dist')},
-                out_of_possession: {pressing: val('tp_pressing'), defensive_line: val('tp_dline'), line_of_engagement: val('tp_loe')},
-                set_pieces: {corners: val('tp_corners'), free_kicks: val('tp_freekicks'), throw_ins: val('tp_throwins')}
-            })
-        }).then(r => r.json()).then(function(d) {
-            if (msg) msg.textContent = d.success ? 'تم الحفظ! الألفة: ' + (d.familiarity || '') + '%' : (d.message || 'فشل الحفظ');
-        }).catch(function() { if (msg) msg.textContent = 'خطأ في الاتصال'; });
-    });
-});
+window.TACTICS_DATA = {{ tactics_data|tojson }};
 </script>
+<script src="{{ url_for('static', filename='free_formation.js') }}"></script>
+<script src="{{ url_for('static', filename='tactics_center.js') }}"></script>
 <style>
 /* ===== Tactics pitch (playground) ===== */
 .free-pitch { position: relative; display: flex; flex-direction: column; gap: 0.5rem; }
@@ -448,7 +519,7 @@ document.addEventListener('DOMContentLoaded', function() {
     backdrop-filter: blur(9px) saturate(1.25);
     box-shadow: 0 8px 20px rgba(0,0,0,0.5);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 2px; padding: 4px 3px 2px;
+    gap: 2px; padding: 11px 3px 2px;
     font-size: 0.6rem; color: #eef2f7; cursor: pointer; user-select: none; z-index: 5;
     transition: transform 0.1s ease, box-shadow 0.15s ease, border-color 0.15s;
 }
@@ -465,10 +536,48 @@ document.addEventListener('DOMContentLoaded', function() {
     background: rgba(255,255,255,0.14); color: #fff; border: 1px solid rgba(255,255,255,0.28); margin-top: 1px;
 }
 .pitch-box .pb-attr { font-size: 0.5rem; color: #b9c4d6; margin-top: 1px; }
+.pitch-box .pb-suit {
+    position: absolute; top: 2px; left: 2px;
+    font-size: 0.44rem; font-weight: 900; line-height: 1.2;
+    padding: 0 3px; border-radius: 5px; letter-spacing: 0.2px;
+}
+.pb-suit.suit-good { background: #2ecc71; color: #06331a; }
+.pb-suit.suit-mid { background: #f39c12; color: #2b1a00; }
+.pb-suit.suit-bad { background: #e74c3c; color: #fff; }
+.pitch-box .pb-traits {
+    display: flex; align-items: center; justify-content: center; gap: 1px;
+    line-height: 1; max-width: 100%; min-height: 7px;
+}
+.pitch-box .pb-trait { font-size: 0.44rem; }
+.pitch-box .pb-pi-btn {
+    position: absolute; top: 1px; right: 1px;
+    width: 14px; height: 14px; padding: 0; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.4);
+    background: rgba(15, 52, 96, 0.92); color: #fff;
+    font-size: 0.46rem; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+}
+.pitch-box .pb-pi-btn.has-pi { background: #2ecc71; border-color: #2ecc71; color: #06331a; }
 .pitch-box .role-select {
-    width: 100%; font-size: 0.5rem; padding: 0 1px; margin-top: 3px;
+    width: 100%; font-size: 0.5rem; padding: 0 1px; margin-top: 2px;
     border: 1px solid #444; background: #0f3460; color: #fff; border-radius: 3px;
 }
+.pitch-hint { color: #8a97ab; font-size: 0.78rem; margin: 0 0 0.6rem; }
+.pitch-hint strong { color: #f39c12; }
+
+/* Individual instructions modal */
+.pi-hint { color: #888; font-size: 0.82rem; margin-bottom: 0.8rem; }
+.pi-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.5rem; }
+.pi-option {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.5rem 0.65rem; border: 1px solid #2a2a4a; border-radius: 8px;
+    cursor: pointer; font-size: 0.82rem; color: #d5dbe6;
+}
+.pi-option:hover { border-color: #e94560; }
+.pi-option.checked { border-color: #e94560; background: rgba(233, 69, 96, 0.14); }
+.pi-option input { accent-color: #e94560; }
+.pi-option.disabled { opacity: 0.45; }
+.pi-modal-footer { padding: 0 1.5rem 1.3rem; display: flex; justify-content: flex-end; }
 
 /* Position accents */
 .pitch-box.GK { border-left: 3px solid #ff9800; }
